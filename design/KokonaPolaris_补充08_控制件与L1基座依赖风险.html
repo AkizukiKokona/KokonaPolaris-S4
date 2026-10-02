@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KokonaPolaris-S4 补充设计 08 · 控制件与 L1 基座依赖风险</title>
+<style>
+  :root{
+    --bg:#FAFAF9; --surface:#FFFFFF; --surface2:#F4F3F1;
+    --text:#1C1C1A; --text2:#5F5E5A; --text3:#888780;
+    --border:rgba(0,0,0,0.10); --border2:rgba(0,0,0,0.18);
+    --accent:#534AB7; --accent-l:#EEEDFE; --accent-d:#3C3489;
+    --blue:#185FA5; --blue-l:#E6F1FB;
+    --teal:#0F6E56; --teal-l:#E1F5EE;
+    --amber:#854F0B; --amber-l:#FAEEDA;
+    --red:#A32D2D; --red-l:#FCEBEB;
+    --green:#3B6D11; --green-l:#EAF3DE;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:56px 28px 100px}
+  header{border-bottom:1px solid var(--border);padding-bottom:28px;margin-bottom:40px}
+  .kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:500;margin-bottom:14px}
+  h1{font-size:31px;font-weight:600;letter-spacing:-.02em;line-height:1.25;margin-bottom:12px}
+  .sub{font-size:16px;color:var(--text2);max-width:740px}
+  .meta{margin-top:18px;font-size:13px;color:var(--text3);display:flex;gap:20px;flex-wrap:wrap}
+  h2{font-size:22px;font-weight:600;letter-spacing:-.01em;margin:64px 0 10px;padding-top:18px;border-top:1px solid var(--border)}
+  h2:first-of-type{border-top:none;padding-top:0;margin-top:40px}
+  h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:10px;font-weight:500}
+  h3{font-size:16.5px;font-weight:600;margin:30px 0 10px}
+  h4{font-size:15px;font-weight:600;margin:20px 0 8px}
+  p{margin:12px 0}
+  ul,ol{margin:12px 0 12px 22px}
+  li{margin:7px 0}
+  code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.88em;background:var(--surface2);padding:2px 6px;border-radius:4px;color:var(--accent-d)}
+  pre{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;overflow-x:auto;margin:20px 0}
+  pre code{background:none;padding:0;font-size:12.5px;line-height:1.7;color:var(--text2)}
+  .grid{display:grid;gap:12px;margin:22px 0}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+  .card .lbl{font-size:12px;color:var(--text3);margin-bottom:6px}
+  .card .val{font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .card .note{font-size:13.5px;color:var(--text2);margin-top:8px;line-height:1.7}
+  .callout{border-left:3px solid var(--accent);background:var(--accent-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .callout .t{font-weight:600;color:var(--accent-d);margin-bottom:6px;font-size:15px}
+  .callout p{color:var(--accent-d);font-size:14.5px;margin:6px 0}
+  .warn{border-left:3px solid var(--amber);background:var(--amber-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .warn .t{font-weight:600;color:var(--amber);margin-bottom:4px;font-size:14.5px}
+  .warn p{color:var(--amber);font-size:14px;margin:4px 0}
+  .bad{border-left:3px solid var(--red);background:var(--red-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .bad .t{font-weight:600;color:var(--red);margin-bottom:4px;font-size:14.5px}
+  .bad p{color:var(--red);font-size:14px;margin:4px 0}
+  .info{border-left:3px solid var(--blue);background:var(--blue-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .info .t{font-weight:600;color:var(--blue);margin-bottom:4px;font-size:14.5px}
+  .info p{color:var(--blue);font-size:14px;margin:4px 0}
+  .win{border-left:3px solid var(--teal);background:var(--teal-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .win .t{font-weight:600;color:var(--teal);margin-bottom:6px;font-size:15px}
+  .win p{color:var(--teal);font-size:14.5px;margin:6px 0}
+  .tw{overflow-x:auto;margin:20px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;padding:12px 16px;background:var(--surface2);font-weight:600;color:var(--text2);font-size:12.5px;border-bottom:1px solid var(--border);white-space:nowrap}
+  td{padding:11px 16px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.hl{background:var(--accent-l);font-weight:600;color:var(--accent-d)}
+  tr.bad td{background:var(--red-l)}
+  tr.good td{background:var(--teal-l)}
+  .pill{display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:20px;font-weight:500;white-space:nowrap}
+  .p-ok{background:var(--green-l);color:var(--green)}
+  .p-no{background:var(--red-l);color:var(--red)}
+  .p-mid{background:var(--amber-l);color:var(--amber)}
+  .p-info{background:var(--blue-l);color:var(--blue)}
+  .p-acc{background:var(--accent-l);color:var(--accent-d)}
+  footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--border);font-size:12.5px;color:var(--text3);line-height:1.9}
+  @media(max-width:640px){h1{font-size:24px}.wrap{padding:32px 18px 70px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">KokonaPolaris-S4 · Supplement 08 · v1.0</div>
+  <h1>控制件与 L1 基座依赖风险</h1>
+  <p class="sub">图生图 / ControlNet 有没有对应件 · 「L1 过度信赖基座」这条警告的核查结果</p>
+  <div class="meta"><span>2026-10-03</span><span>设计稿（未实现）</span><span>触发：用户警告</span><span style="color:var(--red);font-weight:500">含一处地基级缺口</span></div>
+</header>
+
+<div class="callout">
+  <div class="t">两个结论</div>
+  <p><strong>① 参考图理解「有，而且比 IP-Adapter 强」</strong>（CharaBridge 内建，还多解一层几何）；<strong>空间密集控制「有对应件，但属"能做但贵"」</strong>（条件包 / 编辑包，需独立分支 + 天级重训）——而用户「只为了生成角色才要它」的判断<strong>成立</strong>，因为常规生态里 ControlNet 的两个职责，在 KP 里已经<strong>被拆走</strong>了。</p>
+  <p><strong>② ⚠️「L1 过度依赖基座」成立，而且更准确的说法是「从未检验」</strong>——设计的<strong>选层判据里根本没有 L1</strong>，而 L1 承担约 <strong>90%</strong> 的需求。</p>
+</div>
+
+<h2><span class="num">01</span>参考图 / 空间控制：设计里到底有什么</h2>
+
+<h3>1.1 三条对应件（对照常规 SDXL 生态）</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>常规生态</th><th>它承担的职责</th><th>KP 的对应件</th><th>成熟度</th></tr></thead>
+<tbody>
+<tr><td><strong>IP-Adapter</strong><br>参考图 → 风格/身份特征</td><td>外观特征注入</td><td><strong>CharaBridge（内建）</strong>：K 张参考图（K=2–8）→ <strong>双分支解耦</strong>：外观分支 + <strong>几何分支</strong>（预测 normal + depth + ray-pose）</td><td><span class="pill p-mid">设计级</span></td></tr>
+<tr class="good"><td><strong>ControlNet</strong><br>depth / pose / seg → 结构锁定</td><td>空间密集控制</td><td><strong>条件包</strong>（Adapter，<strong>带分支</strong>）—— <strong>§4.7.9 能力包清单已列入</strong></td><td><span class="pill p-mid">设计级</span><br><small>且补充 02 明确标注：「主干<strong>没有对应输入位</strong>，要加 encoder」</small></td></tr>
+<tr><td><strong>img2img / inpaint / outpaint</strong></td><td>局部编辑</td><td><strong>编辑包</strong>（Adapter，带分支）</td><td><span class="pill p-mid">设计级</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>所以不是一个"有 / 没有"的问题，是"在哪一层"的问题：</strong></p>
+<ul>
+<li><strong>参考图理解</strong> → KP 是<strong>内建且升级</strong>的。IP-Adapter 只提取<strong>外观</strong>特征然后并联注入；CharaBridge 额外<strong>解出几何</strong>。对二次元尤其占便宜——平面着色下几何条件信噪比高，几乎不受材质干扰。</li>
+<li><strong>空间密集控制</strong> → <strong>有对应件但不在主干内</strong>，这是<strong>有意的</strong>：主干的条件输入位只有「文本 + latent + 身份 token」，depth/pose 这类新模态要挂一个带 encoder 的分支，<strong>被设计成可插拔的外挂，不是主干的一部分</strong>。</li>
+</ul>
+
+<h3>1.2 ⚠️ 一个必须先说清的隐患：40ch 混合 latent 会让 img2img 生态全部重写</h3>
+
+<div class="warn">
+  <div class="t">下游 img2img / inpaint / 放大节点全部假设固定通道数</div>
+  <p>我们的是 <strong>40ch 混合 latent</strong> → 现有生态工具<strong>全部不通用</strong>。这不是"能不能做"，是"做出来也没人能用"——<strong>这条路线早期没有任何生态杠杆可用</strong>。</p>
+</div>
+
+<h3>1.3 但你的直觉是对的：常规生态里 ControlNet 干的两件事，在 KP 里已经被拆走了</h3>
+
+<p>常规工作流里 <strong>ControlNet 表面上在做"控结构"，实际同时承担了两个完全不同的职责</strong>：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>常规里 ControlNet 实际在承担的职责</th><th>KP 里由谁承担</th></tr></thead>
+<tbody>
+<tr><td>① <strong>锁结构 / 锁姿态</strong>（保持构图，不让它跑掉）</td><td><strong>语义 8ch 通道（原生管结构）</strong>——§4.2 明确写「语义通道承担<em>这是什么、在哪、<strong>什么姿态</strong></em>」<br>+ <strong>Layout token</strong>（K=16 个可学习布局 token，4×4 粗网格 + 2D 位置编码）<br>+ 弱监督直接复用 3D 合成数据的 bbox / depth（<strong>零额外标注成本</strong>）</td></tr>
+<tr class="good"><td>② <strong>参考图定角色</strong>（我要的是"这个角色"）</td><td><strong>角色卡 / CharaBridge</strong>——给正反两图 → 前向 → <strong>秒级</strong>出卡</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="win">
+  <div class="t">于是得到一个很干净的判断</div>
+  <p><strong>· 只要你「这个角色」→ 不需要 ControlNet</strong>。走角色卡（秒级，不打架，跨版本可迁移）。</p>
+  <p><strong>· 要「像素级锁死这个姿势、只换画风」→ 还是需要条件包</strong>。而它是「<strong>能做但贵</strong>」（独立分支 + 天级重训），且早期没有生态可用（§1.2）。</p>
+</div>
+
+<h3>1.4 结论：这条不进第一步</h3>
+
+<p>三条理由，每条都是独立的：</p>
+<ol>
+<li><strong>不是刚需</strong>（用户自己的判断，且设计支持）；</li>
+<li><strong>成本档是"天级"</strong>（§4.8 成本档：新模态 = 独立分支 + 重训）；</li>
+<li><strong>有前置依赖</strong>：它要挂在<strong>能力总线的外挂加载框架</strong>上（P1.5），那套框架现在还不存在。</li>
+</ol>
+<p>→ <strong>建议：写进 P3 之后的可选清单，不占当前预算。</strong>现在记下来只是为了"不忘记它存在、以及为什么不做"。</p>
+
+<h2><span class="num">02</span>⚠️ 你的警告：L1 过度依赖基座</h2>
+
+<h3>2.1 最硬的证据：设计的「选层判据」里，L1 完全缺席</h3>
+
+<p>主文档 §4.8 的选层判据原文是：</p>
+<pre><code>第一问：底模见过这个分布吗？
+   没见过 → 支撑集外扩 → L2 ∥-Pack
+   见过   → 第二问
+第二问：它被人为抑制过吗？
+   是 → 恢复型 → 闭式算子 E⁻¹ / Δ-Pack（秒–小时）
+   否 → 长尾型 → Δ-Pack（小时）</code></pre>
+
+<div class="bad">
+  <div class="t">注意：两问只在 L2 与 L3 之间分流。L1 完全没有出现在判据里。</div>
+  <p>而 L1 承担的是 <strong>约 90%</strong> 的需求（L2 ≈ 9%、L3 ≈ 1%）。</p>
+  <p><strong>也就是说：占比 90% 的控制路径，从来没有经过任何判据的检查。</strong>它被预设成"免费已得的能力"。</p>
+</div>
+
+<div class="callout">
+  <div class="t">你的说法还可以再加重一层</div>
+  <p>这不只是"过度信赖"，而是「<strong>从未检验</strong>」。信赖至少隐含"我看过它表现"；而这里连看都没看过——<strong>判据根本没为它设过入口</strong>。</p>
+</div>
+
+<h3>2.2 四条风险机制</h3>
+
+<h4>风险 1 · 覆盖率假设 —— "90%" 是调用量分布，不是已验证能力</h4>
+<p>L1 之所以能号称覆盖 90%，隐含要求：<strong>主干的风格条件轴覆盖足够广</strong>。这是一个隐藏假设。而设计文档已经识别了一个同类假设——§4.8.5 的「通道分离退化」，并称它为"<strong>全案第二个隐藏关键假设</strong>"（第一个是 NVFP4 QAD）。</p>
+<div class="warn">
+  <div class="t">但漏掉了这一个 —— 它其实是第三个，而且更外层</div>
+  <p>通道分离退化会让 L1 <strong>失真</strong>；覆盖率不足会让 L1 <strong>直接不存在</strong>。</p>
+</div>
+
+<h4>风险 2 · 隐式接口不可独立验证，且不可修</h4>
+
+<div class="tw">
+<table>
+<thead><tr><th></th><th>L3（Δ-Pack）</th><th>L1（主干条件轴）</th></tr></thead>
+<tbody>
+<tr><td><strong>本质</strong></td><td><strong>写入</strong>（直接改权重 / 子空间系数）</td><td><strong>请求</strong>（希望基座理解这个轴）</td></tr>
+<tr><td><strong>可审计性</strong></td><td><span class="pill p-ok">可做谱检查</span> §4.9 条目 17 硬约束：<em>发现正交入侵维度即判定包不合格</em></td><td><span class="pill p-no">无法独立检查</span> 只能靠出图间接看</td></tr>
+<tr><td><strong>出错后能否修</strong></td><td><span class="pill p-ok">能</span> 重训这个包（小时级），或直接不用它</td><td><span class="pill p-no">修不了</span> 轴在基座内部，<strong>只能重训主干</strong></td></tr>
+<tr class="bad"><td><strong>控制权归属</strong></td><td><strong>我们</strong></td><td><strong>基座</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>→ <strong>这一列对比就是"过度依赖基座"的精确含义：控制权从我们手上转移到了基座手上，而且转移得无声无息。</strong></p>
+
+<h4>风险 3 · ⚠️ 与 E5 实测直接咬合 —— 低比特下 L1 可能被"抹平"</h4>
+
+<p>这是本文件<strong>唯一有实测数据支撑的风险</strong>，而且它把两轮工作连起来了。<strong>E5 已实测</strong>（真实 Sana 1.6B，15 例平均）：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>配置</th><th>noise_pred 相对误差</th><th>峰值位置</th></tr></thead>
+<tbody>
+<tr><td>W4A16</td><td>7.74%</td><td>—</td></tr>
+<tr><td><strong>W4A8（设计档）</strong></td><td><strong>9.98%</strong></td><td>—</td></tr>
+<tr class="bad"><td><strong>W4A4</strong></td><td><strong>29.72%</strong></td><td><strong>t≈500 时冲到 35.4%（倒 U 形）</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>而且端到端出图证实：W4A4 的误差<strong>表现为轨迹漂移</strong>（固定种子下给出"另一个同样合理的样本"，构图变了但画质正常）。</p>
+
+<div class="bad">
+  <div class="t">把两件事放在一起看</div>
+  <p><strong>L1 用的恰恰是一个低维、连续的控制信号。而量化噪声最可能摧毁的，正是这种信号。</strong></p>
+</div>
+
+<p>两个具体机制：</p>
+<ul>
+<li><strong>(a) 噪声被误读为控制信号</strong>：控制向量和采样噪声住在<strong>同一个隐空间</strong>里。当量化把噪声预测打偏 30%，主干接收到的"应该往哪走"的信号里，混进了与风格轴同量级、但<strong>方向随机</strong>的成分。</li>
+<li><strong>(b) 分辨率压缩（更隐蔽，也更致命）</strong>：FP4 的激活只有 <strong>16 个量化级</strong>（E2M1）。如果风格信息是通过激活的<strong>精细结构</strong>传递的（这是 L1 的"连续可调"所要求的），那么只有 16 级的量化会<strong>系统性地压缩这个轴的分辨率</strong>。<br>→ 外在表现不是"画错了"，而是：<strong>旋钮行程变短、转到一半就饱和、中间一大段值给出同样的输出</strong>。<strong>功能还在，但"连续可调"这个 L1 的核心卖点消失了。</strong></li>
+</ul>
+<p><strong>这个风险是可实测的，而且现有验证门 G0–G7 全部没有覆盖它。</strong></p>
+
+<h4>风险 4 · 条件轴互相耦合</h4>
+<p>§4.8.5 处理的解耦是<strong>通道间</strong>的（语义 8ch ↔ 细节 32ch）。但 L1 还要求<strong>轴与轴之间</strong>正交：转"厚涂"旋钮不应连带改变构图密度、光照方向、色彩饱和。</p>
+<div class="info">
+  <div class="t">而这里有一个天然的验证手段被漏掉了</div>
+  <p>§4.8.4 的 <strong>shader 配对数据</strong>：同一 3D 场景、不同 shader，<strong>几何/光照/相机/姿态完全一致，只有渲染风格不同</strong> → 条件向量的差异<strong>理论上只应落在风格维度上，其余维度必须是零</strong>。这是一个<strong>免费的正交性监督信号</strong>，此前只被当作"数据来源"。</p>
+</div>
+
+<h3>2.3 加固方案（五条：不推翻 L1，但给它上保险）</h3>
+
+<h4>① 措辞纠正：90 / 9 / 1 是调用量分布，不是能力分层</h4>
+<div class="win">
+  <div class="t">L1 覆盖 90% 的调用量，但 L3 承担 100% 的兜底责任</div>
+  <p>L1 是<strong>默认档</strong>（快路），L3 是<strong>一等公民</strong>（保底）——<strong>两者的地位不按使用频率排</strong>。现在的表述（"覆盖约 90%" / "底模确实没见过的东西 → 约 1%"）会诱导一种危险读法："L1 够用了，L3 很少要用"。</p>
+</div>
+
+<h4>② 新增 Axis Probe（条件轴探针）+ 验证门 G3.5</h4>
+<p>这是把 L1 从"信仰"变成"可验证"的核心动作。四测：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>测项</th><th>判据</th><th>不达标后果</th></tr></thead>
+<tbody>
+<tr><td><strong>单调性</strong></td><td>轴值单调递增 → 输出沿该维度单调变化</td><td>轴不成立 → 该风格改用 L3</td></tr>
+<tr><td><strong>正交性</strong></td><td>转该轴时，构图（bbox 布局差）、光照（亮度/色温）、色相漂移 &lt; 阈值</td><td>轴耦合 → 拆分或改用 L3</td></tr>
+<tr><td><strong>可逆性</strong></td><td><code>+a</code> 再 <code>−a</code> 回到原图（容差内）</td><td>不可逆 → 不可用</td></tr>
+<tr class="bad"><td><strong>⚠️ 低比特可用行程</strong></td><td>FP4 下<strong>可分辨的轴步数</strong> ÷ bf16 下的步数 &gt; 阈值（如 ≥ 70%）</td><td><strong>L1 退化 → 必须改用 Style-Pack（方案 ③）</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<h4>③ Style-Pack：把风格也做成"显式对象"（最优雅的一条）</h4>
+
+<p>设计里<strong>已经有</strong>这个机制了——Character Carrier（补充 04 §3.3）：参考图 → Fitter 前向 → 得到一个<strong>数据对象</strong>（1–5MB）。</p>
+
+<pre><code>给 N 张同风格参考图  →  Style Fitter 前向一次  →  Style-Pack（数据对象）</code></pre>
+
+<div class="tw">
+<table>
+<thead><tr><th>收益</th><th>说明</th></tr></thead>
+<tbody>
+<tr class="good"><td><strong>不依赖基座理解</strong></td><td>风格不再要求"基座见过这个轴"——它被<strong>显式编码在对象里</strong>（绕过风险 1）</td></tr>
+<tr class="good"><td><strong>可检查</strong></td><td>对象是数据，可比对、可求相似度、可看它变了多少（绕过风险 2）</td></tr>
+<tr><td><strong>可迁移 / 可分享</strong></td><td>与角色卡同理：不依赖坐标系，跨我们自己的主干版本可迁移</td></tr>
+<tr><td><strong>零新增架构</strong></td><td>复用 Fitter + 载体格式，没有新机制</td></tr>
+<tr class="good"><td><strong>格式统一</strong></td><td>补充 04 条目 22 已提出「TypographyPack 与角色卡共用分层表示」→ <strong>加 Style 是自然的第三项</strong>。三类载体共用一套格式，<code>load_adapter()</code> 一个入口</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="win">
+  <div class="t">这就是这条警告的正面解法</div>
+  <p>不是把 L1 做强，而是<strong>给"风格"也备一条显式路径</strong>，让 L1 只需承担它真正验证过的部分。</p>
+</div>
+
+<h4>④ 设计律（新增）：控制权原则</h4>
+
+<div class="callout">
+  <div class="t">能显式写入的，就不要隐式请求。</div>
+  <p>L1 是「<strong>我们向基座请求</strong>」（可被拒绝、可被误解、无法审计）；L3 / Pack / 载体是「<strong>我们直接写入</strong>」（可检查、可回滚、可迁移）。</p>
+  <p>在 <strong>① 低比特（FP4）+ ② 自研架构（我们控制主干）+ ③ 摆脱基座束缚（项目初衷）</strong> 这三条同时成立的项目里——<strong>写入优先于请求</strong>。</p>
+  <p>→ <strong>L1 只用于「轴独立性经探针验证过、且低比特行程达标」的那些维度。</strong>未经 G3.5 验证的维度，<strong>默认归属 L3</strong>。</p>
+</div>
+
+<div class="info">
+  <div class="t">与补充 03 §2.2 那条设计律互为对偶</div>
+  <p>补充 03 说"<strong>能力越大、越域外，就越不能住在 ΔW 里</strong>"（大能力不能塞小容器）；本条说"<strong>关键的控制权不能交给不受控的对方</strong>"（可靠控制不能依赖隐式请求）。两条合起来，构成控制手段的完整分工边界。</p>
+</div>
+
+<h4>⑤（附带）L1 的显式化改造：让它真的可以被信赖</h4>
+
+<p>这是唯一能让 L1 <strong>本身</strong>变可信的办法（而非绕过它）。</p>
+<p>不要让 L1 是一个<strong>裸数值</strong>，而是给它一个<strong>已命名、逐维标定</strong>的低维条件向量（例如 16 维，每一维对应一个已命名的风格轴：写实度 / 描边强度 / 平涂度 / 冷暖 / 对比度 / 笔触粗度…）。</p>
+<p>训练时用 <strong>shader 配对数据强制逐维独立</strong> —— 因为 shader 本身是<strong>正交的</strong>（同一场景不同 shader，几何 / 光照 / 相机 / 姿态完全一致），所以条件向量的差异<strong>理论上只应落在 shader 维度上，其余维度必须是零</strong>。</p>
+
+<div class="win">
+  <div class="t">这样 L1 就从「黑盒旋钮」变成「已标定控制面板」</div>
+  <p>用户看到的不是一个 0–1 的神秘数字，而是"描边强度 0.3、平涂度 0.7"这种可预期、可复现、可文档化的东西。</p>
+  <p><strong>而且它已经躺在设计里</strong>（§4.8.4 的 shader 配对），只是没有被赋予"<strong>正交监督</strong>"这个用途。</p>
+</div>
+
+<h2><span class="num">03</span>对架构条目的修订</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>#</th><th>条目</th><th>性质</th></tr></thead>
+<tbody>
+<tr><td>23</td><td><strong>L1 措辞纠正</strong>：90/9/1 是<strong>调用量分布</strong>、非能力分层；<strong>L1 覆盖 90% 调用量，L3 承担 100% 兜底责任</strong></td><td><span class="pill p-acc">修订</span></td></tr>
+<tr class="bad"><td>24</td><td><strong>L1 的基座依赖升格为「全案第三个隐藏关键假设」</strong>（前两条：NVFP4 QAD、通道分离退化）；且比第二条更外层——第二条让 L1 <strong>失真</strong>，本条让 L1 <strong>不存在</strong></td><td><span class="pill p-no">新增</span></td></tr>
+<tr><td>25</td><td><strong>新增 Axis Probe + 验证门 G3.5</strong>（单调/正交/可逆/<strong>低比特行程</strong>四测）；未通过验证的轴<strong>默认归属 L3</strong></td><td><span class="pill p-no">新增</span></td></tr>
+<tr><td>26</td><td><strong>新增 Style-Pack</strong>：风格走<strong>载体路线</strong>，与角色卡 / TypographyPack <strong>共用同一套分层格式</strong></td><td><span class="pill p-no">新增</span></td></tr>
+<tr><td>27</td><td><strong>设计律「控制权原则」</strong>：<strong>能显式写入的，就不要隐式请求</strong></td><td><span class="pill p-no">新增（设计律）</span></td></tr>
+<tr><td>28</td><td><strong>L1 显式化</strong>：条件向量必须<strong>已命名 + 逐维标定</strong>；用 <strong>shader 配对做正交监督</strong></td><td><span class="pill p-acc">修订</span></td></tr>
+<tr class="good"><td>29</td><td><strong>条件包 / 编辑包定位确认</strong>：<strong>ControlNet 的等价物是「条件包」</strong>，属"能做但贵"，<strong>不进第一步</strong>；ControlNet 原有的两个职责已被「语义通道 + Layout token」与「角色卡」拆走</td><td><span class="pill p-ok">确认</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2><span class="num">04</span>风险表（本文件新增 / 修订）</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>风险</th><th>严重度</th><th>说明与缓解</th></tr></thead>
+<tbody>
+<tr class="bad"><td><strong>L1 从未被任何判据检查</strong>（覆盖率假设）</td><td><span class="pill p-no">高</span></td><td>90% 的控制路径是未验证前置。<strong>缓解：G3.5 门 + 未验证维度默认归 L3</strong></td></tr>
+<tr class="bad"><td><strong>L1 在 FP4 下行程压缩</strong>（低比特抹平连续轴）</td><td><span class="pill p-no">高</span></td><td>与 E5 实测咬合，<strong>G0–G7 全未覆盖</strong>。<strong>缓解：G3.5 第四测 + Style-Pack 退路</strong></td></tr>
+<tr><td><strong>L1 出错不可修</strong></td><td><span class="pill p-mid">中高</span></td><td>轴在基座内部，只能重训主干。<strong>缓解：控制权原则</strong></td></tr>
+<tr><td><strong>条件轴耦合</strong></td><td><span class="pill p-mid">中</span></td><td>转一个轴联动改变别的。<strong>缓解：shader 配对做正交监督</strong></td></tr>
+<tr><td><strong>40ch latent 使 img2img 生态全部重写</strong></td><td><span class="pill p-mid">中</span></td><td>早期无任何第三方工具可用。<strong>缓解：接受它；条件包/编辑包推迟到 P3 之后</strong></td></tr>
+<tr><td><strong>条件包/编辑包无生态杠杆</strong></td><td><span class="pill p-ok">低</span></td><td>即使做出来也没人能用。<strong>缓解：等主干跑出效果后由生态自行适配</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2><span class="num">05</span>一句话总结</h2>
+
+<div class="callout">
+  <p><strong>① 参考图理解有（CharaBridge，且比 IP-Adapter 强）；空间密集控制有对应件（条件包），但它是"能做但贵"、且进不了第一步——而"只为了角色才需要它"这个判断在设计上成立。</strong></p>
+  <p><strong>② 「L1 过度依赖基座」这条警告成立，而且更准确的说法是「从未检验」：设计的选层判据里根本没有 L1 的入口，而它承担 90% 的需求。</strong></p>
+  <p><strong>加固的方式不是把 L1 做强，而是 ① 把 90/9/1 读回"调用量分布"、② 加 G3.5 探针把 L1 从信仰变成可验证、③ 给风格也备一条显式路径（Style-Pack）、④ 立一条设计律：能显式写入的，就不要隐式请求。</strong></p>
+</div>
+
+<footer>
+  KokonaPolaris-S4 · 补充设计 08 · v1.0 · 2026-10-03<br>
+  本文档为设计稿，未实现。§2.2 风险 3 引用 E5 实测数据（<code>D:/model/out/e5/e5_e2e.json</code>、<code>tools/e5_forward_probe.py</code>），其余为设计推演。<br>
+  md 版：<code>KokonaPolaris_补充08_控制件与L1基座依赖风险.md</code>
+</footer>
+
+</div>
+</body>
+</html>

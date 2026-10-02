@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KokonaPolaris 补充设计 02 · 能力总线与文字渲染</title>
+<style>
+  :root{
+    --bg:#FAFAF9; --surface:#FFFFFF; --surface2:#F4F3F1;
+    --text:#1C1C1A; --text2:#5F5E5A; --text3:#888780;
+    --border:rgba(0,0,0,0.10); --border2:rgba(0,0,0,0.18);
+    --accent:#534AB7; --accent-l:#EEEDFE; --accent-d:#3C3489;
+    --blue:#185FA5; --blue-l:#E6F1FB;
+    --teal:#0F6E56; --teal-l:#E1F5EE;
+    --amber:#854F0B; --amber-l:#FAEEDA;
+    --red:#A32D2D; --red-l:#FCEBEB;
+    --green:#3B6D11; --green-l:#EAF3DE;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:56px 28px 100px}
+  header{border-bottom:1px solid var(--border);padding-bottom:28px;margin-bottom:40px}
+  .kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:500;margin-bottom:14px}
+  h1{font-size:32px;font-weight:600;letter-spacing:-.02em;line-height:1.25;margin-bottom:12px}
+  .sub{font-size:16px;color:var(--text2);max-width:740px}
+  .meta{margin-top:18px;font-size:13px;color:var(--text3);display:flex;gap:20px;flex-wrap:wrap}
+  h2{font-size:22px;font-weight:600;letter-spacing:-.01em;margin:64px 0 10px;padding-top:18px;border-top:1px solid var(--border)}
+  h2:first-of-type{border-top:none;padding-top:0;margin-top:40px}
+  h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:10px;font-weight:500}
+  h3{font-size:16.5px;font-weight:600;margin:30px 0 10px}
+  h4{font-size:15px;font-weight:600;margin:20px 0 8px}
+  p{margin:12px 0}
+  p.lead{color:var(--text2)}
+  ul,ol{margin:12px 0 12px 22px}
+  li{margin:7px 0}
+  code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.88em;background:var(--surface2);padding:2px 6px;border-radius:4px;color:var(--accent-d)}
+  pre{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;overflow-x:auto;margin:20px 0}
+  pre code{background:none;padding:0;font-size:12.5px;line-height:1.7;color:var(--text2)}
+  .grid{display:grid;gap:12px;margin:22px 0}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+  .card .lbl{font-size:12px;color:var(--text3);margin-bottom:6px}
+  .card .val{font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .card .note{font-size:13.5px;color:var(--text2);margin-top:8px;line-height:1.7}
+  .callout{border-left:3px solid var(--accent);background:var(--accent-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .callout .t{font-weight:600;color:var(--accent-d);margin-bottom:6px;font-size:15px}
+  .callout p{color:var(--accent-d);font-size:14.5px;margin:6px 0}
+  .warn{border-left:3px solid var(--amber);background:var(--amber-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .warn .t{font-weight:600;color:var(--amber);margin-bottom:4px;font-size:14.5px}
+  .warn p{color:var(--amber);font-size:14px;margin:4px 0}
+  .bad{border-left:3px solid var(--red);background:var(--red-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .bad .t{font-weight:600;color:var(--red);margin-bottom:4px;font-size:14.5px}
+  .bad p{color:var(--red);font-size:14px;margin:4px 0}
+  .info{border-left:3px solid var(--blue);background:var(--blue-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .info .t{font-weight:600;color:var(--blue);margin-bottom:4px;font-size:14.5px}
+  .info p{color:var(--blue);font-size:14px;margin:4px 0}
+  .win{border-left:3px solid var(--teal);background:var(--teal-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .win .t{font-weight:600;color:var(--teal);margin-bottom:6px;font-size:15px}
+  .win p{color:var(--teal);font-size:14.5px;margin:6px 0}
+  .tw{overflow-x:auto;margin:20px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;padding:12px 16px;background:var(--surface2);font-weight:600;color:var(--text2);font-size:12.5px;border-bottom:1px solid var(--border);white-space:nowrap}
+  td{padding:11px 16px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.hl{background:var(--accent-l);font-weight:600;color:var(--accent-d)}
+  tr.bad td{background:var(--red-l)}
+  tr.good td{background:var(--teal-l)}
+  .pill{display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:20px;font-weight:500;white-space:nowrap}
+  .p-ok{background:var(--green-l);color:var(--green)}
+  .p-no{background:var(--red-l);color:var(--red)}
+  .p-mid{background:var(--amber-l);color:var(--amber)}
+  .p-info{background:var(--blue-l);color:var(--blue)}
+  .p-acc{background:var(--accent-l);color:var(--accent-d)}
+  .fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 20px;margin:26px 0;overflow-x:auto}
+  .fig svg{display:block;margin:0 auto;min-width:600px}
+  .figcap{font-size:12.5px;color:var(--text3);text-align:center;margin-top:14px}
+  .kw{background:var(--accent-l);color:var(--accent-d);padding:1px 6px;border-radius:4px;font-weight:500}
+  blockquote{border-left:3px solid var(--border2);padding:4px 0 4px 18px;margin:18px 0;color:var(--text2);font-size:14.5px}
+  footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--border);font-size:12.5px;color:var(--text3);line-height:1.9}
+  @media(max-width:640px){h1{font-size:25px}.wrap{padding:32px 18px 70px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">KokonaPolaris · Supplement 02</div>
+  <h1>能力总线与文字渲染</h1>
+  <p class="sub">可插拔能力接口 —— 「小模型 + 专家模型」到底怎么成立 · 文字渲染与版式规划</p>
+  <div class="meta"><span>2026-10-02</span><span>配套主文档 v1.1</span><span>本轮产出 v1.2 修订</span></div>
+</header>
+
+<h2><span class="num">00</span>三件事其实是同一件事</h2>
+
+<p>你这轮问了三件事，串起来看是一条线：</p>
+<ol>
+<li><strong>能不能留一个可插拔的接口</strong>，以后挂新东西不用重训？</li>
+<li><strong>「专家模型」和「小模型」怎么连</strong>——听起来矛盾，到底什么意思？</li>
+<li><strong>能不能让它自己写文字、自己排文本框？</strong></li>
+</ol>
+
+<div class="callout">
+  <div class="t">三者共享同一个结构：冻结的小主干 + 一组按需挂载的能力包</div>
+  <p>第 3 件事看起来是另一件事，其实它是<strong>第一个被设计的能力包</strong>——而且它恰好能测出这个接口的极限在哪。所以这份文档的主线是：先讲接口，再用「文字」当第一个真实案例把它撑满。</p>
+</div>
+
+<h2><span class="num">01</span>「小模型」和「专家模型」怎么连</h2>
+
+<h3>它们不是二选一，是叠起来的两层</h3>
+
+<p>这是你卡住的地方，一句话就能解开：</p>
+
+<div class="callout">
+  <div class="t">小模型是底座，专家是挂件。不是两个模型去挑一个，是同一次推理里两个东西同时在干活。</div>
+</div>
+
+<p>最贴切的比喻是<strong>手机和 App</strong>：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th></th><th>手机（小模型 / 主干）</th><th>App（专家 / 能力包）</th></tr></thead>
+<tbody>
+<tr><td>什么时候在</td><td>每次开机都在</td><td>你点开才加载</td></tr>
+<tr><td>占多少资源</td><td>全部（0.6–1.5B）</td><td>一点（约 13M 参数一个包）</td></tr>
+<tr><td>怎么变强</td><td>换手机（重训，巨贵）</td><td>装 App（训一个小包，很便宜）</td></tr>
+<tr><td>谁改谁</td><td>不动</td><td>挂在它身上</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>「不用重新训练」指的就是：<strong>手机不出厂，装个 App 就行。</strong></p>
+
+<h3>但要先澄清：「专家模型」这个词有两个意思</h3>
+
+<p>你的困惑有一半来自这个歧义。</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>说法</th><th>正式名</th><th>是什么</th><th>你需要吗</th></tr></thead>
+<tbody>
+<tr class="good"><td><strong>LoRA 专家 / 能力包</strong></td><td>Mixture of LoRA Experts、Adapter Bank</td><td>挂在<strong>冻结主干</strong>上的低秩小模块，输入相关的门控决定开哪个</td><td><span class="pill p-ok">这就是你要的</span></td></tr>
+<tr class="bad"><td><strong>稀疏专家 / MoE</strong></td><td>Mixture-of-Experts（Switch Transformer 那一类）</td><td>主干<strong>内部</strong>把 FFN 拆成 N 个专家，每个 token 只走 1–2 个</td><td><span class="pill p-no">不是这个</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="bad">
+  <div class="t">为什么 MoE 不适合你（这点反直觉，必须说清楚）</div>
+  <p>MoE 省的是<strong>算力</strong>（FLOPs），不是<strong>显存</strong>。全部专家的权重都得驻留显存，只是每次只激活一部分去算。</p>
+  <p>对 8GB 卡来说，MoE 是<strong>负担更重</strong>的那一类。而且它必须随预训练一起设计，天然违背「以后挂上去」的诉求。</p>
+</div>
+
+<p>所以你听到的那个「不用重新训练、像专家模型一样的做法」，指的是<strong>第一行</strong>：LoRA 专家池 + 路由器。这在 LLM 上已经成熟，2025 年也大量搬到扩散模型上（T2I 生态里的 LoRA 专家、风格/主体自适应融合都是热点）。</p>
+
+<h3>① 关键判据：什么能装成包，什么必须进预训练</h3>
+
+<p>这是整份文档最值钱的一段。<strong>「可插拔」不是万能的</strong>，能力有一条明确的分界线：</p>
+
+<div class="callout">
+  <div class="t">低秩扰动 ΔW = AB 只能做 rank-r 子空间内的改动</div>
+  <p>· 目标输出和底模已有输出<strong>在同一支撑集内</strong>（只是概率质量重新分配）→ ΔW 有解，<strong>能装包</strong>。</p>
+  <p>· 目标输出在<strong>支撑集之外</strong>（底模几乎不可能产生这种东西）→ ΔW 无解，<strong>必须进预训练</strong>。</p>
+</div>
+
+<blockquote>低秩适配能改「<strong>怎么画</strong>」，不能改「<strong>看得见什么</strong>」。</blockquote>
+
+<div class="tw">
+<table>
+<thead><tr><th>能力</th><th>类型</th><th>能否做包</th><th>原因</th></tr></thead>
+<tbody>
+<tr class="good"><td>画风（厚涂 / 赛璐璐 / 水彩 / 特定画师风）</td><td>分布重分配</td><td><span class="pill p-ok">完美适配</span></td><td>底模会画这些，只是概率不均</td></tr>
+<tr class="good"><td>角色 / 主体身份</td><td>分布重分配</td><td><span class="pill p-ok">完美适配</span></td><td>只锁一个方向，正交约束下代价低</td></tr>
+<tr><td>领域倾向（建筑 / 商品 / 医学插画 / 机甲）</td><td>分布重分配</td><td><span class="pill p-ok">能做，rank 要大</span></td><td>底模已有这些概念，欠采样而已</td></tr>
+<tr><td>构图 / 镜头语言偏好</td><td>分布重分配</td><td><span class="pill p-ok">能做</span></td><td>同上</td></tr>
+<tr class="bad"><td><strong>文字渲染</strong></td><td><strong>支撑集外扩</strong></td><td><span class="pill p-no">做不成纯 LoRA</span></td><td><strong>字在主干 latent 里根本不存在（见 §03），不是容量问题，是信息不存在</strong></td></tr>
+<tr class="bad"><td>手部解剖精度</td><td>支撑集外扩</td><td><span class="pill p-no">勉强，性价比低</span></td><td>需要主干表征本身变细</td></tr>
+<tr class="bad"><td>空间关系推理</td><td>支撑集外扩</td><td><span class="pill p-no">同上</span></td><td>这是表征层的能力，不是风格层</td></tr>
+<tr><td>新条件模态（depth / normal / pose）</td><td>新输入通道</td><td><span class="pill p-mid">需新增分支</span></td><td>主干没有对应输入位，要加 encoder</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>这张表直接决定了架构该怎么切：<strong>画风 / 角色走包，文字走分支，空间推理走主干设计</strong>（这正是补充 01 里 Sigmoid 注意力 + layout token 要解决的）。</p>
+
+<h2><span class="num">02</span>能力总线（Capability Bus）</h2>
+
+<h3>四个作用维度</h3>
+
+<p>普通 LoRA 生态的问题是「所有包都往同一块地盘挤」——这就是<strong>跟底模打架</strong>的物理原因。解法是<strong>先把地盘分成四个正交的轴，每个包只被允许在指定的轴上动手</strong>：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>维度</th><th>控制什么</th><th>机制</th><th>典型用途</th></tr></thead>
+<tbody>
+<tr><td><strong>Layer-scope</strong></td><td>作用在哪些层</td><td>每层独立门控向量</td><td>风格偏浅层、结构偏深层</td></tr>
+<tr class="good"><td><strong>Channel-scope</strong></td><td>作用在哪个通道组</td><td>语义通道(8ch) / 细节通道(32ch)</td><td><strong>风格只写细节，身份只读语义</strong></td></tr>
+<tr><td><strong>Time-scope</strong></td><td>作用在哪些 timestep</td><td>时间相关门控</td><td>早期定构图、后期定质感</td></tr>
+<tr><td><strong>Space-scope</strong></td><td>作用在哪些像素区域</td><td>ROI 掩码</td><td>文字、局部贴图、分区控制</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Channel-scope 那一行继承主文档 CharaBridge 的设计，现在把它<strong>从角色专用升级为全局机制</strong>——这是「不打架」最省力的结构性前提：两股力量在物理上不抢同一块张量，就天然不会互相污染。</p>
+
+<h3>Pack 的物理形态与体积</h3>
+
+<p>一个能力包 = <code>{低秩权重 ΔW, 门控向量 g, 元数据}</code>。按 1.5B 档主干（24 层、d_model=1536、MLP 4×）实算：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>覆盖范围</th><th>参数量</th><th>BF16 体积</th></tr></thead>
+<tbody>
+<tr><td>仅 attention（q/k/v/o）</td><td>约 4.7M</td><td><strong>约 9 MB</strong></td></tr>
+<tr class="good"><td>全层（attention + MLP），rank=16</td><td>约 13.6M</td><td><strong>约 27 MB</strong></td></tr>
+<tr><td>全层，rank=32</td><td>约 27M</td><td>约 55 MB</td></tr>
+<tr><td>全层，rank=64（领域包级）</td><td>约 54M</td><td>约 110 MB</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="win">
+  <div class="t">这就是「笔记本里的 100 个 App」</div>
+  <p>100 个 rank-32 包 = 5.5GB 磁盘，但显存上只需按需挂 3–4 个（约 200MB）。</p>
+  <p>这是「更大的未来选择」在工程上真正成立的原因 —— <strong>选择变多，显存不变。</strong></p>
+</div>
+
+<h3>门控与 bit-exact 保证</h3>
+
+<p>每个包的门控标量<strong>初始化为 0</strong>，且门控的加法在<strong>量化器之后</strong>进行。</p>
+
+<div class="callout">
+  <div class="t">全部门控 = 0 时，模型输出与原底模逐位一致（bit-exact）。</div>
+  <p>这不是修辞，是可测的验收项。它的意义是：<strong>接口本身零风险</strong>——你挂 100 个能力包的代码，但只要不打开，画的图和裸模型一模一样。</p>
+  <p>所有实验都建立在这个不变量上。</p>
+</div>
+
+<h3>冲突仲裁：从「调权重」升级到「正交化」</h3>
+
+<p>补充 01 里我提过「冲突的本质是两股力量抢同一块地盘，降学习率只是被动缓解」。现在给出主动解法的谱系：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>方法</th><th>机制</th><th>代价</th></tr></thead>
+<tbody>
+<tr><td>降权重 / 降 lr</td><td>被动削弱冲突</td><td>治标，且削弱效果</td></tr>
+<tr><td>LoRA Dropout + 早停</td><td>抑制过拟合</td><td>同上</td></tr>
+<tr><td>门控归一化</td><td>softmax 分配，总量守恒</td><td>仍有耦合</td></tr>
+<tr class="good"><td><strong>正交化投影</strong>（NP-LoRA 式）</td><td>用 SVD 找出 A 包的主方向，把 B 包的更新<strong>投影到其零空间</strong>再加</td><td>推理时有投影开销，但最有效</td></tr>
+<tr><td><strong>时间分段</strong>（TSM 式）</td><td>不同 timestep 用不同包，非对称混合</td><td>需为时间维额外训练</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="warn">
+  <div class="t">一条硬证据：LoRA 专家「朴素平均 / 均衡共享」会掉点</div>
+  <p>2025 年多项消融得到一致结论。所以<strong>不要用简单的 Σ αₖ·ΔWₖ</strong>，必须走门控或正交化。</p>
+</div>
+
+<h3>必须绕开量化器（这条是坑）</h3>
+
+<div class="bad">
+  <div class="t">社区已证实：FLUX 的 4-bit 路径上 LoRA 会静默失效</div>
+  <p>diffusers #9291 / #10989，直到 v0.32.2 才修 —— <strong>不出错、不报错、风格完全没变</strong>。</p>
+  <p>机理很直白：如果注入点在量化之后、且量化器又把增量吃掉，那 ΔW 的扰动等于没发生。</p>
+</div>
+
+<div class="callout">
+  <div class="t">架构层强制规定</div>
+  <p>能力包的注入点必须位于 NVFP4 反量化之后、BF16 域内；且入包前对注入点做<strong>回归测试</strong>（改权重 → 输出必须变化）。</p>
+</div>
+
+<h2><span class="num">03</span>文字渲染</h2>
+
+<h3>SDXL 为什么根本不会写字</h3>
+
+<p>不是没训好，是四个原因叠起来：</p>
+<ol>
+<li><strong>文本侧</strong>：CLIP 的目标是整句图文匹配，<strong>字符级结构不进入表征</strong>——它知道「这张图里有招牌」，但不知道招牌上是什么字。</li>
+<li><strong>数据侧</strong>：图文对的 caption 里极少写「图中有字 XXX」，甚至把文字当地物噪声标注。</li>
+<li><strong>监督侧</strong>：没有字符级信号，模型只学到「这里有文字的质感」，不学「具体是什么字」。</li>
+<li><strong>空间侧</strong>：8× latent + 512/1024 分辨率下，一个汉字在 latent 里只有几格，字形笔画分不开。</li>
+</ol>
+
+<p>结果就是你熟悉的那个现象：<strong>画出「看起来像字但不是字」的伪文字</strong>。</p>
+
+<p>社区里有一句总结得极准：</p>
+
+<blockquote>“Diffusion models are great at <em>suggesting</em> text and terrible at <em>writing</em> it.”<br>模型很擅长<strong>暗示</strong>这里有字，极不擅长<strong>写出</strong>字。</blockquote>
+
+<h3>① 事实：不是参数不够 —— 6B 就能碾压 20B</h3>
+
+<p>这是本轮调研最反直觉的发现。中文单字渲染<strong>字典覆盖率</strong>（越高越好）：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>模型</th><th>规模</th><th>ChineseWord ↑</th><th>LongText-Bench (ZH) ↑</th></tr></thead>
+<tbody>
+<tr><td>Seedream 3.0</td><td>未公开</td><td>33.1</td><td>0.878</td></tr>
+<tr><td>GPT Image 1 [High]</td><td>未公开</td><td>36.1</td><td>0.619</td></tr>
+<tr><td>HunyuanImage 3.0</td><td>80B</td><td>58.5</td><td>—</td></tr>
+<tr><td>Qwen-Image</td><td>20B MMDiT</td><td>56.6–58.3</td><td><strong>0.946</strong></td></tr>
+<tr class="good"><td><strong>LongCat-Image</strong></td><td><strong>6B</strong></td><td><strong>90.7</strong></td><td>—</td></tr>
+<tr class="bad"><td>SDXL</td><td>2.6B UNet</td><td>基本不可用</td><td>—</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>6B 的 LongCat-Image 在中文字符覆盖率上是 20B Qwen-Image 的 1.6 倍、80B HunyuanImage 的 1.55 倍。</strong>它的 GlyphDraw2（英文）0.95、CVTG-2K 字符准确率 0.8658，全面对标大模型。</p>
+
+<div class="info">
+  <div class="t">诚实说明</div>
+  <p><code>ChineseWord</code> 衡量的是<strong>字典覆盖广度</strong>（能写出多少个不同的字），不是逐字准确率，口径与逐字 Acc 不同。但「小模型大幅超越大模型」这个结论是站得住的。</p>
+</div>
+
+<div class="win">
+  <div class="t">推论：文字能力的天花板不是参数量</div>
+  <p>是 ① 字形条件 ② 数据配方 ③ 课程学习。</p>
+  <p>这对我们是<strong>天大的好消息</strong>——我们不需要 20B，我们需要正确的配方。</p>
+</div>
+
+<h3>① 一个绕不过去的物理约束：32× 压缩把字吃掉了</h3>
+
+<p>现在讲我们架构的特殊麻烦，而且它是个硬约束。主文档为了低显存选了 <strong>32× 压缩</strong>：1024² 的图 → 主干只看到 <strong>32×32 = 1024 个 token</strong>。</p>
+
+<p>那么一个汉字有多大？</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>项</th><th>数值</th></tr></thead>
+<tbody>
+<tr><td>1024² 图像下的主干 latent 网格</td><td>32 × 32</td></tr>
+<tr class="bad"><td>一个高 40px 的汉字占几个格</td><td><strong>1.25 格</strong></td></tr>
+<tr class="bad"><td>印刷可读下限 24px 的汉字占几个格</td><td><strong>0.75 格</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>看下面这张图 —— 同一个 40px 的汉字，在两种压缩率下的下场完全不同：</p>
+
+<div class="fig">
+<svg viewBox="0 0 680 388" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>latent 压缩率对汉字渲染的影响</title>
+<defs>
+<pattern id="g32" x="60" y="76" width="32" height="32" patternUnits="userSpaceOnUse">
+<path d="M32 0 L0 0 L0 32" fill="none" stroke="#B4B2A9" stroke-width="0.5"/>
+</pattern>
+<pattern id="g8" x="380" y="76" width="8" height="8" patternUnits="userSpaceOnUse">
+<path d="M8 0 L0 0 L0 8" fill="none" stroke="#B4B2A9" stroke-width="0.5"/>
+</pattern>
+</defs>
+<text x="60" y="58" fill="#2C2C2A" font-size="13.5" font-weight="500" font-family="sans-serif">左：32× 压缩（本方案主干，为省显存）</text>
+<text x="380" y="58" fill="#2C2C2A" font-size="13.5" font-weight="500" font-family="sans-serif">右：8× 压缩（SDXL / Flux 量级）</text>
+<rect x="60" y="76" width="224" height="224" fill="#FCFCFB" stroke="#888780" stroke-width="0.5"/>
+<rect x="60" y="76" width="224" height="224" fill="url(#g32)"/>
+<rect x="380" y="76" width="224" height="224" fill="#FCFCFB" stroke="#888780" stroke-width="0.5"/>
+<rect x="380" y="76" width="224" height="224" fill="url(#g8)"/>
+<rect x="156" y="172" width="64" height="64" fill="#FAECE7" fill-opacity="0.6" stroke="#D85A30" stroke-width="1" stroke-dasharray="4 3"/>
+<g fill="none" stroke="#2C2C2A" stroke-width="1.7" stroke-linecap="square">
+<rect x="168" y="184" width="40" height="40" rx="1.5"/>
+<line x1="168" y1="204" x2="208" y2="204"/>
+</g>
+<rect x="468" y="180" width="40" height="40" fill="#E1F5EE" fill-opacity="0.6" stroke="#0F6E56" stroke-width="1" stroke-dasharray="4 3"/>
+<g fill="none" stroke="#2C2C2A" stroke-width="1.7" stroke-linecap="square">
+<rect x="468" y="180" width="40" height="40" rx="1.5"/>
+<line x1="468" y1="200" x2="508" y2="200"/>
+</g>
+<text x="60" y="324" fill="#993C1D" font-size="12.5" font-weight="500" font-family="sans-serif">1024² → 32 × 32 格</text>
+<text x="60" y="344" fill="#993C1D" font-size="12.5" font-family="sans-serif">同一个字只占 1.25 格 —— 字在这一步就没了</text>
+<text x="380" y="324" fill="#0F6E56" font-size="12.5" font-weight="500" font-family="sans-serif">1024² → 128 × 128 格</text>
+<text x="380" y="344" fill="#0F6E56" font-size="12.5" font-family="sans-serif">同一个字占 25 格 —— 笔画清晰可辨</text>
+</svg>
+<div class="figcap">同一块图像区域，同一个 40px 汉字。网格 = 主干看到的 latent 格子。</div>
+</div>
+
+<div class="bad">
+  <div class="t">一个汉字还不到一个格子大。字在编码阶段就被丢了。</div>
+  <p>这不是训练问题，是<strong>信息问题</strong>：任何 rank 的 ΔW，都无法从一个「不包含这个字」的表征里造出这个字。<strong>这也是 §01 那句判据的物理来源。</strong></p>
+</div>
+
+<p>那降回 8× 压缩行不行？——<strong>不行，显存会炸</strong>：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>latent 压缩率</th><th>1024² 的 token 数</th><th>后果</th></tr></thead>
+<tbody>
+<tr class="bad"><td>8×（SDXL / Flux 量级）</td><td><strong>16384</strong></td><td>注意力 O(N²)，8GB 直接爆</td></tr>
+<tr><td>16×</td><td>4096</td><td>勉强，显存翻 4 倍</td></tr>
+<tr class="good"><td><strong>32×（我们的主干）</strong></td><td><strong>1024</strong></td><td>低显存目标的根基</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+  <div class="t">结论：主干一动不能动，文字必须走另一条路</div>
+  <p>这个 trade-off 是整份设计里必须显式承认的——「文字好」和「显存小」在同一个 latent 里是<strong>互斥</strong>的。</p>
+</div>
+
+<h3>三条路线</h3>
+
+<div class="grid g3">
+  <div class="card">
+    <div class="lbl">T0 · 零训练风险，行业已在用</div>
+    <div class="val">确定性排版</div>
+    <div class="note">模型只负责画，<strong>文字全部由字体引擎渲染后合成</strong>。Layout Planner 出框和内容 → FreeType/Pillow 光栅化真字体 → 合到成图上。<br><br><strong>优点</strong>：正确率 100%，绝不出错字；任意字体/描边/竖排；<strong>中文零成本</strong>。<br><strong>缺点</strong>：字是「贴上去」的，不参与光影融合（无透视、无材质、无遮挡）。<br><strong>适用</strong>：同人志嵌字、条漫、信息图、海报。</div>
+  </div>
+  <div class="card" style="border:2px solid var(--accent)">
+    <div class="lbl" style="color:var(--accent)">T1 · 推荐，我们做这个</div>
+    <div class="val">字形条件分支</div>
+    <div class="note">在冻结主干<strong>旁边</strong>挂一条低压缩 ROI 分支：裁 ROI → 4× 压缩编码 → 字形灰度图 + 位置图 + 字体 embedding 拼接 → AttnX 式 cross-attn 注入 → 字符级 CTC 监督。<br><br><strong>参数量</strong>：encoder 约 50–150M + AttnX 约 200–400M，<strong>总计 &lt; 0.6B</strong>。<br><strong>可行性已证实</strong>：同类方案（AnyText2）官方 demo 8GB 显存就能跑。<br><strong>优点</strong>：字与画面真正融合（透视、材质、光照一致）。<br><strong>缺点</strong>：字错了就是错了，需 OCR 奖励筛选兜底。</div>
+  </div>
+  <div class="card">
+    <div class="lbl">T2 · 贵，暂不做</div>
+    <div class="val">端到端预训练</div>
+    <div class="note">把文字数据直接混进预训练 + 课程学习（<strong>先无字后有字、先短句后长段</strong>，Qwen-Image 的配方）。<br><br>需要：低压缩 VAE 或高分辨率 + 海量文字图文对 + 大规模算力。<br>代表：Qwen-Image 20B、LongCat-Image 6B、Seedream 4.0。<br><br><strong>结论</strong>：等 T1 跑通、且算力到位了再升级。T1 的 ROI 分支设计不会作废——它可以直接变成预训练阶段的结构先验。</div>
+  </div>
+</div>
+
+<p>两条注入机制的取舍（AnyText2 论文的总结，直接引用）：</p>
+<ul>
+<li>「prompt 里的条件 embedding」→ <strong>泛化不到未见过的字符</strong></li>
+<li>「latent 里的辅助像素」→ 预渲染字形与 caption <strong>融合不充分</strong></li>
+<li>→ 正解是<strong>两者组合</strong>，用 WriteNet 把文字生成从图像生成里<strong>解耦</strong>出来，再融合</li>
+</ul>
+
+<h3>① 我的选择：T0 + T1 双轨，且做成一个包</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>场景</th><th>走哪条</th></tr></thead>
+<tbody>
+<tr><td>漫画 / 条漫嵌字、对正确率零容忍</td><td><strong>T0</strong>（确定性排版）</td></tr>
+<tr><td>招牌、衣服、书本上的字（要与画面融合）</td><td><strong>T1</strong>（字形分支）</td></tr>
+<tr><td>两者都要</td><td>T1 出图 → T0 校正 → 可选 OCR 校验</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="win">
+  <div class="t">关键设计决定：把文字做成 TypographyPack —— 一个「自带分支的能力包」</div>
+  <p>它比普通 LoRA 包重（多了 encoder + AttnX + ROI 分支），但<strong>它仍然是可插拔的</strong>：</p>
+  <p>· 不装它 → 就是干净的画笔，零污染，bit-exact<br>
+     · 装上它 → 多一项写字能力，主干权重不动<br>
+     · 想升级文字能力 → <strong>只换这个包</strong>，不用重训主干</p>
+  <p>这样你那句「想给它套更多东西、又不想重训」在文字这个最难的例子上<strong>就成立了</strong>。</p>
+</div>
+
+<p>顺手得到一条经验法则：</p>
+
+<div class="callout">
+  <div class="t">能装的包只改权重（LoRA）；必须加的包可以带结构（分支）</div>
+  <p>——只要主干保持冻结、门控可关断。</p>
+</div>
+
+<h2><span class="num">04</span>版式规划器：让它「自己会文本框」</h2>
+
+<p>「跟同人志嵌字一样，自己会文本框、自己会写字」——这其实是<strong>两个任务</strong>，一定要拆开：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>子任务</th><th>本质</th><th>归谁</th></tr></thead>
+<tbody>
+<tr><td><strong>决定字放哪、放多大、怎么断行、气泡朝谁</strong></td><td><strong>符号推理 + 几何输出</strong></td><td>独立的 Layout Planner（小模型）</td></tr>
+<tr><td><strong>把字画到画面上（融合光影材质）</strong></td><td><strong>像素生成</strong></td><td>TypographyPack 的 ROI 分支</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="warn">
+  <div class="t">不要指望 DiT 做版式规划</div>
+  <p>这是典型的任务错配——DiT 是像素分布模型，让它输出几何约束等于用锤子拧螺丝。给它一个专门的规划器，成本极低且可控。</p>
+</div>
+
+<h3>输出 schema（可直接用）</h3>
+
+<pre><code>{
+  "canvas": { "w": 2480, "h": 3508, "reading": "rtl", "gutter": 24 },
+  "panels": [ { "poly": [[0,0],[1200,0],[1200,1600],[0,1600]] } ],
+  "items": [
+    { "type": "bubble", "poly": [[...]],
+      "tail_to": [820, 940],
+      "text": "你还活着啊。",
+      "font": "SourceHanSans-Bold", "size": 26, "align": "center",
+      "emphasis": [ { "range": [2,4], "style": "bold" } ] },
+    { "type": "sfx", "poly": [[...]],
+      "text": "咚", "style": "outline", "rot": -12, "size": 64 }
+  ]
+}</code></pre>
+
+<p>规划器<strong>只输出这个结构</strong>，一个字像素都不碰。渲染由下游确定性地做。</p>
+
+<h3>规模与数据</h3>
+
+<div class="grid g2">
+  <div class="card">
+    <div class="lbl">规模</div>
+    <div class="val">100M – 1B 小模型足够</div>
+    <div class="note">这活不需要 DiT，甚至微调一个小 LM 就能干。</div>
+  </div>
+  <div class="card">
+    <div class="lbl">训练数据 · 第一条腿</div>
+    <div class="val">真实漫画</div>
+    <div class="note">Manga109Story 有 <strong>21,142 页 / 109 卷</strong>，含 panel 坐标、人物与文字标注、对话-说话人配对、阅读顺序。现成的黄金数据（<strong>需单独确认许可</strong>）。</div>
+  </div>
+</div>
+
+<div class="win">
+  <div class="t">第二条腿：合成 —— 这条是「白拿」</div>
+  <p><strong>字体光栅化是确定性的、成本约等于 0</strong>：用字体引擎无限造页面 → VLM 反标 → 得到近乎无限的 (布局, 文字) 对。</p>
+  <p>这是整个设计里唯一一种「零成本无限扩增」的训练数据。中文 6763 常用字 × 数千字体 × 无限背景组合。</p>
+  <p>你第一轮说「数据源暂时不考虑，但如果有更聪明的供给方式也行」——<strong>这就是那个更聪明的方式：让数据由渲染器免费生成，而不是去爬别人的图。</strong></p>
+</div>
+
+<h3>一条值得抄的训练经验（来自漫画生成研究）</h3>
+
+<p>MangaDiffusion（21,142 页数据集，FID 143.5 vs SD3.5-Large 197.8）用了两个招：</p>
+<ol>
+<li><strong>inter-panel attention</strong>：同一空间位置的 token 跨面板通信 → 学全局版式和阅读顺序，但不串内容</li>
+<li><strong>局部掩码策略</strong>：训练时<strong>把对话框区域从 attention 和 loss 里 mask 掉</strong>，逼模型专注画画</li>
+</ol>
+
+<p>第 2 条直接印证了 §03 的核心判断：<strong>「文字」和「画面」必须解耦训练</strong>。模型画出乱码，往往是因为被逼着在气泡里同时学画画和学写字。</p>
+
+<h2><span class="num">05</span>能力包清单：这才是「更大的未来」</h2>
+
+<p>把接口做出来之后，能挂什么。按 rank / 复杂度排：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>包</th><th>类型</th><th>作用域</th><th>rank / 规模</th><th>备注</th></tr></thead>
+<tbody>
+<tr><td>画风包</td><td>LoRA</td><td>细节通道 + 浅层</td><td>32–64</td><td>你原本的首要目标</td></tr>
+<tr><td>角色包</td><td>LoRA</td><td>读语义 / 写细节</td><td>16–32</td><td>CharaBridge</td></tr>
+<tr><td>领域包</td><td>LoRA</td><td>全通道</td><td>64–128</td><td>建筑、商品、工业设计、医学插画</td></tr>
+<tr><td>时间包</td><td>LoRA</td><td>time-scope</td><td>16</td><td>不同 timestep 用不同专家（TSM 式）</td></tr>
+<tr><td>条件包</td><td>Adapter</td><td>浅层</td><td>带分支</td><td>depth / normal / pose / seg</td></tr>
+<tr><td>编辑包</td><td>Adapter</td><td>全层 + 重噪</td><td>带分支</td><td>inpaint / outpaint</td></tr>
+<tr class="good"><td><strong>文字包</strong></td><td><strong>带分支</strong></td><td>ROI</td><td>&lt; 0.6B</td><td>TypographyPack（§03）</td></tr>
+<tr class="good"><td><strong>版式包</strong></td><td><strong>独立小模型</strong></td><td>输出 JSON</td><td>100M–1B</td><td>Layout Planner（§04）</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>同时最多激活 3–4 个</strong>——这是显存和冲突仲裁的双重约束，不是随便定的数。</p>
+
+<div class="info">
+  <div class="t">关于你说的「不限全年龄」那类内容</div>
+  <p>架构上它就是上面表格里的一行，<strong>和「画风包」在结构上完全同类</strong>（低秩适配器 + 门控），不需要为它做任何特殊设计——能力总线天然就覆盖了这类扩展。</p>
+  <p>具体那一类内容我不参与生成，也不参与它的训练数据制作。技术上唯一值得记的是：它比画风包更依赖 <strong>空间定位条件</strong>和<strong>结构先验</strong>，而这正好复用了上面的 space-scope 与条件包机制——<strong>所以「留接口」这件事本身不需要你现在做任何额外动作。</strong></p>
+</div>
+
+<h2><span class="num">06</span>验收标准</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>指标</th><th>测什么</th><th>目标</th></tr></thead>
+<tbody>
+<tr><td><strong>全关 bit-exact</strong></td><td>接口零风险</td><td>100 个包全关 = 裸模型，输出逐位一致</td></tr>
+<tr><td>单包风格相似度</td><td>画风包生效</td><td>CLIP-I / DINO 风格相似度显著 ↑，FID 不升</td></tr>
+<tr><td>双包同开无污染</td><td>冲突仲裁</td><td>色调 / 构图无串扰（正交投影后）</td></tr>
+<tr><td>注入点有效性</td><td>防「静默失效」坑</td><td>改包权重 → 输出必有变化（回归测试）</td></tr>
+<tr class="good"><td><strong>中文单字覆盖</strong></td><td>文字能力</td><td><strong>≥ 70%</strong>（对标 LongCat-Image 90.7 / Qwen-Image 58.3）</td></tr>
+<tr class="good"><td>长文本（&gt;20 字）可读率</td><td>长文本</td><td><strong>≥ 90%</strong></td></tr>
+<tr><td>Layout Planner 框位 IoU</td><td>版式</td><td><strong>≥ 0.7</strong></td></tr>
+<tr><td>面板数控制</td><td>漫画结构</td><td>输出面板数 = 脚本数，误差 0</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2><span class="num">07</span>风险</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>风险</th><th>严重度</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><strong>「伪正交」</strong></td><td><span class="pill p-mid">中高</span></td><td>低秩扰动之间实际仍有耦合，门控 / 投影只能缓解不能根除</td></tr>
+<tr><td>文字分支与主干抢地盘</td><td><span class="pill p-mid">中</span></td><td>与「LoRA 打架」同机理，需通道隔离 + α/β 可调</td></tr>
+<tr><td>量化器吃掉注入</td><td><span class="pill p-mid">中</span></td><td>已被社区证实（diffusers #9291/#10989），必须在架构层强制旁路</td></tr>
+<tr><td>T1 训练数据规模</td><td><span class="pill p-mid">中</span></td><td>字形可白拿，但<strong>真实场景文字</strong>（透视、材质、遮挡）仍需采集</td></tr>
+<tr><td>Manga109 许可</td><td><span class="pill p-ok">低但必须查</span></td><td>商业使用需单独确认</td></tr>
+<tr><td>Layout Planner 分布外</td><td><span class="pill p-ok">低</span></td><td>真实排版风格千变万化，小模型可能过拟合主流风格</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2><span class="num">08</span>路线修订</h2>
+
+<p>在原有 P0–P4 上插入两个动作：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>阶段</th><th>动作</th><th>目的</th><th>依赖</th></tr></thead>
+<tbody>
+<tr><td><strong>P0</strong></td><td>NVFP4 QAD 掉不掉点验证（不变，必须最先做）</td><td>保住量化基础</td><td>—</td></tr>
+<tr><td>P1</td><td>能力总线骨架：门控 + bit-exact 回归测试</td><td>先把不变量立起来</td><td>P0</td></tr>
+<tr class="good"><td>P2</td><td><strong>T0 确定性排版链路（Layout Planner + 字体渲染）</strong></td><td><strong>用最低成本先拿到「会写字」</strong></td><td>独立，可与 P0 并行</td></tr>
+<tr><td>P3</td><td>TypographyPack（ROI 分支 + 字形条件）</td><td>文字与画面融合</td><td>P1</td></tr>
+<tr><td>P4</td><td>正交化仲裁（NP-LoRA 式投影）</td><td>多包共存不打架</td><td>P1</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="win">
+  <div class="t">顺序上有个便宜可捡</div>
+  <p><strong>P2 完全独立于量化主线，可以现在就开跑。</strong></p>
+  <p>它不需要 NVFP4、不需要主干、甚至不需要训练——先下载字体 + 造合成数据，就能拿到一个「会排文本框」的规划器原型。这是全案性价比最高的一块。</p>
+</div>
+
+<footer>
+  <p><strong>KokonaPolaris 补充设计 02</strong> · v1.2 草案 · 2026-10-02 · 设计稿（未实现）</p>
+  <p>本文档为设计稿，所有数字均来自公开资料：AnyText2 (arXiv:2411.15245)、MangaDiffusion (arXiv:2412.19303)、MangaFlow (arXiv:2605.28173)、TimeStep Master (arXiv:2503.07416)、EST-LoRA (arXiv:2508.02165)、Qwen-Image / LongCat-Image / Seedream 技术报告、diffusers issue #9291 / #10989。标「未验证」处为无公开数据。</p>
+</footer>
+
+</div>
+</body>
+</html>

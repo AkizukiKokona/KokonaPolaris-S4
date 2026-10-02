@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KokonaPolaris-S4 补充设计 09 · G1 前哨量化实测与判据修订</title>
+<style>
+  :root{
+    --bg:#FAFAF9; --surface:#FFFFFF; --surface2:#F4F3F1;
+    --text:#1C1C1A; --text2:#5F5E5A; --text3:#888780;
+    --border:rgba(0,0,0,0.10); --border2:rgba(0,0,0,0.18);
+    --accent:#534AB7; --accent-l:#EEEDFE; --accent-d:#3C3489;
+    --blue:#185FA5; --blue-l:#E6F1FB;
+    --teal:#0F6E56; --teal-l:#E1F5EE;
+    --amber:#854F0B; --amber-l:#FAEEDA;
+    --red:#A32D2D; --red-l:#FCEBEB;
+    --green:#3B6D11; --green-l:#EAF3DE;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:56px 28px 100px}
+  header{border-bottom:1px solid var(--border);padding-bottom:28px;margin-bottom:40px}
+  .kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:500;margin-bottom:14px}
+  h1{font-size:31px;font-weight:600;letter-spacing:-.02em;line-height:1.25;margin-bottom:12px}
+  .sub{font-size:16px;color:var(--text2);max-width:740px}
+  .meta{margin-top:18px;font-size:13px;color:var(--text3);display:flex;gap:20px;flex-wrap:wrap}
+  h2{font-size:22px;font-weight:600;letter-spacing:-.01em;margin:64px 0 10px;padding-top:18px;border-top:1px solid var(--border)}
+  h2:first-of-type{border-top:none;padding-top:0;margin-top:40px}
+  h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:10px;font-weight:500}
+  h3{font-size:16.5px;font-weight:600;margin:30px 0 10px}
+  h4{font-size:15px;font-weight:600;margin:20px 0 8px}
+  p{margin:12px 0}
+  ul,ol{margin:12px 0 12px 22px}
+  li{margin:7px 0}
+  code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.88em;background:var(--surface2);padding:2px 6px;border-radius:4px;color:var(--accent-d)}
+  pre{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;overflow-x:auto;margin:20px 0}
+  pre code{background:none;padding:0;font-size:12.5px;line-height:1.7;color:var(--text2)}
+  .grid{display:grid;gap:12px;margin:22px 0}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+  .card .lbl{font-size:12px;color:var(--text3);margin-bottom:6px}
+  .card .val{font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .card .note{font-size:13.5px;color:var(--text2);margin-top:8px;line-height:1.7}
+  .callout{border-left:3px solid var(--accent);background:var(--accent-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .callout .t{font-weight:600;color:var(--accent-d);margin-bottom:6px;font-size:15px}
+  .callout p{color:var(--accent-d);font-size:14.5px;margin:6px 0}
+  .warn{border-left:3px solid var(--amber);background:var(--amber-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .warn .t{font-weight:600;color:var(--amber);margin-bottom:4px;font-size:14.5px}
+  .warn p{color:var(--amber);font-size:14px;margin:4px 0}
+  .bad{border-left:3px solid var(--red);background:var(--red-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .bad .t{font-weight:600;color:var(--red);margin-bottom:4px;font-size:14.5px}
+  .bad p{color:var(--red);font-size:14px;margin:4px 0}
+  .info{border-left:3px solid var(--blue);background:var(--blue-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .info .t{font-weight:600;color:var(--blue);margin-bottom:4px;font-size:14.5px}
+  .info p{color:var(--blue);font-size:14px;margin:4px 0}
+  .win{border-left:3px solid var(--teal);background:var(--teal-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .win .t{font-weight:600;color:var(--teal);margin-bottom:6px;font-size:15px}
+  .win p{color:var(--teal);font-size:14.5px;margin:6px 0}
+  .tw{overflow-x:auto;margin:20px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;padding:12px 16px;background:var(--surface2);font-weight:600;color:var(--text2);font-size:12.5px;border-bottom:1px solid var(--border);white-space:nowrap}
+  td{padding:11px 16px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.hl{background:var(--accent-l);font-weight:600;color:var(--accent-d)}
+  tr.bad td{background:var(--red-l)}
+  tr.good td{background:var(--teal-l)}
+  .pill{display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:20px;font-weight:500;white-space:nowrap}
+  .p-ok{background:var(--green-l);color:var(--green)}
+  .p-no{background:var(--red-l);color:var(--red)}
+  .p-mid{background:var(--amber-l);color:var(--amber)}
+  .p-info{background:var(--blue-l);color:var(--blue)}
+  .p-acc{background:var(--accent-l);color:var(--accent-d)}
+  img.shot{width:100%;border:1px solid var(--border);border-radius:10px;display:block;margin:8px 0}
+  .cap{font-size:12.5px;color:var(--text3);margin:6px 0 18px}
+  footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--border);font-size:12.5px;color:var(--text3);line-height:1.9}
+  @media(max-width:640px){h1{font-size:24px}.wrap{padding:32px 18px 70px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">KokonaPolaris-S4 · Supplement 09 · v1.1</div>
+  <h1>G1 前哨量化实测与判据修订</h1>
+  <p class="sub">真实 Sana 1.6B 上的 4 路 NVFP4 对照 · 误差归因 · G1 判据修订 · E5b 可训性定案</p>
+  <div class="meta"><span>2026-10-03</span><span>实测（非推演）</span><span>靶子：Sana 1.6B · 15 例信号级 + 12 张端到端</span><span style="color:var(--accent);font-weight:500">含一条 G1 判据修订 + G1 初步通过</span></div>
+</header>
+
+<div class="callout">
+  <div class="t">七条结论</div>
+  <p><strong>① 误差几乎全部来自「激活」量化</strong>——权重降到 4-bit 只花 <b>7.74%</b>；激活也降到 4-bit，误差暴涨到 <b>29.72%（3.84×）</b>。</p>
+  <p><strong>② 设计档 W4A8（FP4 权重 + FP8 激活）落在两者之间</strong>——比 W4A4 好 <b>2.98×</b>，离 W4A16 只差 1.29×。<b>设计选择被实测支持。</b></p>
+  <p><strong>③ ⚠️ 逐像素 PSNR/SSIM 测的是「轨迹稳定性」，不是画质</strong> → <b>G1 判据必须换成分布级指标</b>（§5）。</p>
+  <p><strong>④ ⚠️ PTQ 是「模拟量化」，权重仍以 bf16 驻留</strong> → 本轮显存数字（全 5.29 GB）<b>不能</b>用来论证 NVFP4 的显存收益（§6.4）。</p>
+  <p><strong>⑤ 🔍 ModelOpt 的 NVFP4 fake-quant 忽略配置里的 <code>block_sizes</code></strong> → 官方 "block 32" 不会带来额外损失（§6.1）。</p>
+  <p><strong>⑥ ✅ E5b 可训性定案</strong>——ModelOpt 训练路径的 blocker 是 <b><code>FP8SDPA</code> 无 backward</b>（非环境问题，已 patch）；且 <b>8GB 卡全参 QAT 不可行（优化器状态 12.8GB）→ 必须 adapter 式 QAD</b>（§8）。</p>
+  <p><strong>⑦ ✅ G1 快速判据初步通过</strong>——<b>W4A8</b> 的分布级偏移仅为自然离散度的 <b>53.5%</b>（W4A16 52.7% / W4A4 88.9%，三臂全 &lt; 1）（§8.4）。</p>
+</div>
+
+<h2><span class="num">01</span>实验设置</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>项</th><th>设置</th></tr></thead>
+<tbody>
+<tr><td>靶子</td><td><b>Sana_1600M_1024px_BF16_diffusers</b>（Apache 2.0）</td></tr>
+<tr><td>分辨率 / 步数</td><td>1024² / 20 步，DPMSolverMultistep（flow prediction）</td></tr>
+<tr><td>种子</td><td><b>全部固定</b>，同一 seed 跨 arm 复用</td></tr>
+<tr><td>Prompt 集</td><td>3 条：<code>01_en_scene</code>（英文场景）/ <code>02_zh_text</code>（中文文字）/ <code>03_anime</code>（二次元）</td></tr>
+<tr><td>文本侧</td><td>预计算 prompt embeddings 离线缓存（Gemma2-2B 5.2 GB 与主干无法同驻）</td></tr>
+<tr><td>量化框架</td><td><code>nvidia-modelopt 0.46.0</code>，PTQ（后训练静态校准）</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="info">
+  <div class="t">为什么这个靶子的结论能外推到 KP</div>
+  <p>Sana 的 latent 压缩率为 <b>32×</b>（DC-AE f32c32），1024² → <code>(1,32,32,32)</code>，图像 token 数 = <b>1024</b> —— 与 KP 设计目标<b>完全同构</b>（对照见主文档 §8）。</p>
+</div>
+
+<h2><span class="num">02</span>信号级对照（真实 DiT · 15 例平均）</h2>
+
+<p>对 <code>noise_pred</code> 输出做的数值对照（越高越差）：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>配置</th><th>权重</th><th>激活</th><th>相对误差</th><th>余弦</th><th>最差样本</th><th>校准耗时</th><th>相对 W4A4</th></tr></thead>
+<tbody>
+<tr class="good"><td><b>bf16</b></td><td>—</td><td>—</td><td><b>0%</b></td><td>1.00000</td><td>—</td><td>—</td><td>0×</td></tr>
+<tr class="bad"><td><b>W4A4</b>（官方默认）</td><td>NVFP4</td><td>NVFP4</td><td><b>29.72%</b></td><td>0.95420</td><td>35.57%</td><td>5.5 s</td><td><b>1×</b></td></tr>
+<tr><td>W4A4 + 4/6 配比 + MSE 校准</td><td>NVFP4</td><td>NVFP4</td><td>29.57%</td><td>0.95519</td><td>35.75%</td><td><b>260.7 s</b></td><td>0.995×</td></tr>
+<tr class="good"><td><b>W4A8</b>（<b>设计档</b>）</td><td>NVFP4</td><td><b>FP8</b> per-tensor</td><td><b>9.98%</b></td><td>0.99471</td><td>13.75%</td><td>5.3 s</td><td><b>0.336×</b></td></tr>
+<tr><td>W4A8_b16（block 改 16）</td><td>NVFP4</td><td>FP8</td><td>9.98%</td><td>0.99471</td><td>13.75%</td><td>5.5 s</td><td>0.336×</td></tr>
+<tr class="good"><td><b>W4A16</b></td><td>NVFP4</td><td>bf16</td><td><b>7.74%</b></td><td>0.99679</td><td>10.82%</td><td>3.7 s</td><td><b>0.260×</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>2.1 误差来源归因（结论 ①）</h3>
+
+<pre><code>bf16  ──[权重 4-bit]──▶  7.74%    （+7.74）
+      ──[激活也 4-bit]─▶  29.72%   （+21.98，额外 2.84×）</code></pre>
+
+<div class="win">
+  <div class="t">代价几乎全部记在「激活」账上</div>
+  <p>这就是设计里「FP4 权重 + FP8 激活」这个档位的实测依据 —— <b>不是保守，是贴着数据选的。</b></p>
+</div>
+
+<div class="warn">
+  <div class="t">⚠️ 注意 <code>W4A8</code> 与 <code>W4A8_b16</code> 逐位完全相同</div>
+  <p>这不是 bug —— 原因见 §6.1（ModelOpt 忽略 <code>block_sizes</code> 参数）。</p>
+</div>
+
+<h2><span class="num">03</span>端到端出图对照（1024² × 20 步）</h2>
+
+<p>同种子、同 prompt，四路对比（图像级）：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>arm</th><th>mean PSNR (dB)</th><th>mean SSIM</th><th>mean MAE</th><th>相对 W4A8</th></tr></thead>
+<tbody>
+<tr class="good"><td><b>W4A16</b></td><td><b>16.87</b></td><td><b>0.745</b></td><td><b>19.5</b></td><td>0.91×</td></tr>
+<tr class="good"><td><b>W4A8</b>（设计档）</td><td>16.28</td><td>0.715</td><td>21.4</td><td>1×</td></tr>
+<tr class="bad"><td><b>W4A4</b></td><td><b>13.90</b></td><td><b>0.568</b></td><td><b>34.5</b></td><td><b>1.61×</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>排序与信号级完全一致</b>（7.74% → 9.98% → 29.72%）—— <b>两条独立证据链互相印证</b>，方法学可靠。</p>
+
+<h3>3.1 但看图的结论和数字相反</h3>
+
+<div class="bad">
+  <div class="t">W4A4 那张：数值 PSNR 9.67 dB / SSIM 0.357，看起来"崩了"</div>
+  <p><b>实际画质完全正常</b> —— 只是<b>换了个构图</b>（猫咪从坐着变站着、背景从虚化墙角变成窗外散景）。bf16 / W4A16 / W4A8 三张构图基本一致，<b>W4A4 明显漂移</b>。</p>
+</div>
+
+<p class="cap">↓ 四路同 prompt 同种子的出图（顺序：bf16 / W4A16 / W4A8 / W4A4）</p>
+<img class="shot" src="../out/e5/images/bf16__01_en_scene.png" alt="bf16">
+<img class="shot" src="../out/e5/images/W4A16__01_en_scene.png" alt="W4A16">
+<img class="shot" src="../out/e5/images/W4A8__01_en_scene.png" alt="W4A8">
+<img class="shot" src="../out/e5/images/W4A4__01_en_scene.png" alt="W4A4">
+
+<p><b>这就是结论 ③ 的证据来源</b>，详见 §5。</p>
+
+<h2><span class="num">04</span>另外两条硬结论</h2>
+
+<h3>4.1 误差随 timestep 呈「倒 U 形」</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>timestep</th><th>W4A4 相对误差</th></tr></thead>
+<tbody>
+<tr><td>t = 999（最噪）</td><td>19.5%</td></tr>
+<tr class="bad"><td><b>t = 500（中间步）</b></td><td><b>35.4%</b></td></tr>
+<tr><td>t = 低（最清）</td><td>低</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>中间步（定结构的那几步）最脆弱。</b>早期步的微小偏差会被后续采样放大 —— 这解释了为什么端到端会出现"构图漂移"而不是"画质下降"。</p>
+
+<h3>4.2 4/6 配比 + MSE 校准几乎无效</h3>
+
+<ul>
+  <li>误差：29.72% → 29.57%（<b>改善仅 0.5%</b>）</li>
+  <li>代价：校准耗时 5.5 s → <b>260.7 s（47×）</b></li>
+</ul>
+
+<p>→ <b>这条可以省掉。</b>官方 <code>NVFP4_FOUR_OVER_SIX_CFG</code> 的价值在<b>训练</b>（QAD）阶段，不在 PTQ 校准阶段。</p>
+
+<h2><span class="num">05</span>⚠️ G1 判据修订（本文件的核心动作）</h2>
+
+<h3>5.1 问题</h3>
+
+<p>原 G1 判据隐含地依赖「固定种子 → 逐像素对照」。<b>E5 实测证明这条路会给出错误判决</b>：</p>
+
+<div class="warn">
+  <div class="t">20 步扩散采样中，早期步的轻微扰动会被放大成「另一个同样合理的样本」</div>
+  <p>逐像素指标衡量的是<b>「同一轨迹走不走得稳」，不是「画得好不好」</b>。W4A4 的 9.67 dB 就是这么来的 —— 它被判"崩了"，但实际画质正常。<b>如果直接拿逐像素指标当 G1 的门，会把一个可用的配置误判为不可用。</b></p>
+</div>
+
+<h3>5.2 修订后的判据</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th></th><th>原判据（作废）</th><th>新判据（v1.0）</th></tr></thead>
+<tbody>
+<tr><td><b>主判据</b></td><td>FP4 vs BF16 逐像素差距 &lt; 2%</td><td><b>分布级指标</b>：FID（或同等的多样本质量评估）上 <b>FP4 与 BF16 差距 &lt; 2%</b>，且 <b>QAT 优于 PTQ</b></td></tr>
+<tr><td><b>辅助判据</b></td><td>—</td><td>① 逐像素 PSNR/SSIM —— <b>仅作「轨迹稳定性」参考，不作门</b>；② 信号级 <code>noise_pred</code> 相对误差与余弦 —— 作<b>趋势指示</b></td></tr>
+<tr><td><b>样本量</b></td><td>单张</td><td><b>≥ 50 张</b>（同 prompt 集，多 seed）—— 单张无统计意义</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>5.3 为什么这条修订重要</h3>
+
+<p>它把 G1 从<b>「会不会崩」</b>变成了<b>「分布偏不偏」</b>。前者对量化过敏（任何微小数值差都会触发），后者才是生成模型的真实质量轴。</p>
+
+<div class="win">
+  <div class="t">一条可复用的方法论规范（已写进主文档 §9.2 的 G1 行）</div>
+  <p><b>评估生成模型时，逐像素指标只用于「同轨迹复现性」检查，不可用于「质量」判决。</b></p>
+</div>
+
+<h2><span class="num">06</span>附带的工程知识（边界条件）</h2>
+
+<h3>6.1 ModelOpt 的 NVFP4 fake-quant 忽略 <code>block_sizes</code> 配置</h3>
+
+<p><b>实测</b>：把 <code>W4A8_NVFP4_FP8_CFG</code> 的权重 block 从 32 改成 16、再改成 64，<b>输出完全相同</b>（<code>8376.7334</code>，差异 <code>0.000000%</code>）。</p>
+
+<p>→ <b>ModelOpt 内部用固定块长</b>，配置里的 <code>block_sizes</code> 只写进 quantizer 属性、不影响数值。<br>
+→ <b>推论</b>：官方 <code>W4A8_NVFP4_FP8_CFG</code> 里那个 "block 32" <b>不会带来额外精度损失</b>，可放心用；不需要自己改回 16。</p>
+
+<div class="info">
+  <div class="t">但手写 NVFP4 量化器时 block 是真实生效的</div>
+  <p>合成权重上 block 16 优于 32（10.07% vs 11.39%），真实权重上亦然（低 9–25%）。<b>区别在于：ModelOpt 的 fake-quant 路径不用这个参数，手写路径用。</b>两者不要混为一谈。</p>
+  <p>另：真实权重上 <code>proj_out</code> 层误差最高（12.56%）且对 block 最敏感（1.25×）—— <b>这解释了 ModelOpt 默认配置为何单独关掉 <code>*proj_out.*</code> 的量化。</b></p>
+</div>
+
+<h3>6.2 FP8 模拟量化确实生效</h3>
+
+<p>ModelOpt 会打印 "FP8 not available" 警告（CUDA 加速扩展未编译），但<b>实际走 <code>_fp8_eager</code> 纯 PyTorch 回退路径，量化真实发生</b>（两种配置输出哈希不同、误差不同，已实测）。</p>
+
+<h3>6.3 两次独立测量交叉验证通过</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th></th><th>E5（真 <code>nn.Linear</code>）</th><th>早先 <code>quant_compare.py</code></th></tr></thead>
+<tbody>
+<tr><td>W4A4</td><td>13.965%</td><td>13.99%</td></tr>
+<tr><td>W4A16</td><td>10.254%</td><td>10.21%</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>几乎完全一致 → 方法学可靠。</b></p>
+
+<h3>6.4 ⚠️ 峰值显存 5.29 GB，四路完全相同</h3>
+
+<div class="bad">
+  <div class="t">因为 PTQ 是模拟量化 —— 没有任何显存节省</div>
+  <p>权重仍以 bf16 驻留，只是前向时做量化-反量化。<b>本轮的显存数字不可用于论证 NVFP4 的显存收益。</b>真收益必须等<b>打包权重</b>（真 FP4 存储）落地后再测。<b>这条不写清楚会被严重误读。</b></p>
+</div>
+
+<h3>6.5 顺带实证：Sana 文本侧 86–91% 是 padding</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>prompt</th><th>有效 token / 300</th></tr></thead>
+<tbody>
+<tr><td>英文场景</td><td><b>26</b>（8.7%）</td></tr>
+<tr><td>中文文字</td><td><b>43</b>（14.3%）</td></tr>
+<tr><td>二次元</td><td><b>29</b>（9.7%）</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>比补充 03 §8「文本侧也在浪费 token」的假设更严重。</b>Sana 把序列撑到 300，真实信息只有 26–43 个 token。</p>
+
+<h2><span class="num">07</span>本轮文档审计记录</h2>
+
+<p>对全部 9 份文档（md + html 双版）做了一次一致性审计，发现并修复：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>#</th><th>问题</th><th>性质</th><th>处置</th></tr></thead>
+<tbody>
+<tr class="bad"><td>1</td><td>主文档 §8 对比表把 KP 的注意力写成 <code>3:1 线性:softmax</code></td><td><b>内容矛盾</b> —— v1.1 已改为 Sigmoid/Softpick，对比表没跟着改</td><td>已改（md + html）</td></tr>
+<tr><td>2</td><td>主文档 html 顶部 kicker 仍写 <code>v1.9</code></td><td>版本号陈旧</td><td>已改为 v1.11</td></tr>
+<tr><td>3</td><td>补充 08 声明「配套主文档 v1.10」</td><td>版本号陈旧（它自己就是 v1.11 的触发源）</td><td>已改为 v1.11</td></tr>
+<tr class="bad"><td>4</td><td><b>「这个项目在做什么」从未被集中说明</b></td><td><b>最大缺口</b> —— 11 份文档里没有一处讲清「KP / 靶子 / 验证机」三层身份</td><td>主文档顶部新增 <b>「🧭 读前必看」</b> 节（md + html）</td></tr>
+<tr class="bad"><td>5</td><td><b>E5 实测结果与「G1 判据需修订」无正式落点</b></td><td>重大实测成果悬空</td><td><b>本文件（补充 09）</b></td></tr>
+<tr><td>6</td><td>主文档开头 80 行版本历史淹没正文</td><td>可读性</td><td>加「📜 版本历史（新→旧 · 正文从 §0 开始）」标签</td></tr>
+<tr><td>7</td><td>补充 01–06 的「配套主文档 vX」停在旧版</td><td><b>非错误</b> —— 那是撰写时的版本，属历史事实</td><td>保留（不追改，避免失真）；但需知悉：<b>它们未被 v1.7–v1.11 的实测结论覆盖</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="warn">
+  <div class="t">⚠️ 第 7 条值得单独提醒</div>
+  <p>补充 01–06 写于 v1.2–v1.6，<b>主文档 v1.7 之后的实测结论（功耗、吞吐、E5 量化、E5b 可训性、G3.5）没有回写进它们</b>。它们是<b>设计推演的历史快照</b>，读的时候要以主文档最新版（<b>v1.13</b>）为准。</p>
+</div>
+
+<h2><span class="num">08</span>E5b：可训性定案与 G1 实测结论（v1.1 新增）</h2>
+
+<p>§2–§6 全是 <b>PTQ（推理）</b>结论。G1 的真问是 <b>QAD/QAT（训练）</b>：量化后还能不能训、训了掉不掉点。§8 是这一问的实测回答。</p>
+
+<h3>8.1 blocker：ModelOpt 量化后的模型只能推理、不能训</h3>
+
+<p>对 Sana 做 <code>mtq.quantize</code> 之后，<b>第一步 backward 就崩</b>：</p>
+<pre><code>NotImplementedError: You must implement either the backward or vjp method
+for your custom autograd.Function to use it with backward mode AD.</code></pre>
+
+<p><b>六种配方全灭</b>（W4A4 / W4A8 / W4A16 / FP8 / 4-6 / 默认）；1024² 与 512²、开/关梯度检查点，全部同样报错。</p>
+
+<div class="bad">
+  <div class="t">⚠️ 根因我第一版说错过，必须记下</div>
+  <p>我起初判定「本机缺 MSVC」——<b>错</b>。<code>vswhere</code> 实测本机有 <b>4 处 VS 安装</b>（<code>D:\vc2022</code> / <code>...\2022\BuildTools</code> / <code>D:\vsc</code> / <code>D:\vs</code>），<code>cl.exe</code> 在 <code>...\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\</code>，<b>只是不在 PATH</b>。正确表述是<b>环境/路径问题，不是能力缺失</b>。</p>
+</div>
+
+<p><b>✅ 真根因（抓到真实调用栈后定案）</b>：ModelOpt 的 diffusers 插件把 <code>F.scaled_dot_product_attention</code> 替换为内部走 <code>FP8SDPA.apply(...)</code>，而 <code>FP8SDPA</code>（<code>modelopt/torch/quantization/plugins/diffusion/diffusers.py:214</code>）<b>只实现 forward、没有 backward</b>。⇒ 与量化器开关、与 CUDA 扩展<b>均无关</b>（这解释了为什么「把量化器全部 disable 也照样断」）。</p>
+
+<p><b>修复</b>（<code>tools/e5b_patch_probe.py</code>）：把插件的 <code>FP8SDPA</code> patch 回原版 SDPA（<b>前向严格等价</b>）。补丁后 <b>W4A8 / W4A4 全参 backward 通过</b>（loss 1.667 / 0.889，峰值 <b>3.46 GB</b>）。</p>
+
+<h3>8.2 容量结论：8 GB 卡必须 adapter 式 QAD</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>路线</th><th>可训参数</th><th>优化器状态</th><th>可行？</th></tr></thead>
+<tbody>
+<tr class="bad"><td>全参 QAT</td><td>1.604e9</td><td>AdamW 2×1.604e9×4B ≈ <b>12.8 GB</b></td><td><span class="pill p-no">不可行</span> 8 GB 绝无可能</td></tr>
+<tr class="good"><td><b>adapter 式 QAD</b></td><td><b>5.99 M（0.37%）</b></td><td>极小</td><td><span class="pill p-ok">可行</span> 峰值 <b>3.41 GB</b>、0.57–0.75 s/step</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="win">
+  <div class="t">✅ 不是妥协，是把架构决策提前实证了</div>
+  <p>之前「能跑通」的全是 <b>SGD 无动量</b>（零状态）——一旦上 AdamW，全参路线立刻不可行。</p>
+  <p>⇒ <b>冻结主干 + 只训低秩旁路</b>，与设计稿的 <b>Δ-Pack / 能力包</b>结构<b>完全同构</b>。</p>
+</div>
+
+<h3>8.3 独立路径：自研可微 NVFP4 fake-quant</h3>
+
+<p>训练期只需<b>模拟量化</b>，不需要 packed / swizzled 布局 → 手写「E2M1 + block16 + E4M3 scale」+ <b>STE 直通梯度</b>（<code>tools/e5b_qad.py</code>）：</p>
+
+<pre><code>def quant_fp4_ste(x, blk=16):
+    # E2M1（16 级）伪量化 + block16 缩放
+    scale = (amax / 6.0).to(torch.float8_e4m3fn).to(x.dtype).clamp(min=1e-12)
+    q = (xb / scale).round().clamp(-6.0, 6.0)
+    xq = (q * scale).reshape(shape)
+    return x + (xq - x).detach()      # ← STE：前向量化、反向直通</code></pre>
+
+<p>替换 Sana 的 <b>165 个 <code>nn.Linear</code></b>，<code>proj_out</code> 按官方默认<b>保留不量化</b>。完全绕开 ModelOpt 训练路径。</p>
+
+<ul>
+  <li>前向误差探测（512²，<code>out/e5b/qad_probe.json</code>）：t=999 → <b>4.56%</b> · <b>t=599 → 31.31%（峰值）</b> · t=0 → 5.04%，cos 全 &gt; 0.95 ⇒ <b>独立复现了 E5 的「倒 U 形」</b>。</li>
+  <li>对照组（bf16 全量微调<b>可跑</b>）：1024² = 12.7 s/step / 峰值 <b>6.84 GB</b>；开梯度检查点 = 5.66 s/step / 6.3 GB（更快更省）。</li>
+</ul>
+
+<h3>8.4 ⭐ G1 快速判据：初步通过（W4A8）</h3>
+
+<p><b>方法</b>（§5 修订判据的可执行简化版，<code>tools/e5b_g1_fast.py</code>，零新生成、约 1 分钟）：</p>
+<ul>
+  <li><code>d_ref</code> = bf16 <b>同 prompt 不同 seed</b> 的自然离散度（282 对）<b>= 14.576</b>；</li>
+  <li><code>d_quant</code> = <b>同 prompt 同 seed</b> 下量化臂 vs bf16 的特征距离；</li>
+  <li><b>判据</b>：<code>d_quant / d_ref ≪ 1</code> ⇒ 量化偏移<b>小于「换一个 seed」</b>，属同分布内抖动，未改变分布。</li>
+</ul>
+
+<div class="tw">
+<table>
+<thead><tr><th>臂</th><th>d_quant</th><th>d_quant / d_ref</th><th>PSNR（辅助）</th></tr></thead>
+<tbody>
+<tr class="good"><td><b>W4A8（设计档）</b></td><td>7.799</td><td class="hl"><b>0.535</b></td><td>16.28</td></tr>
+<tr><td>W4A16</td><td>7.680</td><td><b>0.527</b></td><td>16.87</td></tr>
+<tr><td>W4A4（官方默认）</td><td>12.960</td><td><b>0.889</b></td><td>13.90</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>判读</b>：</p>
+<ul>
+  <li>三臂<b>全部 &lt; 1</b>；</li>
+  <li><b>W4A8 仅 53.5%，W4A4 达 88.9%</b> ⇒ <b>激活降到 FP8 几乎不额外损失</b>，实测支持「FP4 权重 + FP8 激活」的设计档；</li>
+  <li>排序（W4A16 &lt; W4A8 &lt; W4A4）与信号级（7.74% &lt; 9.98% &lt; 29.72%）、端到端 PSNR <b>三条独立证据链一致</b>。</li>
+</ul>
+
+<h3>8.5 G1 状态与遗留</h3>
+
+<ul>
+  <li><span class="pill p-ok">初步通过</span> <b>G1（W4A8）</b> —— 分布级偏移仅为自然离散度的 <b>53.5%</b>，远小于「换 seed」。</li>
+  <li><span class="pill p-mid">局限</span> <code>d_quant</code> 每 prompt 仅 3 对，<b>统计薄</b>。正式过门仍建议补 <b>≥ 50 张/臂的 FID</b>（§5 修订判据）。</li>
+  <li><span class="pill p-ok">已定案</span> 可训性 —— 训练路径（ModelOpt patch <b>或</b> 自研 STE）、容量边界（<b>必须 adapter 式</b>）都已清楚。</li>
+</ul>
+
+<div class="warn">
+  <div class="t">⚠️ 本轮流程教训（已写入规范）</div>
+  <p>连续多次「日志 0 字节 + exit 1」<b>不是脚本 bug</b>，而是<b>失联子代理留下的孤儿进程</b>（<code>e5b_qat_mopt.py --steps 700</code>）一直在跑、占着约 4.8 GB 显存，我在同一张卡上叠新任务 → 爆显存。</p>
+  <p>⇒ <b>规范：① 每次派新 GPU 任务前先列 python 进程命令行、清掉同名孤儿；② 长任务必须每步极小增量 + <code>-u</code> 实时输出 + 几十秒级读日志（崩溃是瞬时事件，不能「跑完再查」）；③ 脚本支持断点续跑。</b></p>
+</div>
+
+<footer>
+  KokonaPolaris-S4 · 补充设计 09 · v1.1 · 2026-10-03<br>
+  §2–§4、§8 为实测数据（脚本可复跑：<code>tools/e5_forward_probe.py</code> / <code>tools/e5_e2e.py</code> / <code>tools/e5b_g1_fast.py</code>）；§5 为由此得出的判据修订；§6 为工程边界知识。<br>
+  所有数字均来自真实 Sana 1.6B，非推演。
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,18 @@
+# ============================================================
+# KokonaPolaris-S4 环境定格 v1  （2026-10-02 定格）
+# ============================================================
+# 基础   : Python 3.12.10  @  D:/model/.venv
+# 方式   : venv --system-site-packages（复用系统 torch 2.8.0+cu128，
+#          该 torch 已验证 sm_120 可用，重装要 3GB 下载，故复用）
+# 隔离   : 下列为 venv 覆盖层（pip freeze --local）。
+#          系统环境（transformers 5.10.1 / hub 1.26.1 / tokenizers 0.22.2 /
+#          diffusers 0.34.0）"一根毫毛未动"，仅被 venv 版本遮蔽。
+# 网络   : PyPI 走清华/阿里镜像，HF 走 hf-mirror.com（不占代理）
+# 缓存   : 全部重定向至 D:/model/.cache（不写 C 盘）
+# 复现   : source /d/model/env.sh  &&  "$KP_PY" tools/smoke_env.py
+# ============================================================
+
+diffusers==0.35.2
+huggingface_hub==0.36.2
+tokenizers==0.21.4
+transformers==4.55.4

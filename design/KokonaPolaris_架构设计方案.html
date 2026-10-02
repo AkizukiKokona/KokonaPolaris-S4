@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KokonaPolaris 架构设计方案</title>
+<style>
+  :root{
+    --bg:#FAFAF9; --surface:#FFFFFF; --surface2:#F4F3F1;
+    --text:#1C1C1A; --text2:#5F5E5A; --text3:#888780;
+    --border:rgba(0,0,0,0.10); --border2:rgba(0,0,0,0.18);
+    --accent:#534AB7; --accent-l:#EEEDFE; --accent-d:#3C3489;
+    --blue:#185FA5; --blue-l:#E6F1FB;
+    --teal:#0F6E56; --teal-l:#E1F5EE;
+    --amber:#854F0B; --amber-l:#FAEEDA;
+    --red:#A32D2D; --red-l:#FCEBEB;
+    --green:#3B6D11; --green-l:#EAF3DE;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg); color:var(--text); line-height:1.75; font-size:15px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:960px;margin:0 auto;padding:56px 28px 100px}
+
+  header{border-bottom:1px solid var(--border);padding-bottom:28px;margin-bottom:40px}
+  .kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:500;margin-bottom:14px}
+  h1{font-size:34px;font-weight:600;letter-spacing:-.02em;line-height:1.25;margin-bottom:12px}
+  .sub{font-size:16px;color:var(--text2);max-width:720px}
+  .meta{margin-top:18px;font-size:13px;color:var(--text3);display:flex;gap:20px;flex-wrap:wrap}
+
+  h2{font-size:21px;font-weight:600;letter-spacing:-.01em;margin:56px 0 8px;padding-top:8px}
+  h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:10px;font-weight:500}
+  h3{font-size:16px;font-weight:600;margin:28px 0 10px}
+  p{margin:12px 0;color:var(--text)}
+  .lead{color:var(--text2)}
+  ul,ol{margin:12px 0 12px 22px}
+  li{margin:7px 0}
+  strong{font-weight:600}
+  code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.88em;background:var(--surface2);padding:2px 6px;border-radius:4px;color:var(--accent-d)}
+  hr{border:none;border-top:1px solid var(--border);margin:44px 0}
+
+  /* metric cards */
+  .grid{display:grid;gap:12px;margin:24px 0}
+  .g4{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+  .card .lbl{font-size:12px;color:var(--text3);margin-bottom:6px}
+  .card .val{font-size:22px;font-weight:600;letter-spacing:-.01em}
+  .card .val small{font-size:13px;font-weight:400;color:var(--text2);margin-left:4px}
+  .card .note{font-size:12.5px;color:var(--text2);margin-top:8px;line-height:1.6}
+
+  .callout{border-left:3px solid var(--accent);background:var(--accent-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .callout .t{font-weight:600;color:var(--accent-d);margin-bottom:6px;font-size:15px}
+  .callout p{margin:6px 0;color:var(--accent-d);font-size:14.5px}
+
+  .warn{border-left:3px solid var(--amber);background:var(--amber-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .warn .t{font-weight:600;color:var(--amber);margin-bottom:4px;font-size:14.5px}
+  .warn p{color:var(--amber);font-size:14px;margin:4px 0}
+
+  .info{border-left:3px solid var(--blue);background:var(--blue-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .info .t{font-weight:600;color:var(--blue);margin-bottom:4px;font-size:14.5px}
+  .info p{color:var(--blue);font-size:14px;margin:4px 0}
+
+  /* tables */
+  .tw{overflow-x:auto;margin:20px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;padding:12px 16px;background:var(--surface2);font-weight:600;color:var(--text2);font-size:12.5px;letter-spacing:.02em;border-bottom:1px solid var(--border);white-space:nowrap}
+  td{padding:11px 16px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.hl{background:var(--accent-l);font-weight:600;color:var(--accent-d)}
+  th.hl{background:var(--accent-l);color:var(--accent-d)}
+
+  .pill{display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:20px;font-weight:500;white-space:nowrap}
+  .p-ok{background:var(--green-l);color:var(--green)}
+  .p-no{background:var(--red-l);color:var(--red)}
+  .p-mid{background:var(--amber-l);color:var(--amber)}
+  .p-info{background:var(--blue-l);color:var(--blue)}
+  .p-acc{background:var(--accent-l);color:var(--accent-d)}
+
+  /* pipeline diagram */
+  .pipe{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:26px 20px;margin:26px 0;overflow-x:auto}
+  .pipe svg{display:block;margin:0 auto;min-width:640px}
+
+  /* module cards */
+  .mod{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px;margin:14px 0;position:relative}
+  .mod .tag{position:absolute;top:-10px;left:18px;font-size:11px;font-weight:600;padding:2px 10px;border-radius:20px;background:var(--accent);color:#fff;letter-spacing:.03em}
+  .mod h4{font-size:15.5px;font-weight:600;margin-bottom:8px;margin-top:4px}
+  .mod p{font-size:14px;color:var(--text2);margin:8px 0}
+  .mod ul{margin:8px 0 0 20px}
+  .mod li{font-size:14px;color:var(--text2)}
+
+  /* timeline */
+  .tl{margin:26px 0;position:relative;padding-left:26px}
+  .tl::before{content:"";position:absolute;left:6px;top:8px;bottom:8px;width:1.5px;background:var(--border2)}
+  .tl .stage{position:relative;margin-bottom:22px}
+  .tl .stage::before{content:"";position:absolute;left:-23px;top:7px;width:9px;height:9px;border-radius:50%;background:var(--accent);border:2px solid var(--bg)}
+  .tl .stage.p0::before{background:var(--red);width:11px;height:11px;left:-24px;top:6px}
+  .tl .st{font-weight:600;font-size:15px}
+  .tl .sd{font-size:14px;color:var(--text2);margin-top:3px}
+  .tl .acc{font-size:13px;color:var(--accent-d);background:var(--accent-l);padding:5px 10px;border-radius:6px;display:inline-block;margin-top:8px}
+
+  /* priority bar */
+  .prio{display:flex;gap:0;margin:20px 0;border-radius:10px;overflow:hidden;border:1px solid var(--border);font-size:13px}
+  .prio div{padding:14px 16px;flex:1;background:var(--surface)}
+  .prio div+div{border-left:1px solid var(--border)}
+  .prio .rank{font-size:11px;color:var(--text3);margin-bottom:4px;letter-spacing:.05em}
+  .prio .name{font-weight:600;font-size:14px;color:var(--accent-d)}
+  .prio .d{font-size:12.5px;color:var(--text2);margin-top:4px}
+  .prio .k1{background:var(--accent-l)}
+  .prio .k1 .name{color:var(--accent-d)}
+
+  footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--border);font-size:12.5px;color:var(--text3);line-height:1.9}
+  @media(max-width:640px){h1{font-size:26px}.wrap{padding:32px 18px 70px}.prio{flex-direction:column}.prio div+div{border-left:none;border-top:1px solid var(--border)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">Architecture Design · v1.13</div>
+  <h1>KokonaPolaris-S4</h1>
+  <p class="sub">心夏北极星 · 缩写 KP · 后缀 S4 = Single-stream + native FP4<br>面向 NVFP4 / SM120 的原生低显存文生图模型架构<br>单流 DiT · 混合 Latent · 可插拔能力总线 · 可逆擦除账本</p>
+  <div class="meta">
+    <span>2026-10-03</span>
+    <span>设计稿 · 未实现（0 行代码）</span>
+    <span>Kokona = 心夏 · Polaris = 北极星（兼指极性 / 对偶）</span>
+    <span style="color:var(--green);font-weight:500">v1.13 已修订（G1 初步通过 · W4A8）</span>
+  </div>
+</header>
+
+<div class="callout" style="border-left-color:var(--accent);background:#FDF0EC">
+  <div class="t" style="color:var(--accent)">🧭 读前必看：这个项目到底在做什么（v1.12 新增）</div>
+  <p><b>刚打开这份文档的话，先读这一段。</b>这三句话此前散落在 11 份文档里、从没有集中写过 —— 这是本次审计补上的最大缺口。</p>
+  <p><b>1️⃣ KokonaPolaris-S4 是一份「设计稿」，目前 0 行代码。</b>目标是<b>设计一个全新的文生图模型</b>（不是改造 SDXL / Flux），把「低显存 + 原生 FP4 + LoRA 友好」当成第一性目标。</p>
+  <p><b>2️⃣ ⭐ 现在能跑出图的，不是 KP，是 Sana 1.6B。</b>那是我们下载的、<b>别人已经训好的开源模型</b>，被当作<b>靶子（替身 / 试验台）</b>。选它是因为它的 latent 压缩率（<b>32×</b>）与 token 数（<b>1024</b>）与 KP <b>完全同构</b> → 在它身上验证出的量化结论<b>可直接外推到 KP</b>。</p>
+  <p><b>3️⃣ 本机是「验证机」，不是「训练机」。</b>RTX 5050 Laptop / 8 GB / 20 SM 只够<b>把假设一条条打掉</b>（跑 G0–G5 与副线 P2′），不够从零训一个大模型（G6 全量预训练必须租云）。</p>
+  <p>👉 <b>所以「刚做第一步就能出图」不是矛盾</b> —— 出图的是<b>靶子模型 Sana</b>，我们做的是<b>在别人的模型上验证我们自己的设计假设</b>。<b>KP 本体至今一张图都没生成过、一行架构代码都没写</b> —— 目前 <code>D:\model\tools\</code> 下的全部是<b>在 Sana 上做实验的脚本</b>，不是 KP 本身。</p>
+  <p><b>三个编号系统，别混淆</b>（这是最容易读乱的地方）：</p>
+  <p>· <b>P0–P4 = 产品路线</b> —— KP 本体的建设顺序：「模型怎么一步步造出来」（P0 验证 NVFP4 → P1 换 latent → P2 换主干 → P3 身份模块 → P4 少步化）<br>
+     · <b>G0–G7 = 验证门</b> —— 每条关键假设的关卡：「这假设成立吗？不成立怎么办」（G0 环境 ✅ → <b>G1 NVFP4 不掉点（W4A8）✅ 初步通过</b> → G2 通道分离 → G3.5 L1 轴真实性）<br>
+     · <b>E0–E8 = 环境准备任务</b> —— 一次性工程活：「桌子摆好了吗」（E1 建 venv ✅ / E2 定格版本 ✅ / E4 下靶子 ✅ / E5 量化实测 ✅）</p>
+  <pre><code>E（摆桌子 · 已基本完成） ──▶ G（在桌上做实验 · 验假设） ──▶ P（按结果真正把模型造出来）
+                                    ▲ 现在在这里：G0 已通关，G1（W4A8）初步通过，待补正式 FID</code></pre>
+  <p><b>只想看结论？</b>按此顺序读：<b>§0 一页纸摘要 → §1.2 核心判断 → §3 总体架构 → §9 落地路线与验证门</b>。其余章节是论证过程。</p>
+</div>
+
+<p style="margin:26px 0 10px;font-size:12px;letter-spacing:.1em;color:#888;text-transform:uppercase">📜 版本历史（新 → 旧 · 正文从 §0 开始）</p>
+
+<div class="callout" style="border-left-color:var(--green);background:#EAF3DE">
+  <div class="t" style="color:var(--green)">v1.13 修订摘要（详见《KokonaPolaris_补充09_G1前哨量化实测与判据修订》v1.1）—— G1 从「做实验」推进到「初步通过」</div>
+  <p><strong>⑥ ✅ E5b 可训性定案</strong>（补充 09 §8）—— ModelOpt 量化后的模型<b>只能推理、不能训</b>，blocker 精确定位为 <b><code>FP8SDPA</code> 无 backward</b>（diffusers 插件把 <code>F.scaled_dot_product_attention</code> 换成了只实现 forward 的自定义算子）——<b>与量化器开关、与 CUDA 扩展均无关</b>，patch 回原版 SDPA 后 W4A8/W4A4 全参 backward 通过。⚠️ 并更正一处根因误判：<b>不是「本机缺 MSVC」</b>（实测 4 处 VS 安装，<code>cl.exe</code> 只是不在 PATH）。</p>
+  <p><strong>⑦ ⭐ 容量结论：8 GB 卡必须 adapter 式 QAD</strong> —— 全参 QAT 的 AdamW 优化器状态 = 2×1.604e9×4B ≈ <b>12.8 GB</b>，绝无可能；改「冻结主干 + 只训低秩旁路」（5.99 M 可训、峰值 3.41 GB）。<b>与设计稿「Δ-Pack / 能力包」完全同构 → 不是妥协，是把架构决策提前实证了。</b>另给出<b>自研可微 NVFP4 fake-quant（STE）</b>作为绕开 ModelOpt 训练路径的独立方案。</p>
+  <p><strong>⑧ ✅ G1 快速判据初步通过（W4A8）</strong>（§10）—— 用 <code>d_quant / d_ref</code>（量化偏移 ÷「换一个 seed」的自然离散度）取代全量 FID：<b>W4A8 仅 53.5%</b>（W4A16 52.7% / W4A4 88.9%，三臂全 &lt; 1）⇒ <b>激活降到 FP8 几乎不额外损失</b>，实测支持「FP4 权重 + FP8 激活」设计档。⚠️ 统计薄（每 prompt 3 对），<b>正式过门仍需 ≥50 张/臂 FID</b>。</p>
+  <p><strong>⑨ 🔧 一条流程规范（用户明确要求）</strong>：连续「日志 0 字节 + exit 1」<b>不是脚本 bug</b>，而是<b>失联子代理的孤儿进程</b>占卡（<code>e5b_qat_mopt.py --steps 700</code> 一直在跑、占 ~4.8 GB）→ 叠任务爆显存。⇒ <b>派 GPU 任务前先清同名孤儿；长任务每步极小增量 + <code>-u</code> 实时输出 + 几十秒级读日志 + 断点续跑</b>。</p>
+</div>
+
+<div class="callout" style="border-left-color:var(--accent);background:#FDF0EC">
+  <div class="t">v1.12 修订摘要（详见《KokonaPolaris_补充09_G1前哨量化实测与判据修订》）—— 全量文档审计 + E5 实测落点</div>
+  <p><strong>① 🔍 全文档审计（9 份 × 双版）</strong>：发现并修复 <b>3 处版本/内容矛盾</b>。最严重的一处是<b>主文档 §8 对比表把 KP 的注意力写成 <code>3:1 线性:softmax</code></b> —— v1.1 早已改为 Sigmoid/Softpick，<b>对比表漏改</b>，而它出现在全案最关键的一张对比表里。</p>
+  <p><strong>② ⭐ 补上最大缺口：新增「🧭 读前必看」节（本页顶部）</strong> —— 11 份文档里此前<b>没有一处</b>集中说明「KP（设计稿）/ Sana（靶子）/ 本机（验证机）」三层身份，以及 <b>P / G / E 三个编号系统的分工</b>。<b>这正是「刚做第一步就能出图」这个困惑的根因。</b></p>
+  <p><strong>③ 🔴 G1 判据修订</strong>（§10 末）—— E5 实测证明<b>逐像素 PSNR/SSIM 测的是「轨迹稳定性」而非「画质」</b>（W4A4 出图仅 9.67 dB 但画质正常、只是换构图）→ <b>主判据改为分布级指标</b>（FID，≥ 50 张），逐像素降为辅助参考。</p>
+  <p><strong>④ 📌 E5 前哨实测存档</strong>（补充 09）：真实 Sana 1.6B 上 4 路对照 —— 误差 <b>W4A16 7.74% / W4A8（设计档）9.98% / W4A4 29.72%</b>，<b>代价几乎全部来自「激活」量化</b>；设计档落在两者之间 → <b>实测支持「FP4 权重 + FP8 激活」这个选择</b>。</p>
+  <p><strong>⑤ ⚠️ 两条边界如实标注</strong>：<b>(a)</b> PTQ 是<b>模拟量化</b>（权重仍 bf16 驻留）→ <b>本轮显存数字不能用来论证 NVFP4 的显存收益</b>；<b>(b)</b> ModelOpt 的 NVFP4 fake-quant <b>忽略 <code>block_sizes</code> 配置</b>（16/32/64 逐位相同）→ 官方 "block 32" 不带来额外损失。</p>
+</div>
+
+<div class="callout" style="border-left-color:var(--red);background:#FCEBEB">
+  <div class="t" style="color:var(--red)">v1.11 修订摘要（详见《KokonaPolaris_补充08_控制件与L1基座依赖风险》）—— 用户警告触发的一次地基级审查</div>
+  <p><strong>⓵ ⚠️ 发现一处真缺口：「选层判据」里从来没有 L1。</strong>原「两问」只在 L2/L3 之间分流，把承担 <b>90% 需求</b>的 L1 预设为"免费已得"。→ 这不只是"过度信赖基座"，是<b>从未检验</b>。已在 §4.8 补上「<b>第零问：这个轴存在吗？</b>」，并新增 §4.8.7 全节。</p>
+  <p><strong>⓶ ⚠️ L1 的低比特风险被确认为「全案第三个隐藏关键假设」</strong>（前两条：NVFP4 QAD、通道分离退化），且<b>比第二条更外层</b>——通道退化让 L1 <b>失真</b>，覆盖率不足让 L1 <b>不存在</b>。机制：<b>FP4 激活只有 16 个量化级（E2M1）</b>，若风格靠激活精细结构传递，量化会<b>系统性压缩轴的分辨率</b> → 「旋钮行程变短、转到一半就饱和」。<b>G0–G7 全未覆盖。</b></p>
+  <p><strong>⓷ ✅ 加固四条</strong>：① 措辞纠正——90/9/1 是<b>调用量分布</b>、非能力分层（<b>「L1 覆盖 90% 调用量，L3 承担 100% 兜底责任」</b>）；② 新增 <b>Axis Probe + 验证门 G3.5</b>（单调/正交/可逆/<b>低比特行程</b>四测，未通过者默认归 L3）；③ 新增 <b>Style-Pack</b>（风格也走载体路线，与角色卡/TypographyPack 共用分层格式）；④ 立<b>设计律「控制权原则」</b>：<b>能显式写入的，就不要隐式请求</b>。</p>
+  <p><strong>⓸ ⭐ 一条免费的正交监督手段</strong>：§4.8.4 的 <b>shader 配对数据</b>此前只当"数据来源"，现有第二用途——同一场景不同 shader，几何/光照/相机/姿态完全一致，<b>条件向量的差异理论上只应落在风格维</b>，其余维度必须为零 → <b>天然的逐维独立监督信号</b>。加上它，L1 才能从「黑盒旋钮」变成「<b>已标定控制面板</b>」（16 维，逐维命名）。</p>
+  <p><strong>⓹ 📌 ControlNet 定位确认</strong>：等价物是 <b>条件包</b>（§4.7.9，Adapter/带分支/depth·pose·seg），属「<b>能做但贵</b>」（独立分支 + 天级重训），<b>不进当前预算</b>；ControlNet 原有的两个职责已被「语义 8ch 通道 + Layout token」与「角色卡」拆走 → <b>「只为了生成角色才需要它」的判断成立</b>。</p>
+</div>
+
+<div class="callout" style="border-left-color:var(--accent);background:#FDF0EC">
+  <div class="t">v1.10 修订摘要（详见《KokonaPolaris_补充07_环境基线报告》v1.3，功耗天花板翻案）—— <b>推反 v1.9 的功耗结论</b></div>
+  <p><strong>㊼ ⚠️ 【翻案】115 W 完全可达，实测峰值 113.8 W</strong>（＝上限的 <b>98.1%</b>），温度 82 °C，<b>降频标志 <code>clocks_event_reasons.active</code> 恒为 <code>0x0</code></b>（零降频）。v1.9 ㊶ 的「天花板只有 ≈80 W / 115 W 不可达」<b>作废</b>。</p>
+  <p><strong>㊽ 🔍 根因是测量口径错误</strong>：v1.9 的 80 W 是 <b>bf16</b> 负载的功耗，被误当成整卡上限。<b>功耗是「负载形态」的函数</b>——实测 5 种形态各 18 秒：D2D 拷贝 68.4 W / fp32 elementwise 66.9 W / <b>bf16 tensor 79.7 W</b> / 三流并发 79.8 W / <b>FP4 tensor 113.0 W（峰 113.8）</b>。</p>
+  <p><strong>㊾ 🎯 对架构判断反而是强化，不是削弱</strong>：设计主线的 <b>FP4 路径正是把功耗打满的那条</b>——120.5 TFLOPS 是在 <b>113 W</b> 下取得（不是 80 W），且<b>已逼近 20 SM 的 tensor 理论峰值</b>（20×1024 MAC×2×2.797 GHz ≈ 114.6 TFLOPS）→ <b>「瓶颈是 20 SM 而非功耗」现在有了硬证据：再给瓦数也买不到 FLOPS</b>。</p>
+  <p><strong>㊿ 📌 新规范（永久）</strong>：<b>功耗必须按负载形态分别测，不能用一个负载的功耗代表整卡上限；测功耗上限时必须同时读 <code>clocks_event_reasons.active</code>。</b> 另：<b>FP4 每瓦算力 1.07 TFLOPS/W，是 bf16（0.32）的 3.3 倍</b>——进一步支撑「原生 FP4」这条主线。</p>
+</div>
+
+<div class="callout">
+  <div class="t">v1.9 修订摘要（详见《KokonaPolaris_补充07_环境基线报告》v1.2，满血复测）—— 两个估算被推反 + G0 通关（⚠️ 其中 ㊶㊸ 的功耗部分已由 v1.10 推翻）</div>
+  <p><strong>㊶ <s>⚠️ 功耗天花板实测只有 ≈80 W，不是标称的 115 W</s></strong>—— → <b style="color:var(--accent)">【v1.10 更正】115 W 可达，实测 113.8 W，零降频</b>。</p>
+  <p><strong>㊷ ⚠️ 算力提升只有 1.23×，我上一版估的 2–2.5× 是严重高估</strong>——满血 bf16 <b>25.8 TFLOPS</b>（静音 20.9）、FP4 <b>120.5 TFLOPS</b>。功耗涨 1.75× 而算力只涨 1.23× → <b>强收益递减</b>，说明瓶颈是 <b>20 SM 而非功耗</b>（45.7 W 已拿到 80 W 的 81% 性能）。<b>v1.10 修正口径后此结论不变且更强</b>：FP4 功耗 ×2.47（45.7→113 W）而算力仅 ×1.21，静音档已拿到满血 <b>82.3%</b>。</p>
+  <p><strong>㊸ ⭐ 工程含义：静音档几乎等于满血</strong>——<b>不需要为性能忍受噪音</b>；且 <b>G1 不必再等解锁功耗，静音档即可开跑</b>（仅慢 ~20%）→ <b>项目不再有「需要用户配合才能开工」的前置条件</b>。</p>
+  <p><strong>㊹ ✅ G0 通关</strong>：ModelOpt 端到端量化真实 <code>nn.Linear</code> 跑通、无 layout 报错 → 坐实「不手搓 FP4 layout」规范。</p>
+  <p><strong>㊺ ⭐ 意外收获</strong>：官方 <code>NVFP4_DEFAULT_CFG</code> 的真身是 <b>W4A4 + <code>algorithm="max"</code></b>。<code>max</code> 恰是最易受激活离群值影响的校准方式 → <b>侧面印证了设计里用 RHT 旋转的必要性</b>。</p>
+  <p><strong>㊻ 第一手精度数据（G1 前哨）</strong>：单层 1024²，<b>W4A16 误差 10.21% / cos 0.9949</b> 明显优于 <b>W4A4 的 13.99% / cos 0.9904</b> → <b>分层精度白名单是必要的</b>。⚠️ 但这是 <b>PTQ + 单层 + 随机权重</b>，是<b>下界</b>，不能外推到生成质量。</p>
+</div>
+
+<div class="callout" style="border-left-color:var(--blue);background:var(--blue-l)">
+  <div class="t">v1.8 修订摘要（详见《KokonaPolaris_补充07_环境基线报告》v1.1）—— 约束分类更正 + 排程更新</div>
+  <p><strong>㊲ 更正一处概念错误（重要）</strong>：v1.7 把「功耗」与「磁盘」并列为"两个硬约束"，误导性——<b>功耗是可调工况（45.7W 静音 ↔ 115W 满血，仅影响速度），不是硬约束</b>。真正的硬约束只有两个：<b>显存 8GB</b> 与 <b>SM 数 20</b>。只有这两项不该影响架构判断。</p>
+  <p><strong>㊳ 磁盘阻塞解除</strong>：D: 可用 <b>52 GB → 180 GB</b>，E0 完成。<b>所有新增大文件一律落 <code>D:\model\</code>，不碰 C 盘</b>。</p>
+  <p><strong>㊴ <s>吞吐数字需重新定位</s></strong>： → <b style="color:var(--accent)">【v1.10 更正】满血实测仅 ~1.2×（FP4 120.5 TFLOPS @113 W / bf16 25.8 TFLOPS @80 W），「满血应上浮 2–2.5×」的估算已作废</b>。</p>
+  <p><strong>㊵ 行动清单按功耗工况重排</strong>：E1/E2/E3/E4/E6 <b>对功耗不敏感</b>（纯 IO / CPU），随时可做；仅 <b>E5（G1 训练）</b> 与 <b>E7（基准复测）</b> 需解锁 115W。</p>
+</div>
+
+<div class="callout" style="border-left-color:var(--blue);background:var(--blue-l)">
+  <div class="t">v1.7 修订摘要（详见《KokonaPolaris_补充07_环境基线报告》）—— 实测报告，不改架构</div>
+  <p><strong>㉜ G0 基本通过</strong>：目标机 RTX 5050 Laptop 实测 <code>compute_cap 12.0</code>（sm_120）；<code>torch 2.8.0+cu128</code> 的 <code>float4_e2m1fn_x2</code> + <code>_scaled_mm</code> <b>可用</b>——E2M1 解码 6/6 精确命中、block scale 生效、吞吐 <b>99.2 TFLOPS ≈ bf16 的 4.7×</b>（⚠️ 静音工况下限）。</p>
+  <p><strong>㉝ 新增规范</strong>：<b>不手写 FP4 打包与 scale 布局</b>，一律走 ModelOpt / Transformer Engine（cuBLASLt 的 block-scale 布局是 swizzled 的）。</p>
+  <p><strong>㉞ 工具链惊喜</strong>：本机已装 <code>nvidia-modelopt 0.46.0</code>，带 <b>23 个 NVFP4 配方</b>——<code>FOUR_OVER_SIX</code>（NVFP4 训练）、<code>FP8_MHA</code>（FP4 权重 + FP8 attention）、<code>KV_ROTATE</code>（RHT）等。</p>
+  <p><strong>㉟ 两个约束</strong>：功耗 45.7W 静态工况 + 磁盘 28GB / 52GB。⚠️ <b>「硬约束」定性已由 v1.8 ㊲ 更正，磁盘已解除（㊳）</b>。<strong>㊱ 3 个版本冲突</strong>：<code>transformers 5.10.1</code> 太新。</p>
+</div>
+
+<div class="callout">
+  <div class="t">v1.6 修订摘要（详见《KokonaPolaris_补充06_就绪度评估》）—— 纯评估，不改架构</div>
+  <p><strong>㉙ 正式命名</strong>：POCKET-DiT → <b>KokonaPolaris（心夏北极星）</b>，尺寸档代号 → KP-S / KP-M / KP-L。</p>
+  <p><strong>㉚ 新增「验证门」清单 G0–G7</strong>（§9.2）：每道门给出成本、通过判据、以及<b>不过时的退路</b>——把「高风险」从形容词变成可执行的检查表。</p>
+  <p><strong>㉛ 就绪度判决</strong>：设计层已收敛、假设层未就绪、实现层未开始 → <b>「可以开工，但不能照着文档直接开训」</b>。</p>
+</div>
+
+<div class="callout">
+  <div class="t">v1.5 修订摘要（详见《KokonaPolaris_补充05_可逆擦除与能力谱系》）</div>
+  <p><strong>㉓ 能力判据补全为「两问」</strong>：① 底模见过没有？② 它被人为抑制过吗？——补上上一轮漏掉的 <b>「支撑集内、但被人为推出去」</b> 这一类。</p>
+  <p><strong>㉔ 新增 §4.7.10 可逆擦除账本</strong>：把合规抑制实现为显式、低秩、有记录的算子 <code>E</code>，则 <b>恢复 = 施加 <code>E⁻¹</code></b>。依据：擦除多为「引导式回避」而非销毁（arXiv 2505.17013）、安全子空间 <b>有效秩 k≈6</b>（LoX）、闭式擦除 <b>22 秒</b>（CURE, NeurIPS 2025）。</p>
+  <p><strong>㉕ 能力谱系新增「成本档」</strong>：秒级（闭式）/ 小时级（Δ-Pack）/ 天级（∥-Pack）——同一张表不同格子差两个数量级。</p>
+  <p><strong>㉖ 恢复型包允许轻量非线性</strong>（CA-LoRA 教训：抑制造成的损失可能非低秩）；<strong>㉗ 数据供给升级为四旋钮</strong>（视角 / 着色器 / 分层可见性 / 姿态，组合式扩增）；<strong>㉘ 新增部署三层责任划分</strong>。</p>
+</div>
+
+<div class="callout">
+  <div class="t">v1.4 修订摘要（详见《KokonaPolaris_补充04_身份载体与双向包体系》）</div>
+  <p><strong>⑮ 身份载体升为一等公民</strong>：新增数据类型「角色卡」（1–5MB，2.5D 分层 + 伪深度 + 身份 token），身份<b>不再由 Δ-Pack 承担</b>。</p>
+  <p><strong>⑯ 能力挂件二分为双向包体系</strong>：<b>并联包 ∥-Pack</b>（旁路，能力可大，物理上不可能打架）/ <b>叠加包 Δ-Pack</b>（ΔW，必须锁子空间，只做长尾）——<b>分工边界由数学规定</b>。</p>
+  <p><strong>⑰ 找到「打架」的物理机理</strong>：LoRA 会产生 <b>入侵维度（intruder dimensions）</b>——正交于底模权重的奇异向量（arXiv 2410.21228）。据此新增 <b>「禁止入侵维度」硬约束</b>（含训练后谱检查）。</p>
+  <p><strong>⑱ 叠加包规格升级</strong>：块对角分解（有效秩 n_l×r，<b>参数量不变</b>）+ <b>rsLoRA α/√r 缩放</b> + 按 GID 分层 + <b>W_o 优先分配预算</b>。</p>
+  <p><strong>⑲ 身份 token 走 cross-attention、不拼主序列</strong>（256 token，非 1024）——反对照抄 InstantCharacter。</p>
+  <p><strong>⑳ 主干双域预训练 + domain 条件向量</strong>：让「写实」成为内生旋钮（默认 anime），不做事后外挂。</p>
+  <p><strong>㉑ ComfyUI 不作为路线依赖</strong>，只预留四个兼容接口；<strong>㉒ TypographyPack 与角色卡共用同一套分层表示</strong>。</p>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th></th><th>身份载体</th><th>并联包 ∥-Pack</th><th>叠加包 Δ-Pack</th></tr></thead>
+<tbody>
+<tr><td><strong>形态</strong></td><td>数据对象（文件）</td><td>旁路网络 / 条件编码器</td><td>权重扰动 ΔW</td></tr>
+<tr><td><strong>典型规模</strong></td><td>1–5 MB</td><td>100M–1B</td><td>27 MB（全层）</td></tr>
+<tr class="good"><td><strong>会不会打架</strong></td><td><strong>物理上不可能</strong></td><td><strong>物理上不可能</strong></td><td><span class="pill p-no">会，必须约束</span></td></tr>
+<tr><td><strong>跨主干版本</strong></td><td><strong>能</strong></td><td><strong>能</strong></td><td>需子空间约束才勉强能</td></tr>
+<tr><td><strong>该做什么</strong></td><td>角色身份、3D 姿态</td><td>跨域能力（写实）、文字渲染</td><td>同域长尾：笔触、色调</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="info">
+  <div class="t">v1.3 修订摘要（详见《KokonaPolaris_补充03_LoRA天花板与三层控制栈》）</div>
+  <p><strong>⑨ 新增「三层控制栈」</strong>：L1 主干内生条件轴（约 90% 需求，零成本）＋ L2 外置条件编码器（约 9%）＋ L3 子空间约束 LoRA（约 1%）——<b>让 LoRA 只做长尾，它的两个天花板从根上消失</b>。</p>
+  <p><strong>⑩ 能力包默认采用 SVD 子空间约束</strong>（LoRA-X 式，ΔW = Ũ·ΔΣ·Ṽᵀ）→ 跨主干版本可迁移，<b>零额外成本</b>。</p>
+  <p><strong>⑪ ⚠️ 新增必做项：通道分离的显式监督</strong>——无监督则两通道都会塞满信息，画风解耦失效（全案第二个隐藏关键假设）。</p>
+  <p><strong>⑫ 新增分辨率维度 Matryoshka</strong>（早期步骤跑 256 token，后期长到 1024；实测 FID 改善且 FLOPs −60%）。</p>
+  <p><strong>⑬ 重要更正</strong>：删除「从零预训练需千万级算力」的判断——Micro-Budget 证据把成本拉到 <b>$1,890 / 1.16B</b>，可行性边界已变。</p>
+  <p><strong>⑭ 风格条件轴的数据钥匙</strong>：同一 3D 场景 × 不同 shader 渲染 = 内容对齐、风格不同的完美配对。</p>
+</div>
+
+<div class="info">
+  <div class="t">v1.2 修订摘要（详见《KokonaPolaris_补充02_能力总线与文字渲染》）</div>
+  <p><strong>⑤ 新增「能力总线」</strong>：冻结主干 + 可插拔能力包（画风 / 角色 / 领域 / 条件 / 文字）。单包约 27MB，门控默认 0 时输出 <b>bit-exact</b>。</p>
+  <p><strong>⑥ 明确「可插拔」的分界线</strong>：同一支撑集内的能力（画风 / 身份）可做 LoRA 包；<b>支撑集外扩的能力（文字渲染、空间推理）必须进主干或带独立分支</b>——低秩适配能改「怎么画」，不能改「看得见什么」。</p>
+  <p><strong>⑦ 新增 TypographyPack</strong>：主干保持 32× 压缩不动，文字走<b>独立的低压缩 ROI 分支</b>（字形条件 + AttnX 注入，&lt;0.6B）。</p>
+  <p><strong>⑧ 新增 Layout Planner</strong>（独立 100M–1B 小模型）：把「版式规划」从像素生成里剥离，输出 JSON 版面结构。</p>
+</div>
+
+<div class="info">
+  <div class="t">v1.1 修订摘要（详见《KokonaPolaris_补充01_底模策略与注意力稀释》）</div>
+  <p><strong>① 不选「底模」，改选教师</strong>——主教师 Z-Image-Turbo（Apache 2.0）+ DINOv3 语义锚定 + Qwen3-4B 文本教师。因为架构全自研，一个权重都继承不了，所以「底模」对本案唯一的意义是<b>教师</b>。</p>
+  <p><strong>② 注意力从「3:1 线性:softmax」改为「3:1 线性:Sigmoid/Softpick」</strong>（去 softmax）——同时解决长提示稀释与 NVFP4 激活离群值。</p>
+  <p><strong>③ 新增 16 个 layout token 两段式路由</strong>；<strong>④ 浅层前 4–6 block 保留 double-stream</strong>，借鉴 Flux 的文本对齐优势。</p>
+</div>
+
+<div class="callout">
+  <div class="t">一句话定位</div>
+  <p>不追求参数量，追求<strong>「在 4–8GB 显存里能得到的最高画质 + 最容易训的角色 LoRA」</strong>。</p>
+</div>
+
+<h2><span class="num">01</span>关键指标</h2>
+<div class="grid g4">
+  <div class="card"><div class="lbl">推理显存峰值 @1024²</div><div class="val">~2.5<small>GB</small></div><div class="note">4GB 卡可跑，8GB 卡有 5GB+ 余量</div></div>
+  <div class="card"><div class="lbl">LoRA 训练显存 @1024²</div><div class="val">~4–5<small>GB</small></div><div class="note">8GB 卡可训角色 LoRA</div></div>
+  <div class="card"><div class="lbl">主干规模</div><div class="val">0.6 / 1.5<small>B</small></div><div class="note">单流 DiT，FP4 权重仅 0.34 / 0.84 GB</div></div>
+  <div class="card"><div class="lbl">Token 数 @1024²</div><div class="val">1024</div><div class="note">32× 压缩 vs f8 的 16384，减少 16×</div></div>
+  <div class="card"><div class="lbl">推理步数</div><div class="val">8 <small>→ 2–4</small></div><div class="note">Decoupled-DMD → rCM</div></div>
+  <div class="card"><div class="lbl">角色训练数据</div><div class="val">2–8<small>视角</small></div><div class="note">正视图 + 背视图即可起步</div></div>
+</div>
+
+<h2><span class="num">02</span>核心判断</h2>
+<div class="callout">
+  <div class="t">显存的第一性来源是 token 数，不是参数量。</div>
+  <p>1024² 在 f8/4ch latent 下是 16384 token，注意力与激活按 O(N²)/O(N) 膨胀；32× 压缩后只剩 <strong>1024 token</strong>。参数量只决定权重大小——FP4 下 1.5B 才 0.84GB；token 数才决定激活、注意力、KV、梯度，后者才是 8GB 卡真正的瓶颈。</p>
+</div>
+
+<h3>因此设计动作的优先级是</h3>
+<div class="prio">
+  <div class="k1"><div class="rank">PRIORITY 1</div><div class="name">Latent 压缩率</div><div class="d">决定 token 数，直接决定一切</div></div>
+  <div><div class="rank">PRIORITY 2</div><div class="name">注意力复杂度</div><div class="d">线性 vs softmax，决定分辨率能否外推</div></div>
+  <div><div class="rank">PRIORITY 3</div><div class="name">权重位宽</div><div class="d">NVFP4，二级放大器</div></div>
+  <div><div class="rank">PRIORITY 4</div><div class="name">参数量</div><div class="d">最后才考虑</div></div>
+</div>
+
+<div class="warn">
+  <div class="t">把 NVFP4 当第一因去设计，会得到一个权重很小、但一开图就 OOM 的模型。</div>
+  <p>NVFP4 是放大器，不是地基。地基是 latent 压缩率。</p>
+</div>
+
+<h2><span class="num">03</span>总体架构</h2>
+<p class="lead">五段式流水线。文本、身份、几何、图像 latent 四类 token <strong>全部拼进同一条序列</strong>，共享同一套注意力权重。</p>
+
+<div class="pipe">
+<svg width="100%" viewBox="0 0 900 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="KokonaPolaris 五段式架构图">
+<defs>
+  <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+</defs>
+
+<text x="30" y="24" font-size="13" font-weight="600" fill="#888780" letter-spacing="0.5">推理数据流</text>
+
+<rect x="30" y="46" width="185" height="62" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="1"/>
+<text x="122" y="72" text-anchor="middle" font-size="15" font-weight="600" fill="#0C447C">文本塔</text>
+<text x="122" y="92" text-anchor="middle" font-size="12" fill="#185FA5">~220M 蒸馏 · 多层特征聚合</text>
+
+<rect x="30" y="152" width="185" height="62" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1"/>
+<text x="122" y="178" text-anchor="middle" font-size="15" font-weight="600" fill="#04342C">CharaBridge</text>
+<text x="122" y="198" text-anchor="middle" font-size="12" fill="#0F6E56">多视角 → 身份 + 几何 token</text>
+
+<rect x="30" y="258" width="185" height="62" rx="10" fill="#FAEEDA" stroke="#854F0B" stroke-width="1"/>
+<text x="122" y="284" text-anchor="middle" font-size="15" font-weight="600" fill="#412402">混合 Latent 编解码</text>
+<text x="122" y="304" text-anchor="middle" font-size="12" fill="#854F0B">32× 压缩 · 语义 8ch + 细节 32ch</text>
+
+<rect x="330" y="152" width="220" height="62" rx="10" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.6"/>
+<text x="440" y="178" text-anchor="middle" font-size="16" font-weight="600" fill="#3C3489">单流 DiT 主干</text>
+<text x="440" y="199" text-anchor="middle" font-size="12" fill="#534AB7">0.6B / 1.5B · 3:1 混合注意力 · NVFP4</text>
+
+<rect x="665" y="152" width="200" height="62" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="1"/>
+<text x="765" y="178" text-anchor="middle" font-size="15" font-weight="600" fill="#0C447C">解码器</text>
+<text x="765" y="199" text-anchor="middle" font-size="12" fill="#185FA5">分块解码 + 2 步 refiner</text>
+
+<path d="M215 77 C 275 77, 275 183, 328 183" fill="none" stroke="#185FA5" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M215 183 L 326 183" fill="none" stroke="#0F6E56" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M215 289 C 275 289, 275 183, 328 183" fill="none" stroke="#854F0B" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M550 183 L 661 183" fill="none" stroke="#534AB7" stroke-width="1.8" marker-end="url(#a)"/>
+
+<text x="790" y="245" text-anchor="middle" font-size="13" font-weight="600" fill="#5F5E5A">→ 图像</text>
+
+<rect x="330" y="258" width="535" height="62" rx="10" fill="#F4F3F1" stroke="rgba(0,0,0,0.12)" stroke-width="1"/>
+<text x="352" y="282" font-size="13.5" font-weight="600" fill="#1C1C1A">单流序列 = [文本 token] + [身份/几何 token] + [图像 latent token]</text>
+<text x="352" y="303" font-size="12.5" fill="#5F5E5A">一套注意力权重 · 一个 LoRA 注入点 · 2K 仅 4096 token，注意力保持 O(N)</text>
+
+<text x="30" y="352" font-size="13" font-weight="600" fill="#888780" letter-spacing="0.5">NVFP4 精度分层</text>
+<rect x="30" y="366" width="835" height="26" rx="8" fill="#EAF3DE" stroke="#3B6D11" stroke-width="1"/>
+<text x="46" y="383" font-size="12.5" font-weight="600" fill="#3B6D11">BF16 / FP8 保护区　·　首 2 层 / 末 8 层 · norm · timestep · patch embed · 输出层 · VAE · 文本塔</text>
+<rect x="600" y="366" width="265" height="26" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="1"/>
+<text x="616" y="383" font-size="12.5" font-weight="600" fill="#3C3489">NVFP4 区　·　attention QKV/O + FFN</text>
+</svg>
+</div>
+
+<h3>为什么必须是单流</h3>
+<ul>
+  <li><strong>参数效率</strong>：Z-Image 用 6B 单流打平 20B+ 双流，参数量能压到 1/3。</li>
+  <li><strong>LoRA 友好</strong>：只有一个 block 结构，注入点唯一，不需要为 text-stream 和 image-stream 分别设计 rank 与学习率。</li>
+  <li><strong>双流本身就是冲突来源</strong>：两套参数对同一扰动响应不同，容易「改了风格也歪了结构」。</li>
+</ul>
+
+<h2><span class="num">04</span>五个模块</h2>
+
+<div class="mod">
+  <span class="tag">模块 1</span>
+  <h4>文本塔 · 小，但不缓存</h4>
+  <p><strong>~220M</strong>，从 T5-XXL 或 Qwen3-4B 蒸馏（参考 CVPR 2025 的 T5 蒸馏：11GB → 285MB，整管线快 2.7×，FID/CLIP 基本持平）。</p>
+  <ul>
+    <li>输出<strong>多层特征聚合</strong>，不用末层——自回归 LLM 末层为 next-token 优化，对图像生成并非最优。</li>
+    <li><strong>不缓存 embedding</strong>。缓存能省 5GB，但会砍掉 prompt dropout、文本侧 LoRA 训练、CFG 负向文本三项能力。省显存靠 latent 压缩，不靠牺牲训练灵活性。</li>
+    <li>实测开销仅 <strong>0.22GB（FP8）</strong>，完全可接受。</li>
+  </ul>
+</div>
+
+<div class="mod">
+  <span class="tag">创新 1</span>
+  <h4>混合 Latent · 语义 8ch + 细节 32ch</h4>
+  <p>把 latent 通道分成两组承担不同职责：语义通道对齐冻结 DINOv3（管「是什么、在哪、什么姿态」），细节通道走 DC-AE 式重建（管纹理、光照、高频）。</p>
+  <ul>
+    <li><strong>低数据训练的救星</strong>：语义通道等于把 REPA / RAE 的收益免费内置了（REPA-E 报告收敛快 17–45×）。</li>
+    <li><strong>身份与画风的天然解耦</strong>：CharaBridge 只读语义通道，底模画风只影响细节通道——这是「LoRA 不打架」的物理基础。</li>
+    <li><strong>注意力成本几乎不变</strong>：通道数不参与 O(N²) 项。40ch vs 16ch 的投影开销增加不到 2.5×，但 token 数少 16×，绝对开销仍远低于 f8。</li>
+  </ul>
+  <div class="warn" style="margin:14px 0 0">
+    <div class="t">为什么不做纯 RAE？</div>
+    <p>RAE 不做空间压缩（256² → 256 token），对低显存是反向的；纯语义 latent 在文字渲染与细纹理上会糊。所以是<strong>混合</strong>，不是替换。</p>
+  </div>
+</div>
+
+<div class="mod">
+  <span class="tag">模块 2</span>
+  <h4>单流混合注意力主干</h4>
+  <ul>
+    <li><strong>3:1 线性 : Sigmoid/Softpick</strong>（v1.1 修订，<b>去 softmax</b>）。每 4 层 = 3 层 gated linear + 1 层非归一化注意力。依据：SANA-Video 2.0 代理实验确认 25% 最优，前向 3.2×。</li>
+    <li><strong>为什么把 softmax 换掉</strong>：softmax 把所有 token 权重归一化到总和为 1，token 之间<b>竞争同一块概率质量</b>——提示词越长，有效词分到的份额越小。这就是 SDXL「词一多就乱画」的根因（T2I-CompBench 上 SDXL 的 Spatial 只有 <b>21.3 / 100</b>）。Sigmoid 对每个 query-key 对独立打分；Softpick 是 softmax 与 ReLU 的中间态。</li>
+    <li><strong>附带的巨大红利</strong>：Sigmoid / Softpick 能实现接近零的 attention sink 率并<b>显著减少激活离群值 → 让低比特量化更鲁棒</b>。而 attention sink 正是 NVFP4 最怕的 outlier 主要来源之一。<b>一个改动同时打中长提示稀释与 FP4 精度两个问题。</b></li>
+    <li><strong>非 softmax 层只放低分辨率层</strong>（前 1/3 深度），高分辨率层全线性 → 显存随分辨率线性而非平方增长。</li>
+    <li><strong>Layout token 两段式路由（v1.1 新增）</strong>：插入 <b>K=16 个可学习布局 token</b>（4×4 粗网格 + 2D 位置编码）。文本 → 路由 → 布局 token → 送达图像 latent。把一次性 attention 拆成两段式，显式引入空间先验。弱监督可直接复用 3D 合成数据的 bbox / depth，<b>零额外标注成本</b>。</li>
+    <li><strong>QK-Norm 必开</strong>：抑制高分辨率下 logits 爆炸，对 4-bit 路径几乎必需。</li>
+    <li><strong>adaLN-Single</strong>：所有 block 共享一个 timestep 调制 MLP，让 timestep 调制只需在一个地方保高精度。</li>
+    <li><strong>无位置编码</strong>，用 Mix-FFN（3×3 深度卷积 + GLU）提供隐式位置信息。同时消除 RoPE 在 4-bit 下的精度敏感性。</li>
+  </ul>
+</div>
+
+<div class="mod">
+  <span class="tag">创新 2</span>
+  <h4>CharaBridge · 多视角身份与几何模块</h4>
+  <p>直接对着你的痛点设计。输入 K 张参考图（K=2–8，典型是正视图 + 背视图），双分支解耦：</p>
+  <ul>
+    <li><strong>外观分支</strong>：DINOv3 语义特征 → Perceiver Resampler → N 个 identity token，聚合时做<strong>置换不变池化</strong>。</li>
+    <li><strong>几何分支</strong>：轻量重建头（~5M 参数）预测 normal + depth + ray-pose → M 个 geometry token。</li>
+    <li><strong>gated cross-attention 注入</strong>，只打在第 4 / 10 / 16 层，门控初始化为 0。</li>
+  </ul>
+  <div class="info" style="margin:14px 0 0">
+    <div class="t">三条关键约束</div>
+    <p><strong>① 可关断 &amp; bit-exact</strong>：id_weight=0 时输出与底模逐位一致（参考 PuLID 只在第 2/4 block 加残差）。</p>
+    <p><strong>② 审美不进身份 token</strong>：外观分支只吃语义特征，不吃像素纹理 →「是谁」与「画成什么风格」分离。</p>
+    <p><strong>③ 几何与外观解耦</strong>：训练时背景与光照被显式剥离（Zero123++ 的教训：灰底会让重建把背景色差误认为几何）。</p>
+  </div>
+  <p style="margin-top:14px"><strong>为什么是外置模块而不是 LoRA？</strong>LoRA 改主干权重，本质是「覆盖」底模先验；外置编码器是「并联」的新通路，物理上不可能覆盖底模。这是解决冲突的<strong>结构性方案</strong>，而不是靠调参。</p>
+</div>
+
+<div class="mod">
+  <span class="tag">创新 3</span>
+  <h4>可伸缩深度 · Matryoshka 式主干</h4>
+  <p>同一份权重，不同分辨率跑不同深度：512² 跑满全部层，1024² 跑前 20 层，2048² 跑前 14 层 + 分块。训练时对多个出口同时施加损失。</p>
+  <p>价值：把「低显存」从硬约束变成<strong>可调谱系</strong>——8GB 卡在 1024² 不必跑满整个模型。</p>
+</div>
+
+<h2><span class="num">05</span>NVFP4 原生方案</h2>
+
+<h3>格式与硬件事实</h3>
+<div class="tw">
+<table>
+<thead><tr><th>项</th><th>定义</th></tr></thead>
+<tbody>
+<tr><td>元素</td><td><code>E2M1</code> — 1 符号 + 2 指数 + 1 尾数，可表示范围 ±6</td></tr>
+<tr><td>block scale</td><td><code>FP8 E4M3</code>，每 <strong>16</strong> 个连续元素共享一个（沿 K 维）</td></tr>
+<tr><td>全局 scale</td><td><code>FP32</code>，每 tensor 一个</td></tr>
+<tr><td>等效位宽</td><td>≈ <strong>4.5 bit/值</strong></td></tr>
+<tr><td>vs MXFP4</td><td>block 16 vs 32，scale 用 E4M3（有尾数）vs E8M0（纯 2 的幂）。NVFP4 量化误差低约 88%；MXFP4 要同 loss 需多 36% token</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="warn">
+  <div class="t">SM120 最容易被忽略的限制：消费卡没有 tcgen05 / TMEM</div>
+  <p>SM100（B100/B200）有 tcgen05 + 256KB TMEM；<strong>SM120（RTX 50 系）完全没有</strong>，FP4 只能走 per-warp 路径（OMMA/QMMA）。共享内存上限也从 228 KiB 降到 <strong>99 KiB</strong>，cluster 仅支持 size=1。</p>
+  <p>→ 官方的 SM100 FP4 kernel 不能直接搬。不要自己写 kernel，直接用 CUTLASS <code>nvfp4_scaled_mm_sm120_kernels.cu</code> 或 TransformerEngine 的 fused quantize+GEMM。</p>
+  <p>吞吐参考：RTX 5090 稠密 FP4 = 1676 TFLOPS（FP8 838）。收益真实存在，但只有数据中心卡的 1/5–1/6。</p>
+</div>
+
+<h3>精度分层白名单</h3>
+<div class="tw">
+<table>
+<thead><tr><th>等级</th><th>范围</th><th>理由</th></tr></thead>
+<tbody>
+<tr><td><span class="pill p-ok">BF16 / FP8 保护</span></td><td>norm / attention softmax / timestep &amp; adaLN / 首 2 层 + 末 8 层 linear / patch embed / 最终输出 / <strong>VAE 全域</strong> / <strong>文本塔全域</strong></td><td>timestep 全局共享，误差会被放大到所有层；VAE 4-bit 产生全局伪影且只跑一次</td></tr>
+<tr><td><span class="pill p-mid">FP8</span></td><td>FFN <strong>down</strong> projection</td><td>NVIDIA 敏感度排序：MLP up/down 最敏感</td></tr>
+<tr><td><span class="pill p-acc">NVFP4 激进</span></td><td>attention QKV / O projection、FFN gate / up、中段所有 linear</td><td>attention projection 最不敏感</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>训练策略：QAD 而非 PTQ</h3>
+<p>NVIDIA 在 FLUX.1 上的对照数据：</p>
+<div class="tw">
+<table>
+<thead><tr><th>方案</th><th>Image Reward</th><th>CLIP-IQA</th><th>CLIP</th><th>结论</th></tr></thead>
+<tbody>
+<tr><td>BF16 基线</td><td>1.118</td><td>0.926</td><td>30.150</td><td>—</td></tr>
+<tr><td>FP4 <strong>PTQ</strong>（直接量化）</td><td>1.096</td><td>0.923</td><td>29.860</td><td><span class="pill p-no">掉点</span></td></tr>
+<tr><td>FP4 <strong>QAT</strong>（BF16 teacher 蒸馏）</td><td class="hl">1.119</td><td class="hl">0.928</td><td class="hl">29.920</td><td><span class="pill p-ok">不掉点</span></td></tr>
+</tbody>
+</table>
+</div>
+<p>→ 路线定为 <strong>QAD（量化感知蒸馏）</strong>：先训 BF16 teacher（KP-M），再蒸馏出全程 4-bit 前向的 NVFP4 student（KP-S）。</p>
+
+<h3>四件套配方（缺一不可）</h3>
+<div class="grid g2">
+  <div class="card"><div class="val" style="font-size:15px">① 敏感层保精度</div><div class="note">首 2 + 末 8 个 block 保 BF16，约 15–16% 的 linear 层</div></div>
+  <div class="card"><div class="val" style="font-size:15px">② 权重 2D 16×16 block scaling</div><div class="note">保证 rowwise / columnwise 量化数值等价，否则反向用的转置张量与前向不一致，训练精度会掉</div></div>
+  <div class="card"><div class="val" style="font-size:15px">③ RHT 只加到 Wgrad</div><div class="note">随机 Hadamard 变换把分布重塑成近高斯，平滑 outlier。FP4 对 outlier 极其敏感</div></div>
+  <div class="card"><div class="val" style="font-size:15px">④ 随机舍入只加到梯度</div><div class="note">让量化张量期望值等于原值，消除系统性偏差。Blackwell 有硬件加速指令</div></div>
+</div>
+<p style="font-size:14px;color:var(--text2)">NVIDIA 结果：MMLU-pro <strong>62.58%（FP4）vs 62.62%（FP8）</strong>，稳定期 loss 差 &lt;1%。</p>
+
+<h3>NVFP4 下的 LoRA</h3>
+<div class="warn">
+  <div class="t">已知的坑：FLUX 4-bit 路径上 LoRA 会静默失效</div>
+  <p>diffusers issue #9291 / #10989，v0.32.2 才修。表现为「不出错，但风格完全没变化」。所以<strong>从架构层面就要留接口</strong>。</p>
+</div>
+<div class="tw">
+<table>
+<thead><tr><th>项</th><th>选择</th><th>理由</th></tr></thead>
+<tbody>
+<tr><td>主干</td><td>冻结 · NVFP4</td><td>前向走 TransformerEngine FP4 kernel</td></tr>
+<tr><td>适配器</td><td><strong>BF16</strong> LoRA / DoRA</td><td>梯度只走适配器，无需穿透量化器</td></tr>
+<tr><td>初始化</td><td class="hl">LoftQ 式（交替量化 + SVD）</td><td>FP4 的初始化误差比 NF4 更大。LoftQ 在 W4 LLM 上把困惑度 5.75→5.24。<strong>目前 LoftQ 只在 LLM 验证过，DiT 上是空白 —— 这里是原创空间</strong></td></tr>
+<tr><td>优化器</td><td>8-bit AdamW / CAME 低秩</td><td>Sana-1.6B 用低秩优化器把内存 57GB → 43GB</td></tr>
+<tr><td>rank</td><td>32–64（DoRA）</td><td>2025 共识：中等 rank + 更长训练 &gt; 大 rank 短训</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info">
+  <div class="t">最关键的一条工程约束</div>
+  <p>LoRA 注入点必须<strong>绕过量化器</strong>——适配器输出加在<strong>反量化之后</strong>的张量上，而不是加在 quantize 之前的权重上。否则量化器会把 LoRA 的扰动吃掉，这正是「静默失效」的成因。</p>
+</div>
+
+<h2><span class="num">06</span>显存实测预算（估算）</h2>
+<h3>推理 · 1024² · KP-S</h3>
+<div class="tw">
+<table>
+<thead><tr><th>组件</th><th>精度</th><th>占用</th></tr></thead>
+<tbody>
+<tr><td>DiT 主干（0.6B）</td><td>NVFP4 (4.5bit)</td><td>0.34 GB</td></tr>
+<tr><td>文本塔（220M）</td><td>FP8</td><td>0.22 GB</td></tr>
+<tr><td>解码器（~300M）</td><td>FP16</td><td>0.60 GB</td></tr>
+<tr><td>激活 / 工作缓冲 / KV</td><td>—</td><td>0.6–1.2 GB</td></tr>
+<tr><td class="hl">合计峰值</td><td class="hl">—</td><td class="hl">约 1.8–2.4 GB</td></tr>
+</tbody>
+</table>
+</div>
+<p style="font-size:14px;color:var(--text2)">→ 8GB 卡有 <strong>5GB+ 余量</strong>，可拿去堆 2K 分辨率（仅 4096 token）、堆 batch，或干脆不占。4GB 卡可用。</p>
+
+<h3>LoRA 训练 · 1024² · KP-M · batch=1</h3>
+<div class="tw">
+<table>
+<thead><tr><th>项</th><th>占用</th></tr></thead>
+<tbody>
+<tr><td>主干冻结（1.5B @ NVFP4）</td><td>0.84 GB</td></tr>
+<tr><td>反量化临时缓冲</td><td>0.3–0.6 GB</td></tr>
+<tr><td>LoRA 适配器（r=32 · BF16 参数 + FP32 AdamW 状态）</td><td>0.2–0.4 GB</td></tr>
+<tr><td>文本塔（冻结 FP8）</td><td>0.22 GB</td></tr>
+<tr><td>激活（含梯度检查点）</td><td>1.5–2.5 GB</td></tr>
+<tr><td>其他</td><td>0.5 GB</td></tr>
+<tr><td class="hl">合计</td><td class="hl">约 3.8–5.5 GB</td></tr>
+</tbody>
+</table>
+</div>
+<p style="font-size:14px;color:var(--text2)">对照：FLUX rank16 全模块 LoRA —— 不量化 &gt;30GB / int8 18GB / int4 13GB。本方案把量化与结构优化提前到架构层，能再低一档。</p>
+<p style="font-size:14px;color:var(--text2)"><strong>「再小一点」的旋钮</strong>：block swap（跳过含 LoRA 的模块保持常驻）省 0.5–1GB · 8-bit 低秩优化器省 0.2GB · Matryoshka 早退省 0.5GB。</p>
+
+<h2><span class="num">07</span>不跟底模打架的四条机制</h2>
+<p class="lead">冲突不是学习率调错了，而是<strong>结构上让两股力量抢同一块地盘</strong>。</p>
+<div class="tw">
+<table>
+<thead><tr><th>机制</th><th>做法</th><th>消除的冲突表现</th></tr></thead>
+<tbody>
+<tr><td><strong>M1 通道分离</strong></td><td>身份只走 CharaBridge 独立通路，画风/结构走主干</td><td>「改角色就改画风」</td></tr>
+<tr><td><strong>M2 正交注入</strong></td><td>门控初始化为 0 + 对注入子空间施加正交约束</td><td>特征叠加（经典「四耳」问题）</td></tr>
+<tr><td><strong>M3 Latent 解耦</strong></td><td>身份信号只读语义通道 8ch，不写细节通道 32ch</td><td>色调漂移 / 塑料感</td></tr>
+<tr><td><strong>M4 可关断保证</strong></td><td>id_weight=0 时底模 bit-exact</td><td>提供「完全干净的底模」安全基线</td></tr>
+</tbody>
+</table>
+</div>
+<div class="callout">
+  <div class="t">冲突的量化理解</div>
+  <p>遗忘程度 ≈ α(1 − cos²θ<sub>min</sub>)，θ<sub>min</sub> 是相邻任务梯度子空间的<strong>最小主角</strong>。当子空间本身接近正交时，rank 与遗忘几乎无关。</p>
+  <p>所以 M2 的意义在于<strong>主动把 θ<sub>min</sub> 推向 90°</strong>，而不是靠降学习率被动缓解。</p>
+</div>
+
+<h2><span class="num">08</span>低数据的三大护栏</h2>
+<p class="lead">「低数据做训练并非灾难」是对的，但需要前提。</p>
+<div class="grid g3">
+  <div class="card"><div class="val" style="font-size:15px">① 表征对齐</div><div class="note">REPA-E 式，用冻结 DINOv3 对齐主干第 8/16/24 层特征。本方案里这条已被混合 Latent <strong>内置了一部分</strong>。收敛快 17–45×——低数据下最有效的杠杆。</div></div>
+  <div class="card"><div class="val" style="font-size:15px">② Prior Preservation</div><div class="note">DreamBooth 的核心结论：小样本微调会引发<strong>语言漂移</strong>，模型逐渐忘掉「同类概念」的生成能力。用冻结底模自采样同类图加正则项。</div></div>
+  <div class="card"><div class="val" style="font-size:15px">③ 时序感知正则</div><div class="note">T-LoRA 指出<strong>高噪声步最先过拟合</strong>——这些步把结构、细节连同位置背景一起记死。要在高噪声步施加更强的 rank masking，而不是一刀切砍掉（砍掉会显著掉保真）。</div></div>
+</div>
+
+<h3>对偶视角损失 · 对着你的「正视图 + 背视图」场景</h3>
+<p>你的条件很特殊：两视角夹角接近 <strong>180°</strong>，中间的 90° 完全无观测。普通多视角训练会翻车——模型学到的是「记住这张正视图的纹理」，而不是「这个角色长什么样」。</p>
+<div class="tw">
+<table>
+<thead><tr><th>约束</th><th>做法</th></tr></thead>
+<tbody>
+<tr><td><strong>① 置换不变性</strong></td><td>identity token 聚合必须对视图顺序不敏感，用「交换输入顺序输出不变」的一致性损失强制</td></tr>
+<tr><td><strong>② 对偶一致性</strong></td><td>f(正视图) 与 f(背视图) 映射到同一组 identity token，但保留各自的 viewpoint 条件 → 强制学「旋转不变的身份」而非「某个视角的像素」</td></tr>
+<tr><td><strong>③ 虚拟视角插值</strong></td><td>训练时用 3D 资产在正/背之间渲染中间视角做<strong>辅助监督</strong>（推理时不需要），让模型见过「从正到背是怎么转过去的」</td></tr>
+</tbody>
+</table>
+</div>
+<div class="callout">
+  <div class="t">第 ③ 条是「低数据也能出质量」的关键</div>
+  <p><strong>训练数据是稠密的，用户输入是稀疏的。</strong>渲染中间视角几乎没有额外标注成本——用数据成本换渲染成本。</p>
+</div>
+
+<h2><span class="num">09</span>方案对比</h2>
+<div class="tw">
+<table>
+<thead><tr><th></th><th>SDXL / WAI</th><th>FLUX.1-dev</th><th>Sana-1.6B</th><th>Z-Image-Turbo</th><th class="hl">KokonaPolaris</th></tr></thead>
+<tbody>
+<tr><td><strong>主干</strong></td><td>UNet 2.6B</td><td>MMDiT 12B 双流</td><td>Linear-DiT 1.6B</td><td>S3-DiT 6B 单流</td><td class="hl">单流混合注意力 0.6 / 1.5B</td></tr>
+<tr><td><strong>Latent</strong></td><td>f8/4ch → 16384 tok</td><td>f8/16ch</td><td>DC-AE 32× → 1024 tok</td><td>16ch VAE</td><td class="hl">混合 32× → 1024 tok</td></tr>
+<tr><td><strong>注意力</strong></td><td>softmax</td><td>softmax</td><td>全线性</td><td>softmax</td><td class="hl">3:1 线性 : Sigmoid/Softpick</td></tr>
+<tr><td><strong>步数</strong></td><td>20–40</td><td>20–50</td><td>14–20 / 1–4</td><td>8</td><td class="hl">8 → 2–4</td></tr>
+<tr><td><strong>推理显存</strong></td><td>~9 GB</td><td>~12 GB (FP8)</td><td>~12 GB</td><td>~6 GB (FP8)</td><td class="hl">~2.5 GB</td></tr>
+<tr><td><strong>NVFP4</strong></td><td><span class="pill p-no">✗</span></td><td>第三方</td><td>有 QAT（视频版）</td><td>未验证</td><td class="hl">原生 QAD</td></tr>
+<tr><td><strong>LoRA</strong></td><td>生态成熟</td><td>成熟但 4-bit 易静默失效</td><td>有限</td><td>社区在做</td><td class="hl">架构级友好</td></tr>
+<tr><td><strong>身份/多视角</strong></td><td>IP-Adapter 外挂</td><td>PuLID 等外挂</td><td>—</td><td>in-context 参考图</td><td class="hl">CharaBridge 内建</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2><span class="num">10</span>落地路线</h2>
+<div class="warn">
+  <div class="t">现实前提</div>
+  <p>从零预训练一个 T2I 底模需要千万级算力，不是个人能承担的。所以路线是「借力起步、逐层替换」。</p>
+</div>
+
+<div class="tl">
+  <div class="stage p0">
+    <div class="st">P0 · 验证 NVFP4 假设 <span class="pill p-no">最高优先级</span></div>
+    <div class="sd">拿现成 1–2B DiT（Sana / Lumina），打 NVFP4 QAD，跑通敏感层白名单 + 四件套</div>
+    <div class="acc">验收：FP4 vs BF16 在 GenEval / ImageReward 上差 &lt; 1%</div>
+  </div>
+  <div class="stage">
+    <div class="st">P1 · 换 Latent</div>
+    <div class="sd">DC-AE 1.5 + DINOv3 拼出混合 encoder/decoder，替换现成模型的 latent，只重训主干</div>
+    <div class="acc">验收：1024² 重建 PSNR / 文字渲染不劣化</div>
+  </div>
+  <div class="stage">
+    <div class="st">P2 · 换主干</div>
+    <div class="sd">换成自研单流主干 + 混合注意力，从 teacher 蒸馏</div>
+    <div class="acc">验收：0.6B 打平 1.5B baseline</div>
+  </div>
+  <div class="stage">
+    <div class="st">P3 · CharaBridge</div>
+    <div class="sd">接入多视角分支，用 Engine-Synthetic Triplet 训练</div>
+    <div class="acc">验收：正+背两图 → 角色一致，且 id_weight=0 时 bit-exact</div>
+  </div>
+  <div class="stage">
+    <div class="st">P4 · 少步 + 后训练</div>
+    <div class="sd">Decoupled-DMD → rCM，Flow-DPO / DMDR</div>
+    <div class="acc">验收：4 步内质量接近 20 步</div>
+  </div>
+</div>
+
+<div class="callout">
+  <div class="t">P0 是唯一必须最先做的实验</div>
+  <p>如果 NVFP4 QAD 在扩散上不能保精度，整个方案的量化基础就塌了——<strong>而这个结论只需要几天就能验证。</strong></p>
+</div>
+
+<h3>约束再分类与排程（v1.8 新增，v1.10 更正功耗数据）</h3>
+
+<div class="callout">
+  <div class="t">更正：功耗不是硬约束，是可调工况</div>
+  <p>本机只有两个<strong>真·硬约束</strong>：<strong>显存 8 GB + 20 SM</strong>（不可变）。另两项常被误当约束：</p>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>项</th><th>性质</th><th>排程含义</th></tr></thead>
+<tbody>
+<tr class="good"><td>磁盘（D: 180 GB 可用）</td><td>工程约束，<strong>已解决</strong></td><td>不再挡路；新增大文件一律落 <code>D:\model\</code></td></tr>
+<tr class="good"><td>功耗（45.7 W 静音 ↔ <b>113 W 满血实测</b>）</td><td><strong>工况变量</strong></td><td>只影响速度（<b>静音档已拿到满血 82%</b>），不影响可行性</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>批次</th><th>任务</th><th>何时做</th></tr></thead>
+<tbody>
+<tr class="good"><td><strong>不敏感批</strong>（纯 IO / CPU）</td><td>E1 建 venv · E2 定格版本 · E3 G0 收尾 · E4 下靶子模型 · E6 P2′</td><td><strong>随时，静音工况即可</strong></td></tr>
+<tr><td><strong>敏感批</strong>（真算力）</td><td>~~E7 基准复测~~ ✅ · ~~E8 功耗复测~~ ✅ · <strong>E5 G1 QAD 训练</strong>（<b>静音也可跑，仅慢 ~20%</b>）</td><td>解锁可选，<b>不再是阻塞项</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="warn">
+  <div class="t">一条会影响所有后续估算的规范（v1.10 加强）</div>
+  <p><b>①</b> 凡对外报「这机器有多少算力」的数字，<strong>必须在解锁功耗下测</strong>。实测两档 = 静音 <b>45.7 W</b>（20.9 / 99.2 TFLOPS）与满血 <b>bf16 @80 W → 25.8 / FP4 @113 W → 120.5 TFLOPS</b>。拿静音值估算会偏低 ~19%；功耗收益实际只有 ~1.2×，不是 2–2.5×。</p>
+  <p><b>② 功耗必须按负载形态分别测</b>——同一张卡，显存负载 68 W、bf16 tensor 80 W、FP4 tensor 113 W。<b>用一个负载的功耗代表整卡上限，是本项目 v1.9 犯过的错。</b></p>
+  <p><b>③</b> 测功耗上限<b>必须同时读 <code>clocks_event_reasons.active</code></b>；只有它为 <code>Active</code> 才说明被限住。</p>
+</div>
+
+<div class="callout" style="border-left-color:var(--green);background:#EAF3DE">
+  <div class="t" style="color:var(--green)">✅ v1.13 · G1 初步通过（W4A8）—— E5b 可训性定案 + 快速判据（详见补充 09 §8）</div>
+  <p><b>E5 前哨已在真实 Sana 1.6B 上跑完 4 路量化对照</b>：信号级误差 <b>W4A16 7.74% / W4A8（设计档）9.98% / W4A4 29.72%</b> —— <b>误差几乎全部来自「激活」量化</b>，设计档落在两者之间，<b>设计选择被实测支持</b>。</p>
+  <p>⚠️ <b>但发现一个会误导判决的方法论问题</b>：W4A4 出图 PSNR 只有 9.67 dB，看着像"崩了"，<b>实际画质正常、只是换了构图</b>。→ <b>固定种子的逐像素指标测的是「轨迹稳定性」，不是「画质」</b>。因此 G1 <b>主判据改为分布级指标</b>（FID / 多样本质量评估，≥ 50 张），逐像素 PSNR/SSIM <b>降为辅助参考、不作门</b>。</p>
+  <p><b>✅ 初步通过</b>：用分布级偏移比 <code>d_quant / d_ref</code>（量化偏移 ÷「换一个 seed」的自然离散度）快速判定 —— <b>W4A8 仅 53.5%</b>（W4A16 52.7% / W4A4 88.9%，三臂全 &lt; 1）⇒ <b>激活降到 FP8 几乎不额外损失</b>，实测支持「FP4 权重 + FP8 激活」设计档。</p>
+  <p><b>⑧ 可训性同时定案</b>：ModelOpt 训练路径的 blocker 是 <b><code>FP8SDPA</code> 无 backward</b>（非环境问题，已 patch）；<b>8 GB 卡全参 QAT 不可行（优化器状态 12.8 GB）→ 必须 adapter 式 QAD</b>，与设计稿「Δ-Pack / 能力包」同构。</p>
+  <p>⚠️ <b>遗留</b>：快速判据统计薄（每 prompt 3 对），<b>正式过门仍需 ≥50 张/臂 FID</b>。</p>
+</div>
+
+<h2><span class="num">11</span>风险与明确不做</h2>
+<h3>已识别风险</h3>
+<div class="tw">
+<table>
+<thead><tr><th>风险</th><th>级别</th><th>缓解</th></tr></thead>
+<tbody>
+<tr><td>NVFP4 在扩散上的公开验证稀少</td><td><span class="pill p-no">高</span></td><td>现有 FP4 扩散证据集中在 FLUX PTQ/QAT、SANA-Video、Sol-RL；<strong>「从零 NVFP4 预训练 DiT」目前无公开报告</strong>。必须靠 P0 自测</td></tr>
+<tr><td>CFG 引导放大残留纹理</td><td><span class="pill p-no">高</span></td><td>只在初始化阶段用 CFG，之后去 CFG；或用 Decoupled-DMD 的 CFG 增强 + 分布匹配解耦</td></tr>
+<tr><td>算术强度下降</td><td><span class="pill p-mid">中</span></td><td>小架构下 FP4 可能在访存受限层出现负收益。逐层 benchmark，这类层回退 FP8</td></tr>
+<tr><td>SM120 无 tcgen05，吞吐只有数据中心卡 1/5</td><td><span class="pill p-mid">中</span></td><td>直接复用 CUTLASS sm120 kernel，不自己写；接受这个物理上限</td></tr>
+<tr><td>32× latent 的文字/纹理上限</td><td><span class="pill p-mid">中</span></td><td>细节通道 32ch 兜底；文字渲染单独评估</td></tr>
+<tr><td>v-pred 是 MSE 性质，易过度平滑</td><td><span class="pill p-mid">中</span></td><td>配合 4 步 refiner 与高频加强损失</td></tr>
+<tr><td>LoRA 在 4-bit 路径静默失效</td><td><span class="pill p-mid">中</span></td><td>架构层保证注入点绕过量化器 + 训练时断言「关掉 LoRA 输出必须变」</td></tr>
+<tr><td><strong>⚠️ L1 条件轴「从未被任何判据检查」</strong><br><small>v1.11 新增</small></td><td><span class="pill p-no">高</span></td><td>选层判据里没有 L1 的入口，而它承担 90% 需求。<strong>缓解：补「第零问」+ G3.5 探针；未验证的轴默认归 L3</strong></td></tr>
+<tr><td><strong>⚠️ L1 在 FP4 下轴行程被压缩</strong><br><small>v1.11 新增</small></td><td><span class="pill p-no">高</span></td><td>FP4 激活仅 16 个量化级，连续风格轴可能被抹平（旋钮转到一半就饱和）。与 E5 实测咬合，<strong>G0–G7 全未覆盖</strong>。<strong>缓解：G3.5 第四测 + Style-Pack 退路</strong></td></tr>
+<tr><td><strong>L1 出错不可修（控制权在基座手上）</strong><br><small>v1.11 新增</small></td><td><span class="pill p-mid">中高</span></td><td>轴在基座内部，出问题只能重训主干；而 L3 可做谱检查、可重训包。<strong>缓解：设计律「控制权原则」——能显式写入的，就不要隐式请求</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>明确不做</h3>
+<div class="grid g2">
+  <div class="card"><div class="val" style="font-size:14.5px">✗ 不做 10B+ 参数</div><div class="note">与低显存目标正交。20B Qwen-Image / 32B Flux.2 路线直接放弃</div></div>
+  <div class="card"><div class="val" style="font-size:14.5px">✗ 不做纯自回归 / VAR</div><div class="note">KV cache 与串行 decode 与目标冲突；文本对齐系统性更弱（GenEval：Chameleon-7B 0.39 vs Flux.1-dev 0.82）</div></div>
+  <div class="card"><div class="val" style="font-size:14.5px">✗ 不做双流 MMDiT</div><div class="note">LoRA 要打两套，参数效率低</div></div>
+  <div class="card"><div class="val" style="font-size:14.5px">✗ 不量化 VAE</div><div class="note">参数量小、只跑一次、逐像素影响大。省不到显存还引入全局伪影</div></div>
+  <div class="card"><div class="val" style="font-size:14.5px">✗ 不做纯 RAE</div><div class="note">不压缩的语义 latent 方向与低显存相反，只用它的思想</div></div>
+  <div class="card"><div class="val" style="font-size:14.5px">✗ 不缓存文本 embedding</div><div class="note">省 5GB 但砍掉 prompt dropout 与文本侧 LoRA 训练能力</div></div>
+</div>
+
+<footer>
+  <strong>KokonaPolaris 架构设计方案 v1.0</strong><br>
+  所有显存数字为基于公开数据的估算，需实测校正。<br>
+  核心参考：Sana / Sana-Sprint · Z-Image-Turbo · FLUX.2 [klein] · RAE · REPA-E · DC-AE 1.5 · NVIDIA NVFP4（arXiv 2509.25149）· SVDQuant / Nunchaku · FP4DiT / PTQ4DiT / MSFP · LoftQ · T-LoRA · PuLID · SpinMeRound · rCM / sCM / Decoupled-DMD
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KokonaPolaris-S4 补充设计 07 · 环境基线报告</title>
+<style>
+  :root{
+    --bg:#FAFAF9; --surface:#FFFFFF; --surface2:#F4F3F1;
+    --text:#1C1C1A; --text2:#5F5E5A; --text3:#888780;
+    --border:rgba(0,0,0,0.10); --border2:rgba(0,0,0,0.18);
+    --accent:#534AB7; --accent-l:#EEEDFE; --accent-d:#3C3489;
+    --blue:#185FA5; --blue-l:#E6F1FB;
+    --teal:#0F6E56; --teal-l:#E1F5EE;
+    --amber:#854F0B; --amber-l:#FAEEDA;
+    --red:#A32D2D; --red-l:#FCEBEB;
+    --green:#3B6D11; --green-l:#EAF3DE;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:56px 28px 100px}
+  header{border-bottom:1px solid var(--border);padding-bottom:28px;margin-bottom:40px}
+  .kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:500;margin-bottom:14px}
+  h1{font-size:31px;font-weight:600;letter-spacing:-.02em;line-height:1.25;margin-bottom:12px}
+  .sub{font-size:16px;color:var(--text2);max-width:740px}
+  .meta{margin-top:18px;font-size:13px;color:var(--text3);display:flex;gap:20px;flex-wrap:wrap}
+  h2{font-size:22px;font-weight:600;letter-spacing:-.01em;margin:64px 0 10px;padding-top:18px;border-top:1px solid var(--border)}
+  h2:first-of-type{border-top:none;padding-top:0;margin-top:40px}
+  h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:10px;font-weight:500}
+  h3{font-size:16.5px;font-weight:600;margin:30px 0 10px}
+  h4{font-size:15px;font-weight:600;margin:20px 0 8px}
+  p{margin:12px 0}
+  ul,ol{margin:12px 0 12px 22px}
+  li{margin:7px 0}
+  code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.88em;background:var(--surface2);padding:2px 6px;border-radius:4px;color:var(--accent-d)}
+  pre{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;overflow-x:auto;margin:20px 0}
+  pre code{background:none;padding:0;font-size:12.5px;line-height:1.7;color:var(--text2)}
+  .grid{display:grid;gap:12px;margin:22px 0}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+  .card .lbl{font-size:12px;color:var(--text3);margin-bottom:6px}
+  .card .val{font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .card .note{font-size:13.5px;color:var(--text2);margin-top:8px;line-height:1.7}
+  .callout{border-left:3px solid var(--accent);background:var(--accent-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .callout .t{font-weight:600;color:var(--accent-d);margin-bottom:6px;font-size:15px}
+  .callout p{color:var(--accent-d);font-size:14.5px;margin:6px 0}
+  .warn{border-left:3px solid var(--amber);background:var(--amber-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .warn .t{font-weight:600;color:var(--amber);margin-bottom:4px;font-size:14.5px}
+  .warn p{color:var(--amber);font-size:14px;margin:4px 0}
+  .bad{border-left:3px solid var(--red);background:var(--red-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .bad .t{font-weight:600;color:var(--red);margin-bottom:4px;font-size:14.5px}
+  .bad p{color:var(--red);font-size:14px;margin:4px 0}
+  .info{border-left:3px solid var(--blue);background:var(--blue-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .info .t{font-weight:600;color:var(--blue);margin-bottom:4px;font-size:14.5px}
+  .info p{color:var(--blue);font-size:14px;margin:4px 0}
+  .win{border-left:3px solid var(--teal);background:var(--teal-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .win .t{font-weight:600;color:var(--teal);margin-bottom:6px;font-size:15px}
+  .win p{color:var(--teal);font-size:14.5px;margin:6px 0}
+  .tw{overflow-x:auto;margin:20px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;padding:12px 16px;background:var(--surface2);font-weight:600;color:var(--text2);font-size:12.5px;border-bottom:1px solid var(--border);white-space:nowrap}
+  td{padding:11px 16px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.hl{background:var(--accent-l);font-weight:600;color:var(--accent-d)}
+  tr.bad td{background:var(--red-l)}
+  tr.good td{background:var(--teal-l)}
+  .pill{display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:20px;font-weight:500;white-space:nowrap}
+  .p-ok{background:var(--green-l);color:var(--green)}
+  .p-no{background:var(--red-l);color:var(--red)}
+  .p-mid{background:var(--amber-l);color:var(--amber)}
+  .p-info{background:var(--blue-l);color:var(--blue)}
+  .p-acc{background:var(--accent-l);color:var(--accent-d)}
+  footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--border);font-size:12.5px;color:var(--text3);line-height:1.9}
+  @media(max-width:640px){h1{font-size:24px}.wrap{padding:32px 18px 70px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">KokonaPolaris-S4 · Supplement 07 · v1.3</div>
+  <h1>环境基线报告</h1>
+  <p class="sub">RTX 5050 Laptop / SM120 实测 · FP4 到底成不成 · 功耗天花板翻案 · 硬约束与工况的区分</p>
+  <div class="meta"><span>2026-10-02</span><span>实测机：8151 MiB · compute_cap 12.0</span><span>全部数据可复跑</span><span style="color:var(--accent);font-weight:500">v1.3 推翻 v1.2 的功耗结论</span></div>
+</header>
+
+<div class="bad">
+  <div class="t">⚠️ v1.3 修订（功耗天花板翻案）——推翻 v1.2 的核心结论</div>
+  <p><strong>v1.2 说「功耗天花板只有 ≈80W，115W 不可达」——这是错的。</strong>经用户反驳后重测，结论反转：</p>
+  <p><strong>① ✅ 115W 完全可达，实测吃到 113.8W（＝上限的 98.1%）</strong>，温度 82 °C，<b>降频标志 <code>clocks_event_reasons.active</code> 恒为 <code>0x0</code></b>（零降频）。</p>
+  <p><strong>② 🔍 根因是测量口径错误</strong>：v1.2 的「80W 天花板」是 <b>bf16</b> 阶段的功耗，被误当成整卡上限。同一张卡同一时钟下，<b>bf16 只要 79.7W，FP4 要 113.0W</b>——<b>功耗是「负载形态」的函数，不是固定的墙</b>。</p>
+  <p><strong>③ 📊 新测 5 种负载形态</strong>（<code>tools/power_ceiling_probe.py</code>）：D2D 拷贝 68.4W / fp32 elementwise 66.9W / bf16 tensor 79.7W / 三流并发 79.8W / <b>FP4 tensor 113.0W（峰 113.8）</b>——<b>全部零降频</b>。</p>
+  <p><strong>④ 🎯 对项目是好消息</strong>：设计主线的 <b>FP4 路径正是把功耗打满的那条</b>，120.5 TFLOPS 是在 <b>113W</b>（不是 80W）下取得，<b>已逼近 20 个 SM 的 tensor 理论峰值</b>。「瓶颈是 20 SM 而非功耗」这个判断不变，但证据从「墙只有 80W」换成了「FP4 在 113W 下已打到 tensor 峰值」——后者强得多。</p>
+</div>
+
+<div class="info">
+  <div class="t">v1.2 修订（满血复测，<code>tools/bench_115w.py</code>）— ⚠️ 第 ① 条已被 v1.3 推翻，保留存证</div>
+  <p><strong>① <s>功耗天花板实测只有 ≈80W，不是标称的 115W</s></strong> → <b style="color:var(--accent)">【v1.3 更正】115W 可达，实测 113.8W</b>。</p>
+  <p><strong>② ⚠️ 算力提升远小于我上一版的估算</strong>：满血 bf16 <b>25.8 TFLOPS</b>（静音 20.9），<b>仅 1.23×</b>——我原估 2–2.5× 是<b>严重高估</b>。功耗涨 1.75× 而算力只涨 1.23× → <b>强收益递减</b>（v1.3 后此结论反而更强）。</p>
+  <p><strong>③ ✅ G0 收尾完成</strong>：ModelOpt 端到端量化真实 <code>nn.Linear</code> <b>跑通无 layout 报错</b>；并拿到 <b>W4A4 vs W4A16 第一手精度数据</b>（见 §3.6）。</p>
+</div>
+
+<div class="info">
+  <div class="t">v1.1 修订三点</div>
+  <p><strong>① 功耗是<b>可调工况</b>而非硬约束</strong>；只有显存与 SM 数才是硬约束。<strong>② 磁盘阻塞解除</strong>（D: 180 GB）。<strong>③ 行动清单按功耗工况重排。</strong></p>
+</div>
+
+<h2><span class="num">00</span>结论先行</h2>
+
+<div class="win">
+  <div class="t">G0 基本通过；这台机器是「验证机」，不是「训练机」</div>
+  <p><strong>FP4 在 SM120 上是真的可用</strong>——E2M1 解码数值精确、block scale 生效、吞吐约为 bf16 的 <strong>4.7×</strong>。</p>
+  <p>它的价值在于<strong>把假设一条条打掉</strong>，而不是把模型训出来。</p>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>判断</th><th>结果</th></tr></thead>
+<tbody>
+<tr class="good"><td><strong>是不是 SM120？</strong></td><td>✅ 是。<code>compute_cap = 12.0</code>，torch <code>arch_list</code> 含 <code>sm_120</code></td></tr>
+<tr class="good"><td><strong>FP4 能不能用？</strong></td><td>✅ 能，而且是真 tensor core。解码精确、scale 生效、<strong>4.7× 于 bf16</strong></td></tr>
+<tr class="good"><td><strong>G0 门</strong></td><td>🟢 <strong>通过</strong>（v1.2：ModelOpt 端到端 layout 已闭合；规范：不手搓 layout）</td></tr>
+<tr><td><strong>G1 能不能开跑？</strong></td><td>✅ 可以 —— 但<strong>必须先修 3 个版本冲突</strong>（§4）</td></tr>
+<tr><td><strong>能不能在这台机器上训练？</strong></td><td>⚠️ 分情况：LoRA / QAT 消融 ✅；全量预训练 ❌</td></tr>
+<tr class="good"><td><strong>磁盘</strong></td><td>✅ <strong>已解决</strong> —— D: <strong>180 GB 可用</strong>（腾出 128 GB），C: 31 GB 且<b>约定不动</b></td></tr>
+<tr class="good"><td><strong>功耗</strong></td><td>✅ <strong>115 W 完全可达</strong>：静音 <strong>45.7 W</strong> ↔ 满血<b>实测 113.8 W（＝上限的 98.1%）</b>。功耗随<b>负载形态</b>变化（bf16 80 W / FP4 113 W），<b>不是固定不可达的墙</b>。静音档已拿到满血 <b>82%</b> 算力</td></tr>
+<tr class="bad"><td><strong>真正的硬约束</strong></td><td><strong>显存 8 GB</strong>（不可变）+ <strong>20 个 SM</strong>（不可变，<b>且正是功耗收益递减的根因</b>）</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2><span class="num">01</span>硬件实测</h2>
+
+<div class="grid g3">
+  <div class="card"><div class="lbl">计算能力</div><div class="val" style="color:var(--teal)">sm_120 ✓</div><div class="note">与设计目标 SM120 完全一致</div></div>
+  <div class="card"><div class="lbl">显存 / SM 数</div><div class="val">8151 MiB · 20 SM</div><div class="note">对比 H100：132 SM</div></div>
+  <div class="card"><div class="lbl">功耗范围</div><div class="val" style="color:var(--teal)">5 / 55 / 115 W</div><div class="note">已解锁至 115 W；<b>实测可达 113.8 W</b>（v1.3 更正）</div></div>
+</div>
+
+<h3>1.1 显存实际可用量 —— 比「8GB」小得多</h3>
+
+<div class="warn">
+  <div class="t">桌面环境自己就吃掉 1.6–4.7 GB</div>
+  <p>nvidia-smi 显示已占用 <strong>4703 MiB</strong>，空闲只剩 <strong>3209 MiB</strong>；进程内实测空闲回到 <strong>6.33 GiB</strong>。</p>
+  <p>→ 我们的「推理峰值 ~2.5GB @1024²」目标<strong>不宽松，而是刚好</strong>。开发时必须先关浏览器再跑。</p>
+</div>
+
+<h3>1.2 硬件清单</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>项</th><th>实测值</th></tr></thead>
+<tbody>
+<tr><td>GPU</td><td>NVIDIA GeForce RTX 5050 Laptop GPU</td></tr>
+<tr class="good"><td>计算能力</td><td><strong>compute_cap 12.0（sm_120）</strong></td></tr>
+<tr><td>显存</td><td>8151 MiB（7.96 GiB）</td></tr>
+<tr><td>SM 数量</td><td>20</td></tr>
+<tr><td>驱动</td><td>610.74（CUDA UMD 13.3）</td></tr>
+<tr class="good"><td>功耗范围</td><td><strong>5 W（min） / 55 W（default） / 115 W（max）</strong> —— 已解锁；<b>实测可达 113.8 W</b></td></tr>
+<tr><td>SM 时钟</td><td>1350 MHz（闲时） / <strong>3090 MHz（max）</strong> —— 满载稳定 <b>2790–2850 MHz</b>（<b>高于官标 boost 2662 MHz</b>），<b>零降频</b></td></tr>
+<tr><td>温度</td><td>60 °C（闲时）—— 满血满载时需注意笔记本散热</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>1.3 功耗：115 W 可达（v1.3 翻案），且随「负载形态」变化</h3>
+
+<pre><code>Min 5 W  ────  Default 55 W  ────  Max 115 W
+                                        ▲
+                        实测已吃到 113.8 W（= 上限 98.1%）</code></pre>
+
+<div class="win">
+  <div class="t">✅ v1.3 翻案：115 W 完全可达，实测 113.8 W，零降频</div>
+  <p>nvidia-smi 报告的硬上限确实是 <strong>Max 115 W</strong>（Default 55 W / Min 5 W）。v1.2 判它「不可达」，是因为<b>只在 bf16 负载下测了功耗，就下了整卡结论</b>。</p>
+  <p>改为按负载形态实测后（<code>tools/power_ceiling_probe.py</code>，5 种形态 × 各 18 秒），<strong>FP4 block-scaled GEMM 稳态 113.0 W / 峰值 113.8 W</strong>，温度 82 °C，<b>降频标志恒为 <code>0x0</code></b>。</p>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>负载形态</th><th>稳态功耗</th><th>峰值功耗</th><th>SM 峰值</th><th>温峰</th><th>降频标志</th></tr></thead>
+<tbody>
+<tr><td>bf16 大 GEMM（纯 tensor core）</td><td>79.7 W</td><td>80.9 W</td><td>2842 MHz</td><td>78 °C</td><td><b>0x0 无</b></td></tr>
+<tr class="good"><td><strong>FP4 block-scaled GEMM</strong></td><td><strong>113.0 W</strong></td><td><strong>113.8 W</strong></td><td>2797 MHz</td><td>82 °C</td><td><b>0x0 无</b></td></tr>
+<tr><td>D2D 大拷贝（纯显存带宽）</td><td>68.4 W</td><td>68.5 W</td><td>2842 MHz</td><td>70 °C</td><td><b>0x0 无</b></td></tr>
+<tr><td>fp32 大 elementwise（SM ALU）</td><td>66.9 W</td><td>69.7 W</td><td>2850 MHz</td><td>68 °C</td><td><b>0x0 无</b></td></tr>
+<tr><td>三流并发 mix（GEMM+拷贝+ALU）</td><td>79.8 W</td><td>81.2 W</td><td>2835 MHz</td><td>79 °C</td><td><b>0x0 无</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="info">
+  <div class="t">📌 判定依据：<code>clocks_event_reasons.active</code> 是唯一权威信号</div>
+  <p>NVIDIA 官方口径：<b>只有 SW Power Cap 为 <code>Active</code> 才算功率受限</b>；满载接近上限 + 温度正常 + 时钟不降 = <b>健康充足的 GPU</b>。</p>
+  <p>本次 5 种负载 × 全部采样，<b>降频标志位一个都没触发</b>。→ <b>这张卡完好无损地吃到了 113.8 W，没有任何东西在拦它。</b>v1.2 的「天花板 ≈80W」是<b>测量口径错误</b>，不是硬件限制。</p>
+</div>
+
+<div class="win">
+  <div class="t">🔍 为什么 FurMark 能烤到 109W，而 bf16 基准只有 80W？</div>
+  <p>因为 FurMark 是典型的 <strong>「power virus」</strong>——它用<b>光栅 / 纹理 / ROP</b> 这些能效极差的单元去烧电，<b>只烧瓦数、不产生有用的 AI 算力</b>。</p>
+  <p>而 tensor core 做 FP4 矩阵乘能效极高：<b>FP4 用 113 W 打出 120.5 TFLOPS（1.07 TFLOPS/W），bf16 用 80 W 打出 25.8 TFLOPS（0.32 TFLOPS/W）</b>——<b>FP4 每瓦算力是 bf16 的 3.3 倍</b>。</p>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>工况</th><th>负载</th><th>功耗</th><th>bf16</th><th>FP4</th><th>相对静音</th></tr></thead>
+<tbody>
+<tr><td><strong>静音</strong>（用户设定）</td><td>FP4 / bf16</td><td>45.7 W</td><td><strong>20.9 TFLOPS</strong></td><td><strong>99.2 TFLOPS</strong></td><td>1×</td></tr>
+<tr><td><strong>满血</strong>（实测）</td><td>bf16</td><td><strong>79.7 W</strong></td><td><strong>25.8 TFLOPS</strong></td><td>—</td><td><strong>1.23×</strong></td></tr>
+<tr class="good"><td><strong>满血</strong>（实测）</td><td><strong>FP4</strong></td><td><strong>113.0 W</strong></td><td>—</td><td><strong>120.5 TFLOPS</strong></td><td><strong>1.21×</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="info">
+  <div class="t">⚠️ 修正后的收益递减证据——比我原来说的更强</div>
+  <p>用正确口径重算：<b>FP4</b> 功耗 45.7→113.0 W（<b>×2.47</b>），算力 99.2→120.5（<b>仅 ×1.21</b>）；<b>bf16</b> 功耗 45.7→79.7 W（×1.74），算力 20.9→25.8（×1.23）。</p>
+  <p>两条路径一致：<b>静音档都已拿到满血 ~82% 的算力</b>（FP4 82.3% / bf16 81.0%）。→ <b>「瓶颈是 20 个 SM 而非功耗」这个判断成立，而且现在有了硬证据：FP4 在 113 W 下已逼近 tensor 理论峰值</b>（20 SM × 1024 MAC × 2 × 2.797 GHz ≈ 114.6 TFLOPS，实测 120.5 已在该量级）——<b>再给瓦数也买不到 FLOPS 了</b>。</p>
+</div>
+
+<div class="win">
+  <div class="t">⭐ 静音档几乎等于满血，这个结论不变</div>
+  <p>只差 ~20%，<strong>不值得为它忍受风扇噪音</strong>。常规开发就锁静音档，只有需要报准确吞吐数字时才解锁。</p>
+  <p>另：<b>FP4/bf16 比值稳定在 4.7×</b>（静音 4.75× / 满血 4.67×）——比值几乎不随功耗变化，说明这是 tensor core 的<b>架构性倍率</b>，不是功耗依赖的收益。</p>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>任务类型</th><th>对功耗敏感？</th><th>何时做</th></tr></thead>
+<tbody>
+<tr class="good"><td>建 venv、pip 装轮子、下载模型/字体</td><td>❌ 不敏感（网络 IO）</td><td><strong>随时</strong></td></tr>
+<tr class="good"><td>生成合成数据、字体光栅化、数据处理</td><td>❌ 不敏感（CPU）</td><td><strong>随时</strong></td></tr>
+<tr class="good"><td>写代码、跑单元测试、文档</td><td>❌ 不敏感</td><td><strong>随时</strong></td></tr>
+<tr class="good"><td><strong>QAT 消融训练（G1/E5）</strong></td><td>🔸 仅差 ~20%</td><td>可解锁，<b>也可直接静音跑</b></td></tr>
+<tr class="good"><td><strong>训 autoencoder（G2）、LoRA 微调</strong></td><td>🔸 仅差 ~20%</td><td>同上</td></tr>
+<tr><td><strong>吞吐 benchmark（需准确数字）</strong></td><td>✅ 敏感</td><td>需解锁（<b>E7 已完成 ✓</b>）</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>一条永久规范</strong>：所有吞吐数字<strong>必须标注工况</strong>。本次复测前报的静音值偏低 19%。<strong>结论：功耗仅造成约 20% 的估算偏差，不再是「必须用户配合」的事项。</strong></p>
+
+<h2><span class="num">02</span>软件栈实测</h2>
+
+<h3>2.1 CUDA 侧 —— 齐全，甚至过多</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>项</th><th>值</th></tr></thead>
+<tbody>
+<tr><td>nvcc</td><td>13.2（V13.2.78）</td></tr>
+<tr><td><code>CUDA_PATH</code></td><td><code>…\CUDA\v13.2</code></td></tr>
+<tr><td>已装工具链</td><td><strong>v12.4 / v13.2 / v13.3</strong>（三套并存）</td></tr>
+<tr><td>CUDA UMD（驱动侧）</td><td>13.3</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="warn">
+  <div class="t">三套并存是祸根</div>
+  <p>见 §4 的 <code>flashinfer</code> 失败 —— 它去 v13.2 目录里找 <strong>cu12 时代的 <code>cudart64_12.dll</code></strong>。</p>
+</div>
+
+<h3>2.2 Python 侧 —— AI 环境在系统 Python 3.12.10</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>环境</th><th>Python</th><th>状态</th></tr></thead>
+<tbody>
+<tr class="good"><td><strong>系统 Python（AI 环境在这）</strong></td><td><strong>3.12.10</strong></td><td>torch / diffusers / modelopt 全在</td></tr>
+<tr><td>WorkBuddy 托管 Python</td><td>3.13.14</td><td>空环境（一个 AI 包都没有）</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>包</th><th>版本</th><th>意义</th></tr></thead>
+<tbody>
+<tr class="good"><td><strong>torch</strong></td><td><strong>2.8.0+cu128</strong></td><td>cu128 → 支持 sm_120</td></tr>
+<tr class="good"><td>triton-windows</td><td>3.6.0.post26</td><td>自写 kernel 的可能（我们的非 softmax 注意力需要）</td></tr>
+<tr class="bad"><td>transformers</td><td><strong>5.10.1</strong></td><td><strong>太新</strong>，见 §4</td></tr>
+<tr><td>diffusers</td><td>0.34.0</td><td>略旧，见 §4</td></tr>
+<tr><td>peft</td><td>0.17.1</td><td>装了但导入失败（被 transformers 拖累）</td></tr>
+<tr class="good"><td><strong>nvidia-modelopt</strong></td><td><strong>0.46.0</strong></td><td>⭐ 本机最重要的发现，见 §2.3</td></tr>
+<tr><td>nunchaku</td><td>1.0.2+torch2.8</td><td>装了但导入失败</td></tr>
+<tr><td>flashinfer-python</td><td>0.6.11.post3</td><td>导入失败（CUDA 版本不匹配）</td></tr>
+<tr><td>cuda-tile</td><td>1.5.0</td><td>CUTLASS 的 Python 绑定</td></tr>
+<tr class="good"><td>pytorch-fid</td><td>0.3.0</td><td>评估工具就绪（G1 要用）</td></tr>
+<tr class="good"><td>clip-anytorch</td><td>2.6.0</td><td>CLIP-I 身份一致度评估就绪</td></tr>
+<tr class="bad"><td>bitsandbytes / transformer-engine / flash_attn / xformers</td><td>—</td><td>未装（低比特优化器与 NVFP4 官方 kernel）</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>2.3 ⭐ 这台机器已经装好了 NVFP4 的官方工具链</h3>
+
+<p><code>nvidia-modelopt 0.46.0</code> 已安装，且带 <strong>23 个 NVFP4 配方</strong>（实测枚举）：</p>
+
+<pre><code>NVFP4_DEFAULT_CFG              NVFP4_AWQ_CLIP_CFG / AWQ_FULL / AWQ_LITE
+NVFP4_KV_CFG                   NVFP4_AFFINE_KV_CFG / KV_ROTATE_CFG
+NVFP4_SVDQUANT_DEFAULT_CFG     NVFP4_FP8_MHA_CONFIG
+NVFP4_FOUR_OVER_SIX_CFG        NVFP4_W4A4_WEIGHT_LOCAL_HESSIAN_CFG
+W4A16_NVFP4_CFG                W4A8_NVFP4_FP8_CFG / W4A8_MXFP4_FP8_CFG
+NVFP4_MLP_ONLY_CFG / OMLP_ONLY / EXPERTS_ONLY / MLP_WEIGHT_ONLY
+MXFP4_DEFAULT_CFG / MXFP4_MLP_WEIGHT_ONLY_CFG</code></pre>
+
+<div class="callout">
+  <div class="t">为什么这是"最重要的发现"——它把设计里的"待验证"变成"选哪个 cfg"</div>
+  <p><strong>NVFP4 QAD（不是 PTQ）</strong> → <code>NVFP4_FOUR_OVER_SIX_CFG</code>（"Four Over Six" 正是 NVFP4 <b>训练</b>技术）</p>
+  <p><strong>分层白名单（attention 留 FP8）</strong> → <code>NVFP4_FP8_MHA_CONFIG</code>（官方就有"FP4 权重 + FP8 attention"）</p>
+  <p><strong>激活离群值 → RHT 平滑</strong> → <code>NVFP4_KV_ROTATE_CFG</code>（rotate = 随机 Hadamard 旋转，四件套之一）</p>
+  <p><strong>KV cache 谨慎量化</strong> → <code>NVFP4_KV_CFG</code> / <code>NVFP4_AFFINE_KV_CFG</code>　｜　<strong>AWQ 校准</strong> → <code>NVFP4_AWQ_*</code></p>
+</div>
+
+<h2><span class="num">03</span>G0 实测：FP4 在 SM120 上到底成不成</h2>
+
+<h3>3.1 数据类型层 —— 全都在</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>检查项</th><th>结果</th></tr></thead>
+<tbody>
+<tr class="good"><td><code>torch.float4_e2m1fn_x2</code></td><td>✅ E2M1 打包类型存在</td></tr>
+<tr class="good"><td><code>torch.float8_e4m3fn</code></td><td>✅ NVFP4 的 block scale 类型</td></tr>
+<tr class="good"><td><code>torch.float8_e8m0fnu</code></td><td>✅ MXFP4 的 scale 类型</td></tr>
+<tr class="good"><td><code>torch._scaled_mm</code></td><td>✅ block-scaled matmul 入口存在</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>3.2 数值正确性 —— 解码精确（常量填充法）</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>A 值</th><th>B 值</th><th>手算应为</th><th>实测</th><th>判定</th></tr></thead>
+<tbody>
+<tr class="good"><td>1.0</td><td>0.5</td><td>64.0</td><td><strong>64.0</strong></td><td>✅</td></tr>
+<tr class="good"><td>1.0</td><td>3.0</td><td>384.0</td><td><strong>384.0</strong></td><td>✅</td></tr>
+<tr class="good"><td>3.0</td><td>0.5</td><td>192.0</td><td><strong>192.0</strong></td><td>✅</td></tr>
+<tr class="good"><td>3.0</td><td>3.0</td><td>1152.0</td><td><strong>1152.0</strong></td><td>✅</td></tr>
+<tr class="good"><td>6.0</td><td>0.5</td><td>384.0</td><td><strong>384.0</strong></td><td>✅</td></tr>
+<tr class="good"><td>6.0</td><td>3.0</td><td>2304.0</td><td><strong>2304.0</strong></td><td>✅</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>6/6 完全命中</strong> → <code>_scaled_mm</code> 确实按 E2M1 表正确解读了打包字节。另单测：<strong>block scale 被正确应用</strong>（scale 从 1.0 → 2.0，结果精确 ×4）。</p>
+
+<h3>3.3 吞吐 —— 4.7× 于 bf16（⚠️ 静音工况下限值；满血数据见 §3.6.2）</h3>
+
+<div class="warn">
+  <div class="t">读这组数字前必须知道</div>
+  <p>以下在<strong>静音 45.7 W 工况</strong>下测得。<strong>满血实测值已补齐（见 §3.6.2）</strong>：bf16 25.8 TFLOPS（@80 W）/ FP4 120.5 TFLOPS（@<b>113 W</b>），即绝对值上浮约 <strong>1.2×</strong>（我原先估「满血应上浮 2–2.5×」是严重高估，已作废）。<strong>「4.7×」这个比值跨工况一致，可信度最高。</strong></p>
+</div>
+
+<div class="grid g3">
+  <div class="card"><div class="lbl">FP4 block-scaled（2048³）</div><div class="val" style="color:var(--teal)">99.2 TFLOPS</div><div class="note">走 tensor core</div></div>
+  <div class="card"><div class="lbl">bf16（8192³）</div><div class="val">20.9 TFLOPS</div><div class="note">两次实测 20.9 / 20.5</div></div>
+  <div class="card"><div class="lbl">比值</div><div class="val" style="color:var(--accent)">≈ 4.7 ×</div><div class="note">规模不同，是近似比值而非严格对照</div></div>
+</div>
+
+<h3>3.4 唯一未闭合的一环（如实报告）</h3>
+
+<div class="bad">
+  <div class="t">逐 block 变化的 scale 下，随机矩阵验证误差 39.7%（而非预期的 &lt;0.05%）</div>
+  <p>✅ 已排除：E2M1 解码问题（§3.2 已证）　✅ 已排除：scale 不生效（已证）</p>
+  <p>⚠️ 嫌疑集中在 <strong>cuBLASLt 对 block-scale 张量的布局要求</strong>（缩放因子通常需要特定的 swizzled / blocked 布局，不是朴素行主序 <code>[M, K/16]</code>）。</p>
+  <p>另一条报错很有信息量：<code>Only multiplication of row-major and column-major matrices is supported by cuBLASLt</code> → 确认 <strong>mat_b 的转置必须"逻辑转置 + 重打包"，不能对打包张量直接 <code>.t()</code></strong>。</p>
+</div>
+
+<div class="info">
+  <div class="t">处置决定（写进规范）</div>
+  <p><strong>不手写 FP4 的打包与 scale 布局。</strong>一律通过 <strong>ModelOpt</strong>（已装）或 <strong>Transformer Engine</strong> 生成权重与 scale——它们负责正确的 layout，我们只负责调 API。</p>
+  <p>这符合项目一贯原则：<em>能复用官方 kernel 的，绝不自己写。</em></p>
+</div>
+
+<h3>3.5 G0 判定</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>项</th><th>状态</th></tr></thead>
+<tbody>
+<tr class="good"><td>FP4 类型与 kernel 存在</td><td>✅</td></tr>
+<tr class="good"><td>E2M1 解码正确</td><td>✅</td></tr>
+<tr class="good"><td>block scale 生效</td><td>✅</td></tr>
+<tr class="good"><td>有实质加速</td><td>✅</td></tr>
+<tr class="good"><td>逐 block 随机矩阵端到端严格对齐</td><td>✅ <b>已由 §3.6 的 ModelOpt 路径闭合</b></td></tr>
+<tr class="good"><td><strong>G0 总判定</strong></td><td>🟢 <strong>通过</strong> —— 从"环境能不能跑"变成"选哪个 cfg"</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>3.6 E7 满血复测 + G0 收尾（v1.2 新增，<code>tools/bench_115w.py</code>）</h3>
+
+<p><strong>3.6.1 功耗刺激（v1.2 版本，⚠️ 结论已被 v1.3 推翻，保留存证）</strong></p>
+<p>以 8192³ <b>bf16</b> 连续满载 <strong>30 秒</strong>（1724 轮）逼 TGP 爬升：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>时刻</th><th>功耗</th><th>SM 时钟</th><th>温度</th><th>P-state</th></tr></thead>
+<tbody>
+<tr><td>起始</td><td>14.7 W</td><td>1462 MHz</td><td>56 °C</td><td>P0</td></tr>
+<tr><td>+0.3 s</td><td>34.4 W</td><td>2745 MHz</td><td>68 °C</td><td>P0</td></tr>
+<tr><td>+1.0 s</td><td>67.4 W</td><td>2835 MHz</td><td>69 °C</td><td>P0</td></tr>
+<tr><td>+2.0 s</td><td>79.7 W</td><td>2835 MHz</td><td>70 °C</td><td>P0</td></tr>
+<tr><td>+6.4 s</td><td>79.5 W</td><td>2835 MHz</td><td>72 °C</td><td><b>P2</b></td></tr>
+<tr class="warn"><td><b>+30 s</b></td><td><b>79.4 W</b></td><td>2827 MHz</td><td><b>77 °C</b></td><td>P2</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="bad">
+  <div class="t">⚠️ v1.2 据此写的结论「可持续功耗上限 ≈80W，115W 不可达」是错的</div>
+  <p>错误原因：<b>把「bf16 负载在 80 W 饱和」误读为「整卡上限 80 W」</b>。SM 时钟已达 2835 MHz（高于官标 boost 2662）、温度仅 77 °C、降频标志全清零——<b>这三个信号当时就说明「没有被限住，只是负载吃不下更多瓦数」，但我漏读了最后一项</b>。</p>
+  <p><b style="color:var(--teal)">→ 正确结论见 §3.7（v1.3 翻案实测：113.8 W）。</b></p>
+</div>
+
+<p><strong>3.6.2 吞吐复测（CUDA events 精确计时）—— 工况标注已于 v1.3 修正</strong></p>
+
+<div class="tw">
+<table>
+<thead><tr><th>精度</th><th>规模</th><th>静音 45.7 W</th><th>满血（实测功耗）</th><th>提升</th></tr></thead>
+<tbody>
+<tr><td>bf16</td><td>8192³ ×30</td><td>20.9 TFLOPS</td><td><strong>25.8 TFLOPS</strong>（@ <b>79.7 W</b>）</td><td><strong>1.23×</strong></td></tr>
+<tr><td>bf16</td><td>12288³ ×12</td><td>—</td><td><strong>25.8 TFLOPS</strong></td><td>一致</td></tr>
+<tr><td>FP4</td><td>2048³ ×200</td><td>—</td><td>91.2 TFLOPS</td><td></td></tr>
+<tr class="good"><td>FP4</td><td><strong>4096³ ×40</strong></td><td>—</td><td><strong>120.5 TFLOPS</strong>（@ <b>113.0 W</b>）</td><td><strong>1.21×</strong></td></tr>
+<tr><td>FP4</td><td>8192³ ×8</td><td>99.2 TFLOPS</td><td>114.0 TFLOPS</td><td></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="info">
+  <div class="t">⚠️ v1.3 关键更正：v1.2 把上表整体标为「满血 ~80W」，这是错的</div>
+  <p><b>FP4 行的 120.5 TFLOPS 实际是在 113 W 下取得的</b>（bf16 行才是 80 W）。<b>这就是翻案的源头。</b></p>
+</div>
+
+<div class="info">
+  <div class="t">FP4 / bf16 比值稳定在 4.7× —— 这是架构性倍率</div>
+  <p>静音 <strong>4.75×</strong> → 满血 <strong>4.67×</strong>。<strong>比值几乎不随功耗变化</strong>，说明它来自 tensor core 的硬件倍率，不是功耗依赖的收益。<b>可信度最高的一个数字。</b></p>
+  <p>收益递减证据（v1.3 修正口径）：<b>FP4</b> 功耗 45.7→113.0 W（×2.47），算力仅 ×1.21，静音档已拿到满血 <b>82.3%</b>；<b>bf16</b> 功耗 45.7→79.7 W（×1.74），算力 ×1.23，已拿到 <b>81.0%</b>。</p>
+</div>
+
+<p><strong>3.6.3 G0 收尾 —— ModelOpt 端到端 layout 验证 ✅</strong></p>
+<p>这是初版 G0 唯一未闭合的一环（手搓 layout 误差 39.7%）。用官方工具链重做：</p>
+
+<pre><code>mtq.quantize(model, NVFP4_DEFAULT_CFG, forward_loop=calib)
+→ 量化成功：nn.Linear → QuantLinear
+→ 挂载 3 个 quantizer: input_quantizer / weight_quantizer / output_quantizer
+→ 前向执行无报错</code></pre>
+
+<div class="win">
+  <div class="t">✅ 官方路径端到端可用，无 layout 问题</div>
+  <p>手搓的 39.7% 误差确系<b>布局错误</b>，非硬件或数值问题。<b>规范坐实：不手搓 FP4 打包与 scale 布局，一律走 ModelOpt / Transformer Engine。</b></p>
+</div>
+
+<p><strong>3.6.4 ⭐ 意外收获：<code>NVFP4_DEFAULT_CFG</code> 的真身 + 第一手精度数据</strong></p>
+<p>配置结构（是 <b>list</b> 不是 dict，按序覆盖）：</p>
+
+<pre><code>{"quantizer_name": "*",                 "enable": False}          # 默认全关
+{"quantizer_name": "*weight_quantizer", "cfg": {"num_bits": [2,1],          # ← 4bit (E2M1)
+                                                "block_sizes": {"-1": 16,   # ← block 16
+                                                                "scale_bits": [4,3],  # ← E4M3
+                                                                "type": "dynamic"}}}
+{"quantizer_name": "*input_quantizer",  "cfg": {同上}}            # ← 激活也量化！
+...
+"algorithm": "max"                                                # ← 朴素 max 校准</code></pre>
+
+<div class="callout">
+  <div class="t">官方默认就是 W4A4 + algorithm="max"</div>
+  <p>而 <strong>max 恰恰是最容易受激活离群值（outlier）影响的校准方式</strong> —— 这正是我们架构里要用 <strong>RHT 旋转（<code>NVFP4_KV_ROTATE_CFG</code>）</strong> 去治的病。<b>设计判断得到了官方默认配置的侧面印证。</b></p>
+</div>
+
+<p><strong>单层 1024×1024 误差对照</strong>（512 样本校准，PTQ）：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>配置</th><th>rel = mean|Δ|/mean|y|</th><th>余弦相似度</th></tr></thead>
+<tbody>
+<tr class="bad"><td><strong>W4A4</strong>（官方默认 / max）</td><td><strong>13.99 %</strong></td><td>0.99037</td></tr>
+<tr><td>W4A4 / smoothquant</td><td>13.97 %</td><td>0.99042 <span class="pill p-mid">未生效</span></td></tr>
+<tr class="good"><td><strong>W4A16</strong>（只量化权重）</td><td><strong>10.21 %</strong></td><td><strong>0.99492</strong></td></tr>
+<tr><td>W4A4 / awq</td><td>—</td><td>算法未注册，不可用</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="win">
+  <div class="t">三条解读</div>
+  <p><strong>① W4A16 比 W4A4 误差低 27%</strong>（14.0% → 10.2%），cos 0.9904 → 0.9949。→ <b>验证了分层精度白名单的必要性</b>：并非所有层都该走 W4A4。我们的设计本就是 <b>FP4 权重 + FP8 激活</b>，正好落在两者之间。</p>
+  <p><strong>② 两个配置 cos 都 &gt; 0.99</strong> —— 表征方向基本正确，误差落在幅度/噪声层面，而非结构性破坏。</p>
+</div>
+
+<div class="warn">
+  <div class="t">⚠️ 两条必须说明的边界</div>
+  <p><strong>a. 这是 PTQ（训练后量化）的下界，不是最终性能。</strong> 我们的路线是 <b>QAD（量化感知蒸馏）</b>，模型会主动适应量化误差。业界对照：FLUX 上 FP4 <b>PTQ 掉点</b>（IR 1.118→1.096），而 <b>QAT 反而微升</b>（1.119）。</p>
+  <p><strong>b. 本测试是单层 + 随机权重 + 随机输入，不能外推到扩散模型的最终生成质量。</strong> 它是 <b>G1 的前哨证据，不是 G1 的结论</b>。G1 必须在真实 DiT（Sana 1.6B）上跑。</p>
+</div>
+
+<h3>3.7 ⭐ v1.3 翻案：功耗天花板实测 113.8 W（<code>tools/power_ceiling_probe.py</code>）</h3>
+
+<p><b>触发原因</b>：用户指出「甜甜圈烤机时跑到过 109 W，是你激活得不够标准」。据此重测。</p>
+<p><b>方法学（关键差异）</b>：不再只用一种负载测功耗，而是<b>按负载形态分别测 5 种</b>，每种 18 秒，并且<b>同时读 <code>clocks_event_reasons.active</code></b>——这是判定「是否被限住」的唯一权威信号。</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>负载形态</th><th>稳态</th><th>峰值</th><th>SM 峰值</th><th>温峰</th><th>降频标志</th></tr></thead>
+<tbody>
+<tr><td>bf16 大 GEMM（纯 tensor core）</td><td>79.7 W</td><td>80.9 W</td><td>2842 MHz</td><td>78 °C</td><td><b>0x0</b></td></tr>
+<tr class="good"><td><strong>FP4 block-scaled GEMM</strong></td><td><strong>113.0 W</strong></td><td><strong>113.8 W</strong></td><td>2797 MHz</td><td>82 °C</td><td><b>0x0</b></td></tr>
+<tr><td>D2D 大拷贝（纯显存带宽）</td><td>68.4 W</td><td>68.5 W</td><td>2842 MHz</td><td>70 °C</td><td><b>0x0</b></td></tr>
+<tr><td>fp32 大 elementwise（SM ALU）</td><td>66.9 W</td><td>69.7 W</td><td>2850 MHz</td><td>68 °C</td><td><b>0x0</b></td></tr>
+<tr><td>三流并发 mix（GEMM+拷贝+ALU）</td><td>79.8 W</td><td>81.2 W</td><td>2835 MHz</td><td>79 °C</td><td><b>0x0</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<pre><code># power_ceiling_log.csv — FP4 段连续 19 秒采样
+23:36:19, 108.14 W, 2790 MHz, 79°C, util 99%, mem 89%, P2
+23:36:27, 112.53 W, 2797 MHz, 81°C, util 99%, mem 88%, P2
+23:36:36, 113.62 W, 2790 MHz, 82°C, util 99%, mem 88%, P2
+23:36:36, 113.80 W, 2797 MHz, 81°C, util 99%, mem 89%, P2   ← 峰值</code></pre>
+
+<div class="win">
+  <div class="t">实测结论</div>
+  <p><b>① ✅ 115 W 可达</b>——实测峰值 <b>113.8 W，达到上限的 98.1%</b>；</p>
+  <p><b>② ✅ 零降频</b>——5 种负载 × 全部采样，<code>clocks_event_reasons.active</code> <b>恒为 <code>0x0</code></b>；</p>
+  <p><b>③ ✅ 温度不是限制</b>——最高 82 °C（NVIDIA 笔记本卡通常 87–90 °C 才降频）；</p>
+  <p><b>④ ✅ SM 时钟超规格</b>——满载稳定 2790–2850 MHz，<b>高于官标 boost 2662 MHz</b>；</p>
+  <p><b>⑤ 📌 功耗是负载形态的函数</b>：68 W（显存/ALU）→ 80 W（bf16 tensor）→ <b>113 W（FP4 tensor）</b>。</p>
+</div>
+
+<div class="info">
+  <div class="t">方法论教训（已写入 §1.3 永久规范）</div>
+  <p><b>永远不要用一个负载的功耗代表整卡上限；测功耗时必须同时读降频标志位。</b></p>
+  <p><b>关于 FurMark 的 109 W</b>：FurMark 是「power virus」，用光栅/纹理/ROP 这些能效极差的单元烧电，只烧瓦数不产生 AI 算力。所以它 109 W 是正常的，<b>但那 109 W 对我们的项目毫无价值</b>——真正有意义的是 <b>FP4 在 113 W 下打出 120.5 TFLOPS</b>，这才是「把电变成算力」的路径。</p>
+</div>
+
+<h2><span class="num">04</span>发现的 3 个环境缺陷（附精确修复）</h2>
+
+<pre><code>nunchaku 1.0.2+torch2.8 requires transformers&lt;4.57,&gt;=4.54, but you have transformers 5.10.1.
+nunchaku 1.0.2+torch2.8 requires diffusers&gt;=0.35.1,         but you have diffusers 0.34.0.
+compressed-tensors 0.17.0 requires torch&gt;=2.10.0,           but you have torch 2.8.0+cu128.
+datasets 5.0.1 requires fsspec[http]&lt;=2026.6.0,             but you have fsspec 2026.7.0.</code></pre>
+
+<div class="tw">
+<table>
+<thead><tr><th>#</th><th>问题</th><th>症状</th><th>影响</th><th>修复</th></tr></thead>
+<tbody>
+<tr class="bad">
+  <td><strong>1</strong></td><td><strong>transformers 5.10.1 太新</strong></td>
+  <td><code>cannot import name 'HybridCache' from 'transformers'</code></td>
+  <td><strong>连带打坏</strong> modelopt 的 diffusers/peft 插件、peft 导入、nunchaku</td>
+  <td>降到 <strong>4.54–4.56</strong>。⚠️ 会动全局环境 → <strong>应先建独立 venv</strong></td>
+</tr>
+<tr class="bad">
+  <td>2</td><td>nunchaku 要 <code>diffusers&gt;=0.35.1</code>，实际 0.34.0</td><td>同上连带</td><td>4-bit 推理（Flux/Sana）不可用</td><td>升 diffusers 到 ≥0.35.1</td>
+</tr>
+<tr>
+  <td>3</td><td>flashinfer 是 <strong>cu12 构建</strong></td>
+  <td><code>Could not find module cudart64_12.dll</code>（在 v13.2 目录里找）</td>
+  <td>attention kernel 库不可用</td><td>换 cu13 构建，或不用（我们本来要自写注意力 kernel）</td>
+</tr>
+<tr><td>4</td><td>compressed-tensors 要 torch≥2.10</td><td>版本声明冲突</td><td>非本路线依赖</td><td>忽略</td></tr>
+<tr><td>5</td><td>datasets 的 fsspec 上限</td><td>版本声明冲突</td><td>可能影响数据下载</td><td>忽略或降 fsspec</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="info">
+  <div class="t">关键判断：前 3 条不是"缺东西"，是"版本互相打架"</div>
+  <p>建议 <strong>不修全局环境</strong>，而是给本项目建一个独立 venv —— 理由见 §6 的 E1。</p>
+</div>
+
+<h2><span class="num">05</span>三个约束的重新分类（含一处重要更正）</h2>
+
+<div class="callout">
+  <div class="t">初版把磁盘与功耗并列成「两个硬约束」—— 这个分类是错的</div>
+  <p>它们性质完全不同，混在一起会污染架构判断。</p>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>约束</th><th>性质</th><th>影响面</th><th>状态</th></tr></thead>
+<tbody>
+<tr class="bad"><td><strong>显存 8 GB</strong></td><td><strong>真·硬约束</strong></td><td>决定架构设计的一切</td><td>❌ 不可变，已写进架构</td></tr>
+<tr class="bad"><td><strong>SM 数 20</strong></td><td><strong>真·硬约束</strong></td><td>决定吞吐上限</td><td>❌ 不可变，决定「验证机」定位</td></tr>
+<tr class="good"><td>磁盘空间</td><td>工程约束</td><td>决定装不装得下</td><td>✅ <strong>已解决</strong></td></tr>
+<tr class="good"><td>功耗 45.7 ↔ <b>113 W</b>（实测）</td><td><strong>工况变量</strong></td><td>决定跑多久（<b>静音档已拿到满血 82%</b>）</td><td>🔧 可随时切换（上限 115 W）</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>结论：只有前两项应该影响架构判断；后两项只影响排程。</strong></p>
+
+<h3>5.1 磁盘：✅ 已解决（D: 180 GB 可用）</h3>
+
+<pre><code>C:  448G  已用 418G  可用  31G   94%     ← 约定不动
+D:  952G  已用 773G  可用 180G   82%     ← 本次腾出 128 GB</code></pre>
+
+<p><strong>建账：从 52 GB → 180 GB 可用，正好落在当初提的「舒服工作线 ≈150 GB」之上。</strong>各阶段需求重新核对：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>阶段</th><th>需要空余</th><th>现状 180 GB</th></tr></thead>
+<tbody>
+<tr class="good"><td>立刻开工（E1–E3：venv + 靶子模型）</td><td>≈ 30 GB</td><td>✅ 充裕</td></tr>
+<tr class="good"><td>跑到 G1 出结论（+ QAT checkpoint + 评估集）</td><td>≈ 40 GB</td><td>✅ 充裕</td></tr>
+<tr class="good"><td>舒服工作线（G1–G5 + P2′：+ teacher + 数据 + checkpoint 轮转）</td><td>≈ 150 GB</td><td>✅ <strong>刚好达标</strong></td></tr>
+<tr><td>理想（全量数据 + 多阶段 checkpoint）</td><td>≈ 250 GB</td><td>⚠️ 不足，届时再议（或挂外接盘）</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="win">
+  <div class="t">磁盘阻塞已解除，E0 不再挡路</div>
+  <p>到 250 GB 那一步再说，现在不需要动 C 盘。原则重申：<strong>本项目所有新增大文件（venv / 模型 / 数据 / checkpoint）一律落在 <code>D:\model\</code> 下</strong>，不碰 C 盘。</p>
+</div>
+
+<h3>5.2 功耗：45.7 W 静音 ↔ 113 W 满血（v1.3 实测，详见 §1.3 / §3.7）</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>平台</th><th>精度</th><th>吞吐</th><th>相对本机（满血）</th></tr></thead>
+<tbody>
+<tr class="good"><td><strong>本机（45.7 W 静音）</strong></td><td>bf16 / FP4</td><td>20.9 / <strong>99.2</strong> TFLOPS</td><td>0.81× / <strong>0.82×</strong></td></tr>
+<tr class="good"><td><strong>本机（满血实测：bf16 @80 W / FP4 @113 W）</strong></td><td>bf16 / FP4</td><td>25.8 / <strong>120.5</strong> TFLOPS</td><td>1×</td></tr>
+<tr><td> H100 ×1</td><td>bf16</td><td>~990 TFLOPS</td><td>~38×</td></tr>
+<tr class="bad"><td>H100 ×8（Micro-budget 用的配置）</td><td>bf16</td><td>~7,900 TFLOPS</td><td><strong>~307×</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="info">
+  <div class="t">关键推论：解锁功耗不能改变定位判断</div>
+  <p>本机满血 bf16 25.8 TFLOPS 对 8×H100 的 7,900 TFLOPS 仍是 <b>~307×</b> 差距（换成设计主线的 FP4 120.5 TFLOPS 去比也有 <b>~66×</b>）。这台机器依然是<strong>验证机</strong>—— 但要强调，<strong>「验证机」不是贬义</strong>：它的任务是把假设一条条打掉，而那本来就发生在训练之前。</p>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>路线阶段</th><th>本机可行？</th><th>说明</th></tr></thead>
+<tbody>
+<tr class="good"><td><strong>G0 环境验证</strong></td><td>✅</td><td>已完成（本文档）</td></tr>
+<tr class="good"><td><strong>G1 NVFP4 QAD 验证</strong></td><td>✅ 可行</td><td>在现成 1–2B DiT 上打 QAT、跑小规模消融，本来就是几天量级</td></tr>
+<tr class="good"><td><strong>G2 通道分离消融</strong></td><td>✅ 可行</td><td>需训一个小 autoencoder，慢但能跑</td></tr>
+<tr class="good"><td><strong>P2′ 排版链路</strong></td><td>✅</td><td>不需 GPU（字体光栅化 + 小 planner）</td></tr>
+<tr class="good"><td><strong>P2.6 角色卡 / Fitter</strong></td><td>✅</td><td>Fitter 是 &lt;1B 级别</td></tr>
+<tr class="good"><td><strong>LoRA / 角色微调</strong></td><td>✅</td><td>这正是设计目标（4–5GB 峰值）</td></tr>
+<tr class="good"><td><strong>推理 demo / 出图</strong></td><td>✅</td><td>2.5GB 峰值在 8GB 上绰绰有余</td></tr>
+<tr><td>KP-S（0.6B）小规模预训练</td><td><span class="pill p-mid">⚠️ 勉强</span></td><td>能跑通流程，但要达到有竞争力的质量需要很久（满血下亦为月量级）</td></tr>
+<tr class="bad"><td><strong>G6 Micro-budget 全量预训练</strong></td><td>❌ <strong>不可行</strong></td><td>本机复现 ≈ <strong>数年</strong>（满血下仍为年量级）；必须租云（基准 \$1,890 / 8×H100 / 2.6 天）</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="win">
+  <div class="t">这实际上是个好消息</div>
+  <p>G6 是路线上的<strong>最后一关</strong>，而它前面的 <strong>G0–G5 全部可以在本机完成</strong>。</p>
+  <p><strong>先用这台机器把假设全部打掉，最后再花钱租云做一次真正的训练</strong> —— 成本最优，也正好和 §9.2 的「两条腿」策略一致。</p>
+</div>
+
+<h2><span class="num">06</span>立即可执行的行动清单（已按功耗工况重排）</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>#</th><th>动作</th><th>依赖</th><th>功耗敏感？</th><th>风险</th></tr></thead>
+<tbody>
+<tr class="good"><td><strong>E0</strong></td><td><s>清理磁盘</s></td><td>—</td><td>—</td><td>✅ <strong>已完成</strong>（D: 180 GB）</td></tr>
+<tr class="good"><td><strong>E1</strong></td><td>建<strong>项目独立 venv</strong>（<code>D:\model\.venv</code>），<strong>不动现有全局环境</strong></td><td>无</td><td>❌ 否（纯 IO）</td><td>低（隔离在项目目录内）</td></tr>
+<tr class="good"><td><strong>E2</strong></td><td>venv 内固定版本：<code>torch 2.8.0+cu128</code> + <code>transformers 4.55.x</code> + <code>diffusers ≥0.35.1</code> + <code>peft</code> + <code>nvidia-modelopt</code></td><td>E1</td><td>❌ 否（下载 IO）</td><td>中（需试出兼容组合）</td></tr>
+<tr class="good"><td><strong>E3</strong></td><td><strong>G0 收尾</strong>：用 ModelOpt 量化真实 <code>nn.Linear</code>，端到端跑通 → 确认 layout 正确</td><td>—</td><td>—</td><td>✅ <strong>已完成</strong>（§3.6.3）</td></tr>
+<tr class="good"><td><strong>E4</strong></td><td>下载 G1 靶子模型（Sana 1.6B 或 Lumina）</td><td>E2</td><td>❌ 否（下载 IO）</td><td>低</td></tr>
+<tr class="bad"><td><strong>E5</strong></td><td><strong>G1 开跑</strong>：对靶子做 NVFP4 QAD，跑 BF16 vs FP4 vs PTQ 三方对照</td><td>E2+E4</td><td>🔸 仅差 ~20%</td><td><strong>高</strong>（全案第一道真门）</td></tr>
+<tr class="good"><td><strong>E6</strong></td><td>并行开 <strong>P2′</strong>（字体 + Layout Planner），不依赖 GPU</td><td>无</td><td>❌ 否</td><td>极低</td></tr>
+<tr class="good"><td><strong>E7</strong></td><td>在满血工况下补测吞吐，替换 §3.3 的「静音下限值」</td><td>—</td><td>—</td><td>✅ <strong>已完成</strong>（§3.6.2）</td></tr>
+<tr class="good"><td><strong>E8</strong></td><td><strong>功耗天花板复测</strong>（5 种负载形态 × 降频标志）→ 推翻 v1.2 的 80W 结论</td><td>—</td><td>—</td><td>✅ <strong>已完成</strong>（§3.7，实测 <b>113.8 W</b>）</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="win">
+  <div class="t">排程结论（v1.3 更新）</div>
+  <p><strong>E0 / E3 / E7 / E8 已完成。</strong>剩下 <strong>E1 / E2 / E4 / E6 全部对功耗不敏感，随时可做</strong>。</p>
+  <p>✅ <strong>E5 的门槛不变地低</strong>——满血只比静音快 <strong>~20%</strong>，<strong>G1 训练不必等用户解锁功耗，静音档就能开跑</strong>（只是慢约 20%）。</p>
+  <p>→ <strong>这意味着项目不再有任何「需要用户配合才能开工」的前置条件。</strong></p>
+</div>
+
+<h2><span class="num">07</span>更新后的门状态</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>门</th><th>原状态</th><th>新状态</th></tr></thead>
+<tbody>
+<tr class="good"><td><strong>G0 环境</strong></td><td>⏳ 待验证</td><td>🟢 <strong>通过</strong>（v1.2：ModelOpt 端到端 layout 已闭合；规范：不手搓 FP4 layout）</td></tr>
+<tr class="good"><td>G1 NVFP4 QAD</td><td>⏳</td><td>🔵 <strong>可开跑</strong>（23 个 NVFP4 配方就绪；磁盘已解除；<b>且不需解锁功耗</b>）</td></tr>
+<tr><td>G2 通道分离</td><td>⏳</td><td>🔵 可开跑（本机可训小 autoencoder）</td></tr>
+<tr><td>G3–G5</td><td>⏳</td><td>🔵 可开跑</td></tr>
+<tr class="bad"><td>G6 Micro-budget</td><td>⏳</td><td>🔴 <strong>本机不可行 → 需租云</strong>（但它是最后一关）</td></tr>
+<tr><td>G7 少步蒸馏</td><td>⏳</td><td>🔵 可开跑</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="info">
+  <div class="t">G1 的前哨情报（来自 §3.6.4，仅供参考，不能替代 G1）</div>
+  <p>· 官方默认 cfg 是 <strong>W4A4 + <code>algorithm="max"</code></strong> → max 校准对 outlier 敏感 → <strong>印证了 RHT 旋转的必要性</strong></p>
+  <p>· <strong>W4A16 误差 10.21% 优于 W4A4 的 13.99%</strong>（cos 0.9949 vs 0.9904）→ <strong>分层精度白名单是必要的</strong></p>
+  <p>· 两者 cos 均 &gt; 0.99 → 表征方向基本正确</p>
+  <p>· ⚠️ 但这是 <strong>PTQ + 单层 + 随机权重</strong>，是<strong>下界</strong>；我们的 QAD 路线应显著优于它</p>
+</div>
+
+<footer>
+  KokonaPolaris-S4（心夏北极星）· 补充设计 07 · <b>v1.2</b> · 2026-10-02<br>
+  本文档为实测报告。脚本：<code>gpu_probe.py</code> ~ <code>gpu_probe5.py</code>（环境）、<code>bench_115w.py</code>（功耗/吞吐/G0 收尾）、<code>power_ceiling_probe.py</code>（v1.3 功耗天花板翻案）、<code>quant_compare.py</code>（精度对照），均可复跑。<br>
+  ⚠️ 吞吐数字必须标注工况：静音 45.7 W = 20.9 TFLOPS bf16 / 99.2 TFLOPS FP4；满血 = 25.8 TFLOPS bf16（@ <b>80 W</b>）/ 120.5 TFLOPS FP4（@ <b>113 W</b>）。<br>
+  ⚠️ 「能力上限」须在解锁功耗下测——已于 v1.3 完成（§3.7：实测峰值 <b>113.8 W</b> 可达，占 115 W 上限的 <b>98.1%</b>，<b>零降频</b>）。
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KokonaPolaris 补充设计 05 · 可逆擦除与能力谱系</title>
+<style>
+  :root{
+    --bg:#FAFAF9; --surface:#FFFFFF; --surface2:#F4F3F1;
+    --text:#1C1C1A; --text2:#5F5E5A; --text3:#888780;
+    --border:rgba(0,0,0,0.10); --border2:rgba(0,0,0,0.18);
+    --accent:#534AB7; --accent-l:#EEEDFE; --accent-d:#3C3489;
+    --blue:#185FA5; --blue-l:#E6F1FB;
+    --teal:#0F6E56; --teal-l:#E1F5EE;
+    --amber:#854F0B; --amber-l:#FAEEDA;
+    --red:#A32D2D; --red-l:#FCEBEB;
+    --green:#3B6D11; --green-l:#EAF3DE;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:56px 28px 100px}
+  header{border-bottom:1px solid var(--border);padding-bottom:28px;margin-bottom:40px}
+  .kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:500;margin-bottom:14px}
+  h1{font-size:31px;font-weight:600;letter-spacing:-.02em;line-height:1.25;margin-bottom:12px}
+  .sub{font-size:16px;color:var(--text2);max-width:740px}
+  .meta{margin-top:18px;font-size:13px;color:var(--text3);display:flex;gap:20px;flex-wrap:wrap}
+  h2{font-size:22px;font-weight:600;letter-spacing:-.01em;margin:64px 0 10px;padding-top:18px;border-top:1px solid var(--border)}
+  h2:first-of-type{border-top:none;padding-top:0;margin-top:40px}
+  h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:10px;font-weight:500}
+  h3{font-size:16.5px;font-weight:600;margin:30px 0 10px}
+  h4{font-size:15px;font-weight:600;margin:20px 0 8px}
+  p{margin:12px 0}
+  ul,ol{margin:12px 0 12px 22px}
+  li{margin:7px 0}
+  code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.88em;background:var(--surface2);padding:2px 6px;border-radius:4px;color:var(--accent-d)}
+  pre{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;overflow-x:auto;margin:20px 0}
+  pre code{background:none;padding:0;font-size:12.5px;line-height:1.7;color:var(--text2)}
+  .grid{display:grid;gap:12px;margin:22px 0}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+  .card .lbl{font-size:12px;color:var(--text3);margin-bottom:6px}
+  .card .val{font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .card .note{font-size:13.5px;color:var(--text2);margin-top:8px;line-height:1.7}
+  .callout{border-left:3px solid var(--accent);background:var(--accent-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .callout .t{font-weight:600;color:var(--accent-d);margin-bottom:6px;font-size:15px}
+  .callout p{color:var(--accent-d);font-size:14.5px;margin:6px 0}
+  .warn{border-left:3px solid var(--amber);background:var(--amber-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .warn .t{font-weight:600;color:var(--amber);margin-bottom:4px;font-size:14.5px}
+  .warn p{color:var(--amber);font-size:14px;margin:4px 0}
+  .bad{border-left:3px solid var(--red);background:var(--red-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .bad .t{font-weight:600;color:var(--red);margin-bottom:4px;font-size:14.5px}
+  .bad p{color:var(--red);font-size:14px;margin:4px 0}
+  .info{border-left:3px solid var(--blue);background:var(--blue-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .info .t{font-weight:600;color:var(--blue);margin-bottom:4px;font-size:14.5px}
+  .info p{color:var(--blue);font-size:14px;margin:4px 0}
+  .win{border-left:3px solid var(--teal);background:var(--teal-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .win .t{font-weight:600;color:var(--teal);margin-bottom:6px;font-size:15px}
+  .win p{color:var(--teal);font-size:14.5px;margin:6px 0}
+  .tw{overflow-x:auto;margin:20px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;padding:12px 16px;background:var(--surface2);font-weight:600;color:var(--text2);font-size:12.5px;border-bottom:1px solid var(--border);white-space:nowrap}
+  td{padding:11px 16px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.hl{background:var(--accent-l);font-weight:600;color:var(--accent-d)}
+  tr.bad td{background:var(--red-l)}
+  tr.good td{background:var(--teal-l)}
+  .pill{display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:20px;font-weight:500;white-space:nowrap}
+  .p-ok{background:var(--green-l);color:var(--green)}
+  .p-no{background:var(--red-l);color:var(--red)}
+  .p-mid{background:var(--amber-l);color:var(--amber)}
+  .p-info{background:var(--blue-l);color:var(--blue)}
+  .p-acc{background:var(--accent-l);color:var(--accent-d)}
+  .fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 20px;margin:26px 0;overflow-x:auto}
+  .fig svg{display:block;margin:0 auto;min-width:600px}
+  .figcap{font-size:12.5px;color:var(--text3);text-align:center;margin-top:14px}
+  blockquote{border-left:3px solid var(--border2);padding:4px 0 4px 18px;margin:18px 0;color:var(--text2);font-size:14.5px}
+  footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--border);font-size:12.5px;color:var(--text3);line-height:1.9}
+  @media(max-width:640px){h1{font-size:24px}.wrap{padding:32px 18px 70px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">KokonaPolaris · Supplement 05</div>
+  <h1>可逆擦除与能力谱系</h1>
+  <p class="sub">能力获取的成本分几档 · 为什么最难的那一档反而最便宜 · 擦除账本 · 一条 3D 资产线的四路监督</p>
+  <div class="meta"><span>2026-10-02</span><span>配套主文档 v1.4</span><span>本轮产出 v1.5 修订</span></div>
+</header>
+
+<h2><span class="num">00</span>结论先行</h2>
+
+<div class="win">
+  <div class="t">技术可行，而且它是整套能力谱系里最便宜的一类——比「二次元 → 写实」跨域便宜一个数量级</div>
+  <p>原因是一个<strong>对称性</strong>：在这个架构里，「拿掉一个能力」和「加回一个能力」用的是<strong>同一个算子，只差一个符号</strong>。而现代概念擦除方法已被证明是 <strong>闭式、低秩、秒级</strong>的。</p>
+  <p>所以只要擦除是「<strong>可记录的</strong>」，添加就是「<strong>可计算的</strong>」。</p>
+</div>
+
+<div class="grid g3">
+  <div class="card">
+    <div class="lbl">安全子空间有效秩</div>
+    <div class="val">k ≈ 6</div>
+    <div class="note">一整个「行为模式」住在 6 个方向上。对比：主干 hidden dim = 1152。</div>
+  </div>
+  <div class="card">
+    <div class="lbl">闭式擦除耗时</div>
+    <div class="val">22 秒</div>
+    <div class="note">CURE（NeurIPS 2025）Spectral Eraser：无训练、无梯度、单步权重更新。</div>
+  </div>
+  <div class="card">
+    <div class="lbl">发布带接口的额外成本</div>
+    <div class="val">0</div>
+    <div class="note">门控默认 0 + bit-exact 不变量 ⇒ 不装任何包就等于原版。</div>
+  </div>
+</div>
+
+<div class="info">
+  <div class="t">一条硬边界（必须记住）</div>
+  <p>它只对<strong>「底模本来学到过、后来被抑制」</strong>的能力便宜。对「底模从未见过」的分布，它和别的能力一样贵。</p>
+</div>
+
+<h2><span class="num">01</span>补上我上一轮判据里的一个缺口</h2>
+
+<p>上一轮我给的判据是：<strong>支撑集内 = 低秩扰动能改；支撑集外 = 低秩扰动改不了。</strong></p>
+
+<p>这条判据没错，但<strong>漏了一类</strong>：<strong>支撑集内、但被人为推出去的那部分</strong>。</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>类别</th><th>性质</th><th>需要的操作</th><th>代表</th><th>低秩能做吗</th></tr></thead>
+<tbody>
+<tr><td><strong>跨域</strong></td><td>底模<strong>从未见过</strong>该分布</td><td>扩容量（并联分支 / 重训）</td><td>二次元 → 写实、文字渲染</td><td><span class="pill p-no">不能</span></td></tr>
+<tr class="good"><td><strong>能力恢复</strong></td><td>底模<strong>见过</strong>，但被投影掉了</td><td><strong>反向投影</strong></td><td>被合规/对齐抑制掉的能力</td><td><span class="pill p-ok">不但能，甚至是闭式的</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>这两者成本<strong>差一个数量级</strong>，但在「能不能用低秩实现」这个问题上，<strong>答案完全相反</strong>。</p>
+
+<h3>完整判据要变成两问</h3>
+
+<pre><code>第一问：底模见过这个分布吗？
+    没见过 → 支撑集外扩 → ∥-Pack（并联分支，需重训）
+    见过   → 第二问
+第二问：它被人为抑制过吗？
+    是 → 恢复型 → 闭式算子 / Δ-Pack（秒–小时）
+    否 → 长尾型 → Δ-Pack（小时）</code></pre>
+
+<h2><span class="num">02</span>机理：擦除几乎不销毁知识</h2>
+
+<p>四条独立证据，指向同一个结论。</p>
+
+<h3>2.1 擦除主要是「回避」，不是「销毁」</h3>
+
+<p><strong>arXiv 2505.17013《When Are Concepts Erased From Diffusion Models?》</strong>（NYU · Northeastern；7 种擦除方法 × 13 个概念 × 10 万+ 次生成）</p>
+
+<p>论文把擦除机制分成两类：</p>
+<ul>
+  <li><strong>Guidance-based avoidance（引导式回避）</strong>：把模型从目标概念<strong>重定向</strong>走，概念本身还在；</li>
+  <li><strong>Destruction-based removal（销毁式移除）</strong>：压低生成该概念的<strong>无条件似然</strong>。</li>
+</ul>
+
+<p>结论要点：</p>
+<ul>
+  <li><strong>多数现有方法属于前者</strong>；</li>
+  <li>被「抹掉」的概念可以被 <strong>「向去噪轨迹重新注入噪声」</strong> 这类探测手段捞回来；</li>
+  <li>二者的真正差别是<strong>权衡关系</strong>：销毁式更抗对抗提示词，但<strong>会损害无关输出</strong>——论文原话「robustness comes at a cost」。</li>
+</ul>
+
+<div class="callout">
+  <div class="t">对本案的意义</div>
+  <p>如果擦除多数时候只是「重定向」，那么「恢复」就不是重新学习，而是<strong>解除重定向</strong>。</p>
+</div>
+
+<h3>2.2 安全对齐本质是「零空间投影」，而且极低秩</h3>
+
+<p><strong>《What Makes and Breaks Safety Fine-tuning? A Mechanistic Study》</strong></p>
+
+<ul>
+  <li>安全微调（DPO / RLHF）<strong>不会改写底层知识</strong>，而是学一个<strong>最小的、几乎正交于原权重的 ΔW</strong>；</li>
+  <li>关键结构发现：<strong>ΔW 的列空间高度对齐于原权重 W 的零空间</strong>——即安全微调是「把不安全激活投影到零空间里」，是一个<strong>滤波器</strong>，不是一次重学；</li>
+  <li>不安全样本的内部特征在深层<strong>塌缩到单一主导方向</strong>：不安全样本特征协方差<strong>首奇异值占 ~62% 方差</strong>，安全样本只有 <strong>~12%</strong>。</li>
+</ul>
+
+<h3>2.3 整个「行为模式」住在极少数方向上</h3>
+
+<p><strong>LoX（Low-rank Extrapolation）</strong>给出的数字：安全子空间的<strong>有效秩 k ≈ 6</strong>。</p>
+
+<pre><code>ΔW = W_aligned − W_base
+取 SVD 的 top-k 奇异向量 → Proj_k(ΔW)
+W_LoX = W_aligned + α · Proj_k(ΔW)        α ≈ 1.25</code></pre>
+
+<p>仅靠这 6 个方向的外推，就能显著改变整个安全行为。<strong>一整个「行为模式」，住在 6 个方向上。</strong></p>
+
+<h3>2.4 于是反向操作是闭式的、秒级的</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>方法</th><th>年份</th><th>机制</th><th>关键数字</th></tr></thead>
+<tbody>
+<tr><td><strong>CURE</strong></td><td>NeurIPS 2025</td><td>Spectral Eraser：对 forget / retain 两个 token 嵌入集做 SVD，得<strong>闭式正交投影</strong>，单步更新权重</td><td><strong>22 秒</strong>完成；训练免费；明确覆盖 explicit content 类目标</td></tr>
+<tr><td><strong>MACE</strong></td><td>CVPR 2024</td><td>闭式 cross-attention 精修 + 逐概念 LoRA</td><td>可同时处理 <strong>100 个概念</strong>；「多个 LoRA 之间互不干扰」</td></tr>
+<tr><td><strong>UCE</strong></td><td>2024</td><td>把 cross-attention 投影权重的修改写成<strong>闭式优化</strong></td><td>保持非目标概念的原始输出</td></tr>
+<tr><td><strong>GLoCE</strong></td><td>—</td><td><strong>门控低秩</strong>模块，把目标嵌入投影到零子空间</td><td><strong>可开关</strong>（这点最关键）</td></tr>
+<tr><td><strong>CA-LoRA</strong></td><td>2023</td><td>压缩模型的知识恢复模块 <code>σ(XD)U</code>，带非线性以适应「非低秩」损失</td><td>为「恢复被压缩掉的能力」提供先例</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="win">
+  <div class="t">{ 低秩 k≈6 } + { 闭式 } + { 秒级 } + { 可门控 } —— 四个性质同时成立</div>
+  <p>这意味着「加回来」不是训练问题，而是<strong>求逆</strong>问题。</p>
+</div>
+
+<div class="info">
+  <div class="t">CA-LoRA 的一条经验，直接适用于我们的 Δ-Pack</div>
+  <p>它指出 LoRA 的一个局限：<strong>LoRA 是低秩的，而压缩/抑制造成的损失往往不是低秩的</strong>，所以它在恢复模块里加了非线性激活 <code>σ(·)</code>。→ 恢复型包应允许「轻量非线性」，并放宽 rank 预算。</p>
+</div>
+
+<h2><span class="num">03</span>三个子类：它是混合问题，不是一件事</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>子类</th><th>性质</th><th>归属层</th><th>成本</th><th>判据</th></tr></thead>
+<tbody>
+<tr class="good"><td><strong>① 被抑制的能力恢复</strong></td><td>底模学过 → 被投影掉</td><td>闭式算子 / Δ-Pack</td><td><strong>秒–分钟</strong></td><td>有没有被擦过</td></tr>
+<tr><td><strong>② 长尾内容分布</strong></td><td>支撑集内但覆盖稀疏</td><td>Δ-Pack（需容量、可能需非线性）</td><td><strong>小时</strong></td><td>数据密度</td></tr>
+<tr class="bad"><td><strong>③ 真正的新分布</strong></td><td>支撑集外扩</td><td>∥-Pack（100M–1B）</td><td><strong>需重训</strong></td><td>底模见过没有</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>大多数直觉里以为的「那个能力」，实际是 <strong>①② 的组合，而不是 ③</strong>。而 ③ 恰好是「二次元 → 写实」和「文字渲染」所在的那一格。</p>
+
+<p><strong>工程含义</strong>：先把 ① 和 ② 做掉，能覆盖绝大部分需求，且<strong>完全不需要动主干、不需要重训</strong>。只有当需求真的落到 ③，才要付出并联分支的代价。</p>
+
+<h2><span class="num">04</span>架构贡献：可逆擦除账本</h2>
+
+<p>这是本轮真正值钱的部分。<strong>它同时改善两件事：可合规性 和 可扩展性。</strong></p>
+
+<h3>4.1 我们手上有一个「白拿」的结构性优势</h3>
+
+<p>我们<strong>必须</strong>在训练数据里做合规过滤（法律与可分发性）。也就是说：</p>
+
+<blockquote><strong>抑制是由我们自己主动施加的。</strong>它不是外部厂商灌进来的黑盒 RLHF。</blockquote>
+
+<p>这正是现有社区做「恢复」时的困境：<strong>他们不知道被擦掉的方向是什么</strong>，只能靠对抗搜提示词、靠猜、靠噪声探测——arXiv 2505.17013 那一整套 probing 框架就是为这件事发明的。</p>
+
+<p><strong>而我们可以知道。</strong>这是一个结构性的、白拿的优势。</p>
+
+<h3>4.2 账本的设计</h3>
+
+<p>把合规抑制实现为一个<strong>显式的、有记录的低秩算子 <code>E</code></strong>，而不是黑盒对齐：</p>
+
+<pre><code>E = Σᵢ αᵢ · uᵢ vᵢᵀ        作用在指定层集合 L
+                        （文献经验：深度约 2/3 处最有效）</code></pre>
+
+<div class="tw">
+<table>
+<thead><tr><th>记录项</th><th>用途</th></tr></thead>
+<tbody>
+<tr><td>擦除子空间基 <code>{uᵢ, vᵢ}</code></td><td>定义反向算子的精确方向</td></tr>
+<tr><td>有效秩 <code>k</code></td><td>决定 <code>E⁻¹</code> 的容量上界</td></tr>
+<tr><td>作用层 <code>L</code> 与逐层强度 <code>αᵢ</code></td><td>定位语义分化的深度</td></tr>
+<tr><td><strong>保留集 / 目标集的语义边界</strong></td><td>用于检验特异性，防止误伤</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>后果：恢复 = 应用 <code>E⁻¹</code>。</strong>我们知道<strong>方向、量级、层位、边界</strong>。不需要探测，不需要对抗搜索。</p>
+
+<div class="win">
+  <div class="t">一句话</div>
+  <p>把「擦除」从一次不可逆的手术，改成一个有据可查的账本条目。而<strong>账本的逆运算，就是能力包</strong>——<code>Pack_recover ≡ E⁻¹</code>。</p>
+</div>
+
+<h3>4.3 为什么这同时让「擦除」本身也更好</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>文献里的矛盾</th><th>账本式设计怎么解</th></tr></thead>
+<tbody>
+<tr><td><strong>Generality vs Specificity</strong>（擦得干净 vs 不伤无辜）——MACE 整篇论文就在解这个</td><td>记录「保留集边界」→ 特异性变成<strong>可测量、可优化的约束</strong>，而不是事后碰运气</td></tr>
+<tr><td><strong>Robustness has a cost</strong>（销毁式更强但损害无关输出）</td><td>强度 <code>αᵢ</code> 连续可调 → 在「干净」与「不伤无辜」之间走<strong>连续路径</strong>，而不是二选一</td></tr>
+<tr><td>擦除会<strong>震荡到早期去噪步</strong>（MACE 发现：改早段预测会误伤同名的其他概念，因为早期轨迹还都在同一个人脸流形上）</td><td>MACE 的 <strong>spontaneous symmetry breaking</strong> 观察直接给出判据：<strong>作用层应选在「语义已经分化」的深度之后</strong>。文献经验值：网络深度约 <strong>2/3 处</strong></td></tr>
+<tr><td>训练期对齐会被后续微调洗掉</td><td><strong>LoX 记录：用完全无害的 GSM8K 微调 2 个 epoch，拒绝率就能从 ~0% 打到 50% 以上</strong> → 说明「对齐」必须能被<strong>重新施加</strong>，而不是一次性</td></tr>
+<tr><td>—</td><td><strong>可门控</strong> → 部署策略层可以按场景决定是否施加（见 §06）</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+  <div class="t">一句更本质的话</div>
+  <p><strong>「可逆」不是安全性的敌人，反而是安全性的前提。</strong></p>
+  <p>一个不可逆的黑盒擦除，既无法审计、也无法修复、也无法随政策更新——它只是一个无法验证的承诺。而账本式擦除是<strong>可审计、可回滚、可重配</strong>的。</p>
+</div>
+
+<h3>4.4 成本严格为零</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>项</th><th>成本</th></tr></thead>
+<tbody>
+<tr><td>门控默认值</td><td class="hl">0</td></tr>
+<tr><td>bit-exact 不变量</td><td>账本存在与否<strong>不改变裸模型输出</strong></td></tr>
+<tr><td>账本本体</td><td>只是元数据（若干基向量 + 标量），<strong>不吃显存、不进权重</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>所以「预留接口」这件事在这个架构里不是一个决策，而是一个推论。</strong></p>
+
+<h2><span class="num">05</span>数据供给：一条 3D 资产线，四个正交旋钮</h2>
+
+<h3>5.1 现成证据：分层参数化人体</h3>
+
+<p><strong>SynBody（ICCV 2023，商汤 / 上海 AI Lab / NTU / 港中文）</strong></p>
+
+<ul>
+  <li>核心是 <strong>SMPL-XL</strong>，一个「自底向上」的<strong>分层参数化人体模型</strong>：
+    <ul>
+      <li><strong>Base Body</strong>（参数化体表，可采样不同体型）</li>
+      <li><strong>Hair</strong>（32 种发型 / 13 种胡须）</li>
+      <li><strong>Garments</strong>（程序化外套 / 衬衫 / 裤 / 裙）</li>
+      <li><strong>Accessories</strong>（鞋 / 眼镜）</li>
+    </ul>
+  </li>
+  <li>规模：<strong>1.2M 图 / 10,000 个人体模型 / 1,187 个动作 / 26,960 段视频 / 2.7M SMPL-X 标注</strong></li>
+  <li>管线：UE5 + <strong>XRFeitoria</strong> 渲染工具链，动捕重定向自 AMASS</li>
+  <li>配套标注：depth map、optical flow、语义分割</li>
+</ul>
+
+<div class="warn">
+  <div class="t">许可</div>
+  <p><strong>CC BY-NC-SA 4.0</strong>；SMPL-X 用于商用需向 Meshcapade 单独授权 → <strong>只能研究用</strong>。</p>
+</div>
+
+<p>论文自己有一句结论值得记下：因为是「逐层构造」，所以<strong>即使被宽松服装遮住，「真实体型」的 ground truth 也是已知的</strong>——这是扫描式数据集做不到的。</p>
+
+<h3>5.2 关键结构性质：分层带来零成本监督</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>旋钮</th><th>得到的监督</th><th>已有出处</th></tr></thead>
+<tbody>
+<tr><td><strong>视角</strong></td><td>多视角身份一致性</td><td>补充 04 角色卡线</td></tr>
+<tr><td><strong>着色器</strong></td><td>几何/姿态/相机完全一致的<strong>画风配对</strong></td><td>补充 03 已提出</td></tr>
+<tr class="good"><td><strong>分层可见性</strong></td><td><strong>部件级</strong>分割与结构监督（层边界天然自带 mask）</td><td>本轮新增</td></tr>
+<tr class="good"><td><strong>姿态</strong></td><td>动作、遮挡关系、绘制序</td><td>本轮新增</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="win">
+  <div class="t">四个旋钮相互正交 → 配对样本是组合式扩增，不是线性扩增</div>
+  <p>这也回答了第一轮那个开放问题（「有没有更聪明的数据源提供方式」）：<strong>答案是「分层 + 多旋钮」，而不是「更多图」。</strong></p>
+  <p>用结构性先验换数据量。</p>
+</div>
+
+<h3>5.3 其他可复用的合成线</h3>
+
+<ul>
+  <li><strong>UnrealPose（arXiv 2601.00991，2026）</strong>：UE5 + Movie Render Queue 离线渲染，<strong>UnrealPose-1M</strong>（约 100 万帧），输出 3D 关节、2D 投影 + COCO 关键点（含遮挡/可见性标记）、bbox、相机内外参。<strong>管线也一并开源</strong>——可直接接我们的资产线。</li>
+</ul>
+
+<p>这两条线共同说明：<strong>「分层参数化资产 + 引擎渲染」已经是成熟可复用的基础设施</strong>，不需要我们从零造。</p>
+
+<h2><span class="num">06</span>部署边界：三层责任</h2>
+
+<p>这里说清一件<strong>工程事实</strong>（不是立场，是架构）：安全文献里有一条明确的设计原则——<strong>约束应当在架构层强制，而不是只靠训练期对齐</strong>。理由不是道德，而是<strong>训练期对齐在工程上不可靠</strong>：</p>
+
+<ul>
+  <li>LoX 记录：<strong>用完全无害的数据集（GSM8K）微调 2 个 epoch，拒绝率从 ~0% 升到 50% 以上</strong>；</li>
+  <li>另一条：即使只重置 <strong>~0.2% 的权重</strong>就能把有害率从 33.25% 压回 1.74%——<strong>说明对齐与不对齐之间只隔着极小的权重改动</strong>，因此它天然脆弱。</li>
+</ul>
+
+<div class="tw">
+<table>
+<thead><tr><th>层</th><th>内容</th><th>谁负责</th><th>我们的设计</th></tr></thead>
+<tbody>
+<tr class="good"><td><strong>模型层</strong></td><td>干净底座 + 门控总线 + <strong>擦除账本</strong></td><td>我们</td><td>可分发、可审计、bit-exact</td></tr>
+<tr><td><strong>包层</strong></td><td>能力包（并联 / 叠加 / 角色卡 / 排版）</td><td>生态</td><td>可插拔、可替换、体积 1–27MB</td></tr>
+<tr><td><strong>部署层</strong></td><td>加载同意、输入输出策略、能力白名单</td><td>使用者 / 平台</td><td>模型不内建</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>这个分层的工程价值：</strong></p>
+<ol>
+  <li><strong>底座保持干净且可分发</strong>——这既是许可要求，也是平台要求；</li>
+  <li>能力包由使用者自行承担——<strong>这正是社区生态已经验证跑得通的运作方式</strong>；</li>
+  <li>因为门控是 bit-exact 的，<strong>交付一个「不装任何包就等于原版」的模型，成本为零</strong>。</li>
+</ol>
+
+<h2><span class="num">07</span>对主文档的具体改动</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>位置</th><th>改动</th></tr></thead>
+<tbody>
+<tr><td><strong>§4.7 能力总线</strong></td><td>新增 <strong>§4.7.7 可逆擦除账本</strong>（<code>E</code> 的记录格式、<code>E⁻¹</code> 的三种实现、特异性检验）</td></tr>
+<tr><td><strong>§4.8 三层控制栈</strong></td><td>L1/L2/L3 之外补一条<strong>两问判据</strong>：先问「底模见过没有」，再问「有没有被人为抑制」</td></tr>
+<tr><td><strong>能力谱系表</strong></td><td>新增 <strong>成本档</strong>一列（秒级 / 小时级 / 天级）</td></tr>
+<tr><td><strong>§4.4 Δ-Pack 规格</strong></td><td>补 CA-LoRA 的教训：<strong>恢复型任务的损失可能非低秩，纯 LoRA 不够 → 允许在恢复包内加轻量非线性</strong></td></tr>
+<tr><td><strong>§10 风险表</strong></td><td>新增 2 条（见下）</td></tr>
+<tr><td><strong>§11 验收指标</strong></td><td>新增 <strong>可逆性测试</strong>：对任一条目，<code>E⁻¹∘E</code> 后输出分布应回到基线（KL 低于阈值）</td></tr>
+<tr><td><strong>配置速查</strong></td><td>新增 <code>erasure_ledger: { enabled, layers, rank, alpha, retain_set }</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>新增风险</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>风险</th><th>严重度</th><th>缓解</th></tr></thead>
+<tbody>
+<tr><td><strong>擦除的 generality–specificity 权衡</strong></td><td><span class="pill p-mid">中</span></td><td>记录保留集边界作为显式约束；按 MACE 的 SSB 观察选作用层（深度 ~2/3）；强度连续可调而非二值</td></tr>
+<tr><td><strong>账本本身的可审计性要求</strong></td><td><span class="pill p-mid">中</span></td><td>不记录 = 退化成黑盒 = 丧失全部优势。<strong>必须把账本写入模型卡与分发元数据</strong>，否则 §04 的价值归零</td></tr>
+<tr><td><strong>恢复型任务的非低秩损失</strong></td><td><span class="pill p-info">中低</span></td><td>CA-LoRA 已示警：压缩/抑制造成的损失可能非低秩。恢复包内允许 <code>σ(XD)U</code> 形式，并放宽 rank 预算</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2><span class="num">08</span>一句话总结</h2>
+
+<div class="callout">
+  <div class="t">在这个架构里，「加能力」和「减能力」是同一套算子代数</div>
+  <p>现代擦除已经把这件事证明到 <strong>k≈6、闭式、22 秒</strong> 的程度。</p>
+  <p>所以我们只需要做一件额外的事：<strong>把擦除记录下来</strong>。</p>
+  <p>记录之后，接口就是免费的了。</p>
+</div>
+
+<h2><span class="num">附</span>本轮引用的证据清单</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>#</th><th>来源</th><th>年份</th><th>关键结论</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>When Are Concepts Erased From Diffusion Models?（arXiv 2505.17013）</td><td>2025</td><td>擦除分「引导式回避」与「销毁式移除」；多数属前者，被擦概念可被噪声探测捞回；鲁棒性与副作用是权衡</td></tr>
+<tr><td>2</td><td>MACE: Mass Concept Erasure（CVPR 2024）</td><td>2024</td><td>闭式 cross-attention 精修 + 逐概念 LoRA，可扩到 100 概念；多个 LoRA 互不干扰；早段去噪改动会误伤同名无关概念（SSB）</td></tr>
+<tr><td>3</td><td>What Makes and Breaks Safety Fine-tuning? A Mechanistic Study</td><td>2024</td><td>安全微调是「最小正交 ΔW + 零空间投影」，非知识销毁；不安全激活塌缩到单一方向（首奇异值占 ~62% vs 12%）</td></tr>
+<tr><td>4</td><td>LoX: Low-rank Extrapolation（安全子空间）</td><td>2024</td><td>安全子空间<strong>有效秩 k≈6</strong>；α≈1.25 外推可强化；无害数据微调 2 epoch 即可击穿对齐</td></tr>
+<tr><td>5</td><td>CURE: Concept Unlearning via Orthogonal Representation Editing（NeurIPS 2025）</td><td>2025</td><td>Spectral Eraser：权重空间闭式正交投影，<strong>22 秒</strong>；覆盖 explicit content；训练免费</td></tr>
+<tr><td>6</td><td>UCE / GLoCE / SNCE（概念擦除方法族）</td><td>2024–2025</td><td>闭式编辑 cross-attention；<strong>门控低秩</strong>投影到零子空间（可开关）；稀疏自编码器做神经元级操作</td></tr>
+<tr><td>7</td><td>CA-LoRA（压缩 LLM 的多任务适配）</td><td>2023</td><td>知识恢复模块 <code>σ(XD)U</code>：<strong>LoRA 是低秩的，而压缩损失常非低秩</strong>，故恢复需加非线性；LoRA 知识继承可作初始化</td></tr>
+<tr><td>8</td><td>SynBody（ICCV 2023）</td><td>2023</td><td>SMPL-XL <strong>分层</strong>参数化人体（Base Body/Hair/Garments/Accessories）；1.2M 图 / 10k 模型 / 1,187 动作；CC BY-NC-SA 4.0</td></tr>
+<tr><td>9</td><td>UnrealPose（arXiv 2601.00991）</td><td>2026</td><td>UE5 合成人体姿态数据集与<strong>开源管线</strong>；100 万帧；含遮挡标记与相机内外参</td></tr>
+<tr><td>10</td><td>Architectural Enforcement of Safety Constraints（工程实践分析）</td><td>2026</td><td>安全约束应在架构层强制、独立于可训练权重；否则可被后续微调洗掉</td></tr>
+</tbody>
+</table>
+</div>
+
+<footer>
+  <p>KokonaPolaris · Supplement 05 · 可逆擦除与能力谱系 · 2026-10-02 · 设计稿（未实现）</p>
+  <p>配套主文档 v1.4，本轮产出 v1.5 修订。所有数字均引自公开文献，未验证项已在正文中标注。</p>
+</footer>
+
+</div>
+</body>
+</html>

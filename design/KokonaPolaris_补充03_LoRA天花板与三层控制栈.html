@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KokonaPolaris 补充设计 03 · LoRA 的两个天花板与三层控制栈</title>
+<style>
+  :root{
+    --bg:#FAFAF9; --surface:#FFFFFF; --surface2:#F4F3F1;
+    --text:#1C1C1A; --text2:#5F5E5A; --text3:#888780;
+    --border:rgba(0,0,0,0.10); --border2:rgba(0,0,0,0.18);
+    --accent:#534AB7; --accent-l:#EEEDFE; --accent-d:#3C3489;
+    --blue:#185FA5; --blue-l:#E6F1FB;
+    --teal:#0F6E56; --teal-l:#E1F5EE;
+    --amber:#854F0B; --amber-l:#FAEEDA;
+    --red:#A32D2D; --red-l:#FCEBEB;
+    --green:#3B6D11; --green-l:#EAF3DE;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:56px 28px 100px}
+  header{border-bottom:1px solid var(--border);padding-bottom:28px;margin-bottom:40px}
+  .kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:500;margin-bottom:14px}
+  h1{font-size:32px;font-weight:600;letter-spacing:-.02em;line-height:1.25;margin-bottom:12px}
+  .sub{font-size:16px;color:var(--text2);max-width:740px}
+  .meta{margin-top:18px;font-size:13px;color:var(--text3);display:flex;gap:20px;flex-wrap:wrap}
+  h2{font-size:22px;font-weight:600;letter-spacing:-.01em;margin:64px 0 10px;padding-top:18px;border-top:1px solid var(--border)}
+  h2:first-of-type{border-top:none;padding-top:0;margin-top:40px}
+  h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:10px;font-weight:500}
+  h3{font-size:16.5px;font-weight:600;margin:30px 0 10px}
+  h4{font-size:15px;font-weight:600;margin:20px 0 8px}
+  p{margin:12px 0}
+  p.lead{color:var(--text2)}
+  ul,ol{margin:12px 0 12px 22px}
+  li{margin:7px 0}
+  code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.88em;background:var(--surface2);padding:2px 6px;border-radius:4px;color:var(--accent-d)}
+  pre{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;overflow-x:auto;margin:20px 0}
+  pre code{background:none;padding:0;font-size:12.5px;line-height:1.7;color:var(--text2)}
+  .grid{display:grid;gap:12px;margin:22px 0}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+  .card .lbl{font-size:12px;color:var(--text3);margin-bottom:6px}
+  .card .val{font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .card .note{font-size:13.5px;color:var(--text2);margin-top:8px;line-height:1.7}
+  .callout{border-left:3px solid var(--accent);background:var(--accent-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .callout .t{font-weight:600;color:var(--accent-d);margin-bottom:6px;font-size:15px}
+  .callout p{color:var(--accent-d);font-size:14.5px;margin:6px 0}
+  .warn{border-left:3px solid var(--amber);background:var(--amber-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .warn .t{font-weight:600;color:var(--amber);margin-bottom:4px;font-size:14.5px}
+  .warn p{color:var(--amber);font-size:14px;margin:4px 0}
+  .bad{border-left:3px solid var(--red);background:var(--red-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .bad .t{font-weight:600;color:var(--red);margin-bottom:4px;font-size:14.5px}
+  .bad p{color:var(--red);font-size:14px;margin:4px 0}
+  .info{border-left:3px solid var(--blue);background:var(--blue-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .info .t{font-weight:600;color:var(--blue);margin-bottom:4px;font-size:14.5px}
+  .info p{color:var(--blue);font-size:14px;margin:4px 0}
+  .win{border-left:3px solid var(--teal);background:var(--teal-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .win .t{font-weight:600;color:var(--teal);margin-bottom:6px;font-size:15px}
+  .win p{color:var(--teal);font-size:14.5px;margin:6px 0}
+  .tw{overflow-x:auto;margin:20px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;padding:12px 16px;background:var(--surface2);font-weight:600;color:var(--text2);font-size:12.5px;border-bottom:1px solid var(--border);white-space:nowrap}
+  td{padding:11px 16px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.hl{background:var(--accent-l);font-weight:600;color:var(--accent-d)}
+  tr.bad td{background:var(--red-l)}
+  tr.good td{background:var(--teal-l)}
+  .pill{display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:20px;font-weight:500;white-space:nowrap}
+  .p-ok{background:var(--green-l);color:var(--green)}
+  .p-no{background:var(--red-l);color:var(--red)}
+  .p-mid{background:var(--amber-l);color:var(--amber)}
+  .p-info{background:var(--blue-l);color:var(--blue)}
+  .p-acc{background:var(--accent-l);color:var(--accent-d)}
+  .fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 20px;margin:26px 0;overflow-x:auto}
+  .fig svg{display:block;margin:0 auto;min-width:600px}
+  .figcap{font-size:12.5px;color:var(--text3);text-align:center;margin-top:14px}
+  blockquote{border-left:3px solid var(--border2);padding:4px 0 4px 18px;margin:18px 0;color:var(--text2);font-size:14.5px}
+  .strike{text-decoration:line-through;color:var(--text3)}
+  footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--border);font-size:12.5px;color:var(--text3);line-height:1.9}
+  @media(max-width:640px){h1{font-size:25px}.wrap{padding:32px 18px 70px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">KokonaPolaris · Supplement 03</div>
+  <h1>LoRA 的两个天花板与三层控制栈</h1>
+  <p class="sub">泛用性差 / 功能性有限 的根因 · 架构级解法 · 六项新优化点 · 一处重要更正</p>
+  <div class="meta"><span>2026-10-02</span><span>配套主文档 v1.2</span><span>本轮产出 v1.3 修订</span></div>
+</header>
+
+<h2><span class="num">00</span>你这两条观察，是同一个病</h2>
+
+<p>你说的两件事：</p>
+<ol>
+<li><strong>泛用性极差</strong>：哪个底模训的 LoRA 就只能哪个底模跑。</li>
+<li><strong>功能性极其有限</strong>：给二次元底模打一个 LoRA，做不出接近写实的提升。</li>
+</ol>
+
+<div class="callout">
+  <div class="t">这两条都是对的，而且根因相同</div>
+  <p><strong>LoRA 是「加法」。它只能放大或削弱底模已有的东西，不能创造底模没有的东西。</strong></p>
+</div>
+
+<p>外部资料把这件事说得很直白：</p>
+
+<blockquote>“LoRA adapters are <strong>additive only</strong>: they <strong>cannot subtract from the base model's knowledge</strong>. If your base model is bad at a task, LoRA will not fix it.”<br>
+“adapters trained on one model <strong>cannot be loaded on a different model</strong>, even if architecturally similar. The adapter weights are <strong>tied to the exact shapes of the frozen layers</strong> they were trained on.”</blockquote>
+
+<p><strong>而这条判据，正是补充 02 里那条分界线的同一个东西</strong>：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>现象</th><th>本质</th></tr></thead>
+<tbody>
+<tr><td>二次元底模 + LoRA → 做不出写实</td><td>写实纹理分布 = <strong>支撑集外扩</strong></td></tr>
+<tr><td>SDXL + LoRA → 学不会写字</td><td>字在 latent 里不存在 = <strong>支撑集外扩</strong></td></tr>
+<tr><td>泛用性差（换底模就失效）</td><td>ΔW 定义在 W₀ 的<strong>坐标系</strong>里</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>三个现象，一个根因。</strong>你的直觉把前两个连起来了，第三个是它的必然推论。</p>
+
+<h2><span class="num">01</span>为什么「泛用性差」是数学必然</h2>
+
+<p>标准 LoRA 的更新是 <code>ΔW = BA</code>。关键在于：<strong>这个 B 和 A 是在「W₀ 的坐标系」里被训练出来的。</strong>它们描述的不是「我要变成什么样」，而是「<strong>相对这个具体的 W₀，我该往哪偏一点</strong>」。</p>
+
+<ul>
+<li>换一个底模 → W₀ 变了 → 坐标系变了 → <strong>ΔW 失去意义</strong>。跟「拿中文词典去读德文」是同一类错误。</li>
+<li>你说的「没必要搞成兼容的样子」，我同意——但要注意：<strong>这不是一个可以靠努力解决的问题，而是数学结构本身的限制</strong>。继续在「让 LoRA 更通用」上用力是错的方向。</li>
+</ul>
+
+<div class="info">
+  <div class="t">那正确方向是什么？两条路，都要做</div>
+  <p><strong>A. 让 ΔW 尽可能少地依赖 W₀ 的具体数值</strong> → 子空间约束（§02）→ 跨版本可迁移</p>
+  <p><strong>B. 让 LoRA 根本不需要承担那么多</strong> → 三层控制栈（§03）→ 天花板问题从根上消失</p>
+  <p><strong>B 才是主攻方向。A 是顺手拿到的好处。</strong></p>
+</div>
+
+<h2><span class="num">02</span>顺手的好处：把 ΔW 关进底模自己的子空间</h2>
+
+<p>这个问题在 LLM 侧已经被系统性解决了，结论<b>可以直接搬</b>。</p>
+
+<p><strong>LoRA-X（ICLR 2025）</strong>的核心洞察：标准 LoRA 的适配器「在数学上被拴死在它自己的底模上（mathematically tethered to their specific base models）」。解法是——<strong>把更新约束在底模权重自己的 SVD 子空间里</strong>：</p>
+
+<pre><code>W₀ = U Σ Vᵀ              （对底模权重做 SVD）
+ΔW = Ũ · ΔΣ · Ṽᵀ          （只允许在冻结的主成分方向上「放大 / 削弱」）</code></pre>
+
+<p>Ũ 和 Ṽ 是 <strong>W₀ 的冻结奇异向量</strong>，不可训。可训的只有中间那个 <code>ΔΣ</code>。</p>
+
+<div class="callout">
+  <div class="t">为什么这样就通用了</div>
+  <p>适配器不再描述「往某个方向偏」，而是描述「<strong>在这个底模已经会的东西里，哪几样该加强、哪几样该削弱</strong>」。这个语义是<strong>跨模型成立</strong>的——只要两个底模共享相似的主成分结构。</p>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>项</th><th>数据</th></tr></thead>
+<tbody>
+<tr><td>跨模型迁移方式</td><td><strong>闭式投影，零训练、瞬时完成</strong></td></tr>
+<tr class="good"><td>BlueFire 风格（SD → SD Efficient）</td><td><strong>HPSv2 比从零训的 LoRA 还高 3.6%</strong></td></tr>
+<tr><td>画面保真（DINOv2）</td><td>&gt; 0.85</td></tr>
+<tr><td>速度对比 X-Adapter</td><td><strong>快 4.6×（3.7s vs 17.1s / A100）</strong></td></tr>
+<tr class="good"><td>关键发现</td><td><strong>越深的层，子空间越相似，迁移越容易成功</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>另外 <strong>Cross-LoRA（arXiv:2508.05232，百度 + 清华）</strong>走同一条路线：<em>LoRA-Align</em>（SVD 子空间对齐 + Frobenius 最优线性变换）+ <em>LoRA-Shift</em>（投影到目标参数空间），<strong>data-free、training-free、商品级 GPU 上 20 分钟完成</strong>，相对收益最高 +5.26%。</p>
+
+<div class="win">
+  <div class="t">对我们的意义</div>
+  <p>我们<strong>控制主干的版本演进</strong>（这是自研架构独有的优势）。所以可以做到：</p>
+  <p><strong>每一个能力包从第一天起就训练在主干自己的子空间里 —— 不是事后补救，而是架构的默认行为。</strong></p>
+  <p>这样「泛用性」对我们只剩一件事：<strong>同一个包能跨我们自己的 v1 → v2 → v3 继续用</strong>。这正好是你说「没必要跨底模兼容」之后，唯一真正有价值的那种通用性。<strong>而且它是免费的。</strong></p>
+</div>
+
+<h2><span class="num">03</span>主攻方向：让 LoRA 只做「长尾」</h2>
+
+<div class="callout">
+  <div class="t">核心结论</div>
+  <p><strong>不要在「让 LoRA 更强」上用力，而要让 LoRA「不需要做那些事」。</strong></p>
+</div>
+
+<p>把控制手段分成三层，LoRA 只留在最后一层：</p>
+
+<div class="fig">
+<svg viewBox="0 0 680 352" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>三层控制栈</title>
+<rect x="40" y="40" width="600" height="72" rx="12" fill="#CECBF6" stroke="#534AB7" stroke-width="0.5"/>
+<rect x="56" y="54" width="48" height="44" rx="8" fill="#AFA9EC" stroke="#534AB7" stroke-width="0.5"/>
+<text x="80" y="76" fill="#26215C" font-size="14" font-weight="500" text-anchor="middle" dominant-baseline="central" font-family="sans-serif">L1</text>
+<text x="120" y="68" fill="#26215C" font-size="14" font-weight="500" dominant-baseline="central" font-family="sans-serif">主干内生条件轴</text>
+<text x="120" y="90" fill="#3C3489" font-size="12" dominant-baseline="central" font-family="sans-serif">预训练时把风格 / 写实度 / 光照 / 色调做成条件</text>
+<text x="624" y="68" fill="#3C3489" font-size="14" font-weight="500" text-anchor="end" dominant-baseline="central" font-family="sans-serif">约 90% 需求</text>
+<text x="624" y="90" fill="#534AB7" font-size="12" text-anchor="end" dominant-baseline="central" font-family="sans-serif">推理时一个数值</text>
+<rect x="40" y="124" width="600" height="72" rx="12" fill="#EEEDFE" stroke="#7F77DD" stroke-width="0.5"/>
+<rect x="56" y="138" width="48" height="44" rx="8" fill="#CECBF6" stroke="#7F77DD" stroke-width="0.5"/>
+<text x="80" y="160" fill="#3C3489" font-size="14" font-weight="500" text-anchor="middle" dominant-baseline="central" font-family="sans-serif">L2</text>
+<text x="120" y="152" fill="#3C3489" font-size="14" font-weight="500" dominant-baseline="central" font-family="sans-serif">外置条件编码器</text>
+<text x="120" y="174" fill="#534AB7" font-size="12" dominant-baseline="central" font-family="sans-serif">身份 / 参考图 → 特征空间的条件 token</text>
+<text x="624" y="152" fill="#534AB7" font-size="14" font-weight="500" text-anchor="end" dominant-baseline="central" font-family="sans-serif">约 9% 需求</text>
+<text x="624" y="174" fill="#7F77DD" font-size="12" text-anchor="end" dominant-baseline="central" font-family="sans-serif">几千万参数</text>
+<rect x="40" y="208" width="600" height="72" rx="12" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+<rect x="56" y="222" width="48" height="44" rx="8" fill="#D3D1C7" stroke="#888780" stroke-width="0.5"/>
+<text x="80" y="244" fill="#2C2C2A" font-size="14" font-weight="500" text-anchor="middle" dominant-baseline="central" font-family="sans-serif">L3</text>
+<text x="120" y="236" fill="#2C2C2A" font-size="14" font-weight="500" dominant-baseline="central" font-family="sans-serif">LoRA 能力包（子空间约束）</text>
+<text x="120" y="258" fill="#444441" font-size="12" dominant-baseline="central" font-family="sans-serif">只剩底模真没见过的：具体角色、具体画师笔触</text>
+<text x="624" y="236" fill="#444441" font-size="14" font-weight="500" text-anchor="end" dominant-baseline="central" font-family="sans-serif">约 1% 需求</text>
+<text x="624" y="258" fill="#5F5E5A" font-size="12" text-anchor="end" dominant-baseline="central" font-family="sans-serif">约 27 MB / 包</text>
+<text x="40" y="312" fill="#5F5E5A" font-size="12" font-family="sans-serif">越靠上越省、越通用 —— 让 LoRA 只做长尾，它的两个天花板就不再是瓶颈</text>
+</svg>
+<div class="figcap">三层控制栈：LoRA 从「主要手段」降级为「最后 1% 的长尾补丁」。</div>
+</div>
+
+<h3>L1 是关键：把「写实度」变成一根旋钮</h3>
+
+<p><strong>「动漫底模 → 更写实」这件事，本来就不该是 LoRA 的任务，而应该是主干自带的一根旋钮。</strong></p>
+
+<p>为什么这条路可行——两个先例：</p>
+
+<div class="grid g2">
+  <div class="card">
+    <div class="lbl">CVPRW 2024</div>
+    <div class="val">PARASOL</div>
+    <div class="note">把<strong>内容</strong>和<strong>细粒度风格 embedding</strong>联合条件化，用改写的 CFG 在推理时<strong>解耦控制两个模态</strong>；训练三元组用「内容检索 + 风格检索」的辅助搜索构造，保证内容与风格互补。</div>
+  </div>
+  <div class="card">
+    <div class="lbl">arXiv 2605.02583</div>
+    <div class="val">Stylistic Attribute Control</div>
+    <div class="note">从<strong>合成数据集</strong>里学习<strong>解耦的风格编辑方向</strong>——描边、局部对比、水彩化、几何图案——实现 well-integrated、更精确、<strong>连续可调</strong>的风格修改。</div>
+  </div>
+</div>
+
+<p><strong>这两条合起来说明：风格是可以被条件化、参数化、连续调节的。</strong>一旦主干学会「消费」这些条件，用户调画风就只是改一个数，不需要每次训 LoRA。</p>
+
+<div class="warn">
+  <div class="t">但这要求风格在预训练阶段就被建模</div>
+  <p>这是「从第一天就设计」的事，做不了事后补——<strong>这正好是我们的优势：我们是从零开始。</strong></p>
+</div>
+
+<h3>L2 为什么外置</h3>
+
+<p>身份<strong>不应该</strong>是 <code>ΔW</code>（权重扰动），而应该是<strong>特征空间里的一个条件方向</strong>。</p>
+
+<p>理由：权重扰动会「覆盖」底模先验（这就是打架的物理原因）；而外置条件编码器是<strong>并联</strong>上去的通路，物理上不可能覆盖。这也是 IP-Adapter / PuLID 那一派的基本思路——但我们可以做得更彻底：<strong>把身份和风格全部外置为条件，主干只负责学「如何消费这些条件」。</strong></p>
+
+<p>而且它天然解决了「泛用性」：<strong>条件编码器输出的是语义向量，与主干版本的耦合远弱于 ΔW。</strong></p>
+
+<h2><span class="num">04</span>「功能性有限」的数据钥匙：shader 配对</h2>
+
+<p>L1 需要一种特定数据：<strong>内容完全对齐、只有风格不同</strong>的图对。这种数据<strong>网上基本爬不到</strong>（真实世界不存在「同一张脸同一姿势的写实版和赛璐璐版」）。</p>
+
+<p>但渲染器可以免费生产：</p>
+
+<div class="callout">
+  <div class="t">同一个 3D 场景 / 同一套资产，用不同着色器渲染</div>
+  <p>→ 得到几何、光照、相机、姿态<strong>完全一致</strong>，只有渲染风格不同的<strong>完美配对</strong>。</p>
+</div>
+
+<p>可覆盖的风格轴：写实（PBR 物理渲染）／赛璐璐（卡通着色 + 描边）／平涂／水彩／厚涂／线稿。</p>
+
+<p><strong>这是训练「风格解耦条件轴」唯一真正需要的东西，而且成本约等于零。</strong></p>
+
+<div class="win">
+  <div class="t">和补充 02 的字形数据是同一个思想</div>
+  <p><strong>让渲染器生产数据，而不是去爬别人的图。</strong></p>
+  <p>主线数据在补充 01/02 里是 <strong>Engine-Synthetic Triplet</strong>（角色三元组），现在把它<strong>扩展成风格轴</strong>：同一场景 × N 个 shader = N 个风格上的完美对齐样本。</p>
+  <p><strong>一条 3D 资产生产线，同时养活角色、几何、风格三条训练需求。</strong></p>
+</div>
+
+<h2><span class="num">05</span>⚠️ 一个隐藏的失败风险：通道分离会「退化」</h2>
+
+<p>这是通盘检查设计时发现的一个<strong>真正的隐患</strong>，它直接决定 L1 能不能成立。</p>
+
+<p>主文档说：「<strong>语义 8ch 管结构，细节 32ch 管画风</strong>」。但——</p>
+
+<div class="bad">
+  <div class="t">如果我们只切通道、不加监督，主干一定会偷懒</div>
+  <p>从重建角度看，最简单的办法是<strong>两个通道都塞满信息</strong>（信息冗余对重建有利）。于是通道分离名存实亡，画风解耦失败，<strong>整个 L1 就是空谈</strong>。</p>
+</div>
+
+<p><strong>必须加显式监督</strong>：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>监督项</th><th>做法</th><th>目的</th></tr></thead>
+<tbody>
+<tr><td>交叉扰动测试</td><td>随机替换 / 打乱细节通道，要求语义通道仍能独立支撑结构重建</td><td>逼语义通道承担结构</td></tr>
+<tr><td>反向扰动</td><td>破坏语义通道，要求细节通道不「补位」出结构</td><td>防止冗余回填</td></tr>
+<tr><td>通道互信息惩罚</td><td>压低两组通道的互信息</td><td>从信息论上强制解耦</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>这是「对偶视角损失」之外必须补的一项，也是全案第二个隐藏的关键假设</strong>（第一个是补充 02 里的 NVFP4 QAD）。</p>
+
+<h2><span class="num">06</span>优化点：分辨率维度也要做 Matryoshka</h2>
+
+<p>现在的主干只做了<strong>深度维度</strong>的可伸缩（不同分辨率跑不同深度），<strong>没有做分辨率维度</strong>。而这一招<strong>有硬数据，而且是又更好又更快</strong>。</p>
+
+<p><strong>PostDiff（ICCV 2025，arXiv 2508.06160）</strong>— 混合分辨率去噪：<strong>早期步骤用低分辨率 latent 去噪，后期切回全分辨率</strong>。</p>
+
+<div class="fig">
+<svg viewBox="0 0 680 340" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>分辨率维度伸缩</title>
+<text x="40" y="46" fill="#2C2C2A" font-size="13.5" font-weight="500" font-family="sans-serif">去噪过程：早期只需少量 token，后期才铺满</text>
+<text x="205" y="72" fill="#444441" font-size="12.5" font-weight="500" text-anchor="middle" font-family="sans-serif">早期步骤 · 高噪声</text>
+<text x="205" y="92" fill="#5F5E5A" font-size="12" text-anchor="middle" font-family="sans-serif">只生成低频语义布局</text>
+<text x="490" y="72" fill="#3C3489" font-size="12.5" font-weight="500" text-anchor="middle" font-family="sans-serif">后期步骤</text>
+<text x="490" y="92" fill="#534AB7" font-size="12" text-anchor="middle" font-family="sans-serif">补齐高频细节</text>
+<rect x="60" y="176" width="290" height="40" rx="6" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+<text x="205" y="196" fill="#444441" font-size="12.5" font-weight="500" text-anchor="middle" dominant-baseline="central" font-family="sans-serif">256 token</text>
+<rect x="360" y="96" width="260" height="120" rx="6" fill="#AFA9EC" stroke="#534AB7" stroke-width="0.5"/>
+<text x="490" y="156" fill="#26215C" font-size="12.5" font-weight="500" text-anchor="middle" dominant-baseline="central" font-family="sans-serif">1024 token</text>
+<line x1="60" y1="216" x2="620" y2="216" stroke="#888780" stroke-width="0.5"/>
+<text x="60" y="238" fill="#5F5E5A" font-size="12" font-family="sans-serif">t = 1　纯噪声</text>
+<text x="620" y="238" fill="#5F5E5A" font-size="12" text-anchor="end" font-family="sans-serif">t = 0　成品</text>
+<text x="205" y="262" fill="#444441" font-size="12" text-anchor="middle" font-family="sans-serif">注意力成本约 1/16</text>
+<text x="490" y="262" fill="#534AB7" font-size="12" text-anchor="middle" font-family="sans-serif">全量注意力</text>
+<text x="40" y="302" fill="#0F6E56" font-size="12.5" font-weight="500" font-family="sans-serif">实测（PostDiff · ICCV 2025）：FID 18.42 → 15.69，FLOPs −60% —— 又更好，又更快</text>
+</svg>
+<div class="figcap">把「token 数」这个第一性杠杆，从单帧扩展到整个去噪轨迹上。</div>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>项</th><th>数据</th></tr></thead>
+<tbody>
+<tr><td>原理</td><td>早期步骤主要在生成<strong>低频语义布局</strong>，根本不需要高分辨率；高频细节是后期才加的</td></tr>
+<tr class="good"><td>FID（SD v1.5）</td><td><strong>18.42 → 15.69（改善）</strong></td></tr>
+<tr class="good"><td>FLOPs</td><td><strong>−60%</strong></td></tr>
+<tr><td>关键结论</td><td><strong>「降低每步成本」比「减少步数」更有效</strong>（多数效率区间内）</td></tr>
+<tr><td>意外发现</td><td>低分辨率早期步骤不仅省算力，还<strong>增强低频成分、改善最终 FID</strong></td></tr>
+<tr><td>跨架构性</td><td>U-Net 与 Transformer、大模型与小模型、LDM 与 LCM 全部有效</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>LowDiff（arXiv:2509.19042）</strong>走同一条思路（级联式渐进提升分辨率，单一模型逐步精炼）：<strong>吞吐 +50%</strong> 以上，ImageNet-256 FID 4.00。</p>
+
+<div class="win">
+  <div class="t">对我们的意义</div>
+  <p>我们有 <strong>1024 token @1024²</strong>。可以在前几步只跑 <strong>256 token</strong>（注意力便宜约 16×），后期再长到 1024。这是把「第一性原理：token 数」这个杠杆，<strong>从单帧扩展到整个去噪轨迹上</strong>。</p>
+</div>
+
+<div class="warn">
+  <div class="t">代价要说清</div>
+  <p>token 数在步骤间变化，需要位置编码能自适应（我们是 Mix-FFN 无位置编码 + QK-Norm，天然占便宜），且要做一致的噪声调度对齐——<strong>不难，但必须从一开始就在架构里留好，不能事后加。</strong></p>
+</div>
+
+<h2><span class="num">07</span>重要更正：从零预训练没那么贵</h2>
+
+<p><strong>我在主文档里写过：</strong></p>
+
+<blockquote><span class="strike">「现实地说，从零预训练一个 T2I 底模需要千万级算力，不是个人能承担的。」</span></blockquote>
+
+<div class="info">
+  <div class="t">这个判断需要修正 —— 最新的证据不支持它</div>
+  <p>Sony AI 的 Micro-Budget Diffusion（arXiv 2407.15811）把这件事的成本压到了三位数美元。</p>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>项</th><th>数据</th></tr></thead>
+<tbody>
+<tr><td>模型</td><td><strong>1.16B 稀疏 Transformer</strong></td></tr>
+<tr><td>数据</td><td>3700 万张（公开真实 + 合成）</td></tr>
+<tr class="good"><td><strong>总花费</strong></td><td><strong>$1,890</strong></td></tr>
+<tr class="good"><td>结果</td><td>零样本 COCO <strong>FID 12.7</strong></td></tr>
+<tr><td>算力</td><td>8×H100，2.6 天</td></tr>
+<tr><td>关键配方</td><td><strong>256 → 512 渐进分辨率</strong> + <strong>75% patch masking</strong>（在 patch-mixer 之后丢 patch）+ 四阶段</td></tr>
+<tr class="good"><td>关键发现</td><td><strong>patch-mixer 显著降低了 masking 带来的性能退化</strong>，同时大幅降训练时间</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>另一个佐证（HDM，2025）：采用 Cross-U-Transformer + TREAD 动态 token 路由 + 渐进分辨率，<strong>在消费级硬件（4× RTX 5090）上</strong>训练出有竞争力的 T2I 模型。</p>
+
+<div class="win">
+  <div class="t">这对你意味着什么</div>
+  <p><strong>$1,890 和「消费级 4×5090」这两个数字，把「从零预训练」从「不可能」拉到了「可能」。</strong></p>
+  <p>而且我们的条件比它更好：</p>
+  <p>· 我们只有 <strong>0.6B / 1.5B</strong>（比 1.16B 还小）<br>
+     · 我们有 <strong>1024 token</strong>，32× 压缩让高分辨率阶段也不爆<br>
+     · 我们有 <strong>引擎合成数据</strong>（角色 + 风格 + 字形，三条都是白拿）</p>
+  <p><strong>结论：主文档里「逐层替换、借力起步」的路线依然是稳妥的起点，但「从零训练」不再是需要放弃的选项。</strong>这改变了整个项目的可行性边界。</p>
+</div>
+
+<h2><span class="num">08</span>一个未检验的假设：文本侧也在浪费 token</h2>
+
+<p>我们把图像 token 压到 <strong>1024</strong>，但<strong>从来没有优化文本侧的 token 预算</strong>。如果蒸馏文本塔输出 200+ token 的变长序列：</p>
+
+<ul>
+<li>文本占总序列 <strong>约 16%</strong>（200 / 1224）</li>
+<li>而这 16% 是在<strong>最贵的地方</strong>（注意力）被消耗的</li>
+<li>长提示下这个比例还会更高</li>
+</ul>
+
+<p><strong>候选解</strong>：文本塔输出<strong>固定长度的压缩表示</strong>（如 64 个语义槽，Perceiver / Q-Former 式）。</p>
+
+<div class="warn">
+  <div class="t">但代价必须说清</div>
+  <p>固定槽位会牺牲<strong>细粒度属性绑定</strong>（多个物体、多个颜色、空间关系的精确对应）——<strong>而这正好撞在你最痛的「长提示涣散」上</strong>。我们刚刚才为这个问题做了 Sigmoid 注意力改造，两个改动<strong>可能互相抵消</strong>。</p>
+</div>
+
+<div class="callout">
+  <div class="t">我的建议：先测，不要现在就写进架构</div>
+  <p>在 P0/P1 阶段加一个消融：<strong>「变长 200 token」vs「固定 64 槽」在 T2I-CompBench 上的差</strong>。如果差距很小，就切固定槽（白拿 16% 显存）；如果掉点明显，就保留变长。</p>
+</div>
+
+<h2><span class="num">09</span>优先级</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>优先级</th><th>动作</th><th>为什么排这里</th><th>成本</th></tr></thead>
+<tbody>
+<tr class="good"><td><strong>P1</strong></td><td><strong>子空间约束作为能力包的默认形态</strong></td><td>免费，直接解决痛点 1；写进规范即可</td><td>零</td></tr>
+<tr class="good"><td><strong>P1</strong></td><td><strong>通道分离的显式监督</strong></td><td><strong>必做，否则 L1 全是空谈</strong>；是隐藏的失败点</td><td>中（需设计损失）</td></tr>
+<tr class="good"><td><strong>P1</strong></td><td><strong>分辨率维度 Matryoshka</strong></td><td>有实证、免费午餐、又更好又更快；但必须一开始就留好</td><td>低</td></tr>
+<tr><td>P2</td><td><strong>风格条件轴 + shader 配对数据</strong></td><td><strong>真正解决「功能性有限」的那一刀</strong>；需在预训练阶段就做</td><td>中高</td></tr>
+<tr><td>P2</td><td>文本槽位消融实验</td><td>先测不改，不冒进</td><td>低</td></tr>
+<tr><td>P3</td><td>Micro-budget 配方落地</td><td>等真要开训练时用；现在只需记住可行性边界已变</td><td>高（算力）</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2><span class="num">10</span>风险（新增）</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>风险</th><th>严重度</th><th>说明</th></tr></thead>
+<tbody>
+<tr class="bad"><td><strong>通道分离退化</strong></td><td><span class="pill p-no">高</span></td><td>无显式监督则两通道都会塞满信息，L1 整体失效（§05）</td></tr>
+<tr><td>风格条件轴的分布外</td><td><span class="pill p-mid">中</span></td><td>训练时未见过的风格仍调不出来；需 shader 风格轴尽量覆盖</td></tr>
+<tr><td>混合分辨率的调度对齐</td><td><span class="pill p-mid">中</span></td><td>token 数随步骤变化，噪声调度与位置编码必须一致（§06）</td></tr>
+<tr><td>固定文本槽位的属性绑定损失</td><td><span class="pill p-mid">中</span></td><td>可能抵消 Sigmoid 注意力的收益（§08），必须先测</td></tr>
+<tr><td>子空间约束的表达力上限</td><td><span class="pill p-mid">中</span></td><td>只放大 / 削弱已有特征 → 能力包适用范围比裸 LoRA 更窄（这正是我们想要的，但要接受）</td></tr>
+<tr><td>Micro-budget 结论的可迁移性</td><td><span class="pill p-mid">中</span></td><td>Sony 用的是自然图文对；我们的 32× 混合 latent + 自研主干未经同类验证</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="win">
+  <div class="t">一句话总结</div>
+  <p><strong>LoRA 的两个天花板，不是 LoRA 不够强，而是它被要求做了不该它做的事。</strong></p>
+  <p>解法不是更强的 LoRA，而是 <strong>L1 主干条件轴（90%）+ L2 外置条件编码器（9%）+ L3 子空间约束 LoRA（1%）</strong>。</p>
+  <p>而且这条路需要的两样东西——<strong>风格配对数据</strong>和<strong>从零训练的成本</strong>——现在都已经不是障碍。</p>
+</div>
+
+<footer>
+  <p><strong>KokonaPolaris 补充设计 03</strong> · v1.3 草案 · 2026-10-02 · 设计稿（未实现）</p>
+  <p>引用来源：LoRA-X（ICLR 2025，OpenReview 6cQ6cBqzV3）、Cross-LoRA（arXiv:2508.05232）、PARASOL（CVPRW 2024, DOI 10.1109/CVPRW63382.2024.00250）、Stylistic Attribute Control in LDM（arXiv:2605.02583）、PostDiff（ICCV 2025, arXiv 2508.06160）、LowDiff（arXiv:2509.19042）、Micro-Budget Diffusion（arXiv 2407.15811）、HunyuanVideo-1.5 技术报告。§05 的通道退化分析为设计推演，非引用。</p>
+</footer>
+
+</div>
+</body>
+</html>

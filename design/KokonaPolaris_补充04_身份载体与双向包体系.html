@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KokonaPolaris 补充设计 04 · 身份载体与双向包体系</title>
+<style>
+  :root{
+    --bg:#FAFAF9; --surface:#FFFFFF; --surface2:#F4F3F1;
+    --text:#1C1C1A; --text2:#5F5E5A; --text3:#888780;
+    --border:rgba(0,0,0,0.10); --border2:rgba(0,0,0,0.18);
+    --accent:#534AB7; --accent-l:#EEEDFE; --accent-d:#3C3489;
+    --blue:#185FA5; --blue-l:#E6F1FB;
+    --teal:#0F6E56; --teal-l:#E1F5EE;
+    --amber:#854F0B; --amber-l:#FAEEDA;
+    --red:#A32D2D; --red-l:#FCEBEB;
+    --green:#3B6D11; --green-l:#EAF3DE;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:56px 28px 100px}
+  header{border-bottom:1px solid var(--border);padding-bottom:28px;margin-bottom:40px}
+  .kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:500;margin-bottom:14px}
+  h1{font-size:31px;font-weight:600;letter-spacing:-.02em;line-height:1.25;margin-bottom:12px}
+  .sub{font-size:16px;color:var(--text2);max-width:740px}
+  .meta{margin-top:18px;font-size:13px;color:var(--text3);display:flex;gap:20px;flex-wrap:wrap}
+  h2{font-size:22px;font-weight:600;letter-spacing:-.01em;margin:64px 0 10px;padding-top:18px;border-top:1px solid var(--border)}
+  h2:first-of-type{border-top:none;padding-top:0;margin-top:40px}
+  h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:10px;font-weight:500}
+  h3{font-size:16.5px;font-weight:600;margin:30px 0 10px}
+  h4{font-size:15px;font-weight:600;margin:20px 0 8px}
+  p{margin:12px 0}
+  ul,ol{margin:12px 0 12px 22px}
+  li{margin:7px 0}
+  code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.88em;background:var(--surface2);padding:2px 6px;border-radius:4px;color:var(--accent-d)}
+  pre{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;overflow-x:auto;margin:20px 0}
+  pre code{background:none;padding:0;font-size:12.5px;line-height:1.7;color:var(--text2)}
+  .grid{display:grid;gap:12px;margin:22px 0}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+  .card .lbl{font-size:12px;color:var(--text3);margin-bottom:6px}
+  .card .val{font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .card .note{font-size:13.5px;color:var(--text2);margin-top:8px;line-height:1.7}
+  .callout{border-left:3px solid var(--accent);background:var(--accent-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .callout .t{font-weight:600;color:var(--accent-d);margin-bottom:6px;font-size:15px}
+  .callout p{color:var(--accent-d);font-size:14.5px;margin:6px 0}
+  .warn{border-left:3px solid var(--amber);background:var(--amber-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .warn .t{font-weight:600;color:var(--amber);margin-bottom:4px;font-size:14.5px}
+  .warn p{color:var(--amber);font-size:14px;margin:4px 0}
+  .bad{border-left:3px solid var(--red);background:var(--red-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .bad .t{font-weight:600;color:var(--red);margin-bottom:4px;font-size:14.5px}
+  .bad p{color:var(--red);font-size:14px;margin:4px 0}
+  .info{border-left:3px solid var(--blue);background:var(--blue-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .info .t{font-weight:600;color:var(--blue);margin-bottom:4px;font-size:14.5px}
+  .info p{color:var(--blue);font-size:14px;margin:4px 0}
+  .win{border-left:3px solid var(--teal);background:var(--teal-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .win .t{font-weight:600;color:var(--teal);margin-bottom:6px;font-size:15px}
+  .win p{color:var(--teal);font-size:14.5px;margin:6px 0}
+  .tw{overflow-x:auto;margin:20px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;padding:12px 16px;background:var(--surface2);font-weight:600;color:var(--text2);font-size:12.5px;border-bottom:1px solid var(--border);white-space:nowrap}
+  td{padding:11px 16px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.hl{background:var(--accent-l);font-weight:600;color:var(--accent-d)}
+  tr.bad td{background:var(--red-l)}
+  tr.good td{background:var(--teal-l)}
+  .pill{display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:20px;font-weight:500;white-space:nowrap}
+  .p-ok{background:var(--green-l);color:var(--green)}
+  .p-no{background:var(--red-l);color:var(--red)}
+  .p-mid{background:var(--amber-l);color:var(--amber)}
+  .p-info{background:var(--blue-l);color:var(--blue)}
+  .p-acc{background:var(--accent-l);color:var(--accent-d)}
+  .fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 20px;margin:26px 0;overflow-x:auto}
+  .fig svg{display:block;margin:0 auto;min-width:600px}
+  .figcap{font-size:12.5px;color:var(--text3);text-align:center;margin-top:14px}
+  blockquote{border-left:3px solid var(--border2);padding:4px 0 4px 18px;margin:18px 0;color:var(--text2);font-size:14.5px}
+  footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--border);font-size:12.5px;color:var(--text3);line-height:1.9}
+  @media(max-width:640px){h1{font-size:24px}.wrap{padding:32px 18px 70px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">KokonaPolaris · Supplement 04</div>
+  <h1>身份载体与双向包体系</h1>
+  <p class="sub">比 LoRA 更好的「换角色」方式 · 什么该给谁做 · 写实/二次元怎么分层 · ComfyUI 要不要接</p>
+  <div class="meta"><span>2026-10-02</span><span>配套主文档 v1.3</span><span>本轮产出 v1.4 修订</span></div>
+</header>
+
+<h2><span class="num">00</span>本轮三个关键发现</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>#</th><th>发现</th><th>为什么重要</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><strong>LoRA 与底模打架有精确机理了</strong>：LoRA 会造出<strong>「入侵维度（intruder dimensions）」</strong>——近似<strong>正交于底模权重的奇异向量</strong>，而全量微调不会产生</td><td>这是痛点③「打架」的物理解释，直接推导出一条硬性设计律</td></tr>
+<tr><td>2</td><td><strong>身份不该住在权重里</strong>。腾讯混元的 <strong>InstantCharacter</strong>（arXiv 2504.12395）已证明：身份可做成<strong>外置适配器</strong>，单图驱动，且<strong>能与风格 LoRA 同时加载、互不覆盖</strong></td><td>你的「换角色」诉求存在一条<strong>不改权重</strong>的实现路径</td></tr>
+<tr><td>3</td><td><strong>二次元的正确表征是 2.5D 分层，不是 3D 网格</strong>。SIGGRAPH 2026 的 <strong>See-through</strong> 把单张插画拆成 <strong>19 个语义 RGBA 层 + 伪深度绘制序</strong>，数据引擎直接<strong>从 9,102 个商用 Live2D 模型</strong>自举</td><td>给「正/反两图 → 角色」这条线提供了<strong>现成的表征格式与数据来源</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2><span class="num">01</span>你的两条判断，被文献证实到什么程度</h2>
+
+<h3>1.1 「打架」的真身：入侵维度（Intruder Dimensions）</h3>
+
+<p>MIT CSAIL 的 <em>LoRA vs Full Fine-tuning: An Illusion of Equivalence</em>（arXiv 2410.21228）做了权重矩阵的谱分析：</p>
+
+<ul>
+<li><strong>全量微调</strong>：训练后权重的奇异向量<strong>仍然高度对齐</strong>预训练权重——它只是<strong>在原有子空间内调整幅度</strong>。</li>
+<li><strong>LoRA</strong>：产生全新的、排名很高的奇异向量，<strong>近似正交于预训练权重的所有奇异向量</strong>。作者称之为 <strong>intruder dimensions（入侵维度）</strong>。</li>
+<li><strong>后果</strong>：带入侵维度的 LoRA 模型「<strong>成为预训练分布的更差模型</strong>」，且<strong>连续学习能力更差</strong>。目标任务分数可能一样，但出了这个分布就散架。</li>
+<li><strong>解法</strong>：<strong>高秩 + rank-stabilized（rsLoRA）</strong> 能显著靠拢全量微调。</li>
+</ul>
+
+<div class="callout">
+  <div class="t">这就是「打架」的物理图像</div>
+  <p>不是「学得不够好」，而是<strong>它在底模的空间里凿了一个新维度</strong>。凿得越深，底模原有的结构被挤得越厉害。</p>
+  <p><strong>它不是覆盖，是侵入。</strong></p>
+</div>
+
+<h3>1.2 「功能性有限」的定量版本</h3>
+
+<p><em>LoRA Learns Less and Forgets Less</em>（arXiv 2405.09673）：</p>
+<ul>
+<li>全量微调学到的更新，其<strong>有效秩是常见 LoRA 配置的 10–100 倍</strong>；</li>
+<li>在<strong>持续预训练</strong>（"学新领域"）下，LoRA 即使 r=256 也补不平差距；但在<strong>指令微调</strong>下，r=256 可基本补平——<strong>任务越结构化，低秩越够用</strong>；</li>
+<li>LoRA <strong>忘得少</strong>，这是真实收益，别丢掉。</li>
+</ul>
+
+<p>ICLR 2026 的 <em>Gradient Intrinsic Dimensionality Alignment</em> 进一步量化：</p>
+<ul>
+<li>全量微调梯度的<strong>本征维度（GID）通常在 30–1000</strong>，而常用 LoRA 的 r 是 8–16 → <strong>差距可达 100 倍</strong>；</li>
+<li><strong>敏感性 ≠ 复杂度</strong>：有的层很重要但很简单，有的不重要但很复杂；</li>
+<li>Transformer 里 <strong><code>W_o</code>（输出投影）的 GID 始终最高</strong>——它是多头信息的合成器；</li>
+<li>解法 <strong>RaLoRA</strong>：<strong>块对角分解</strong> <code>diag(B₁A₁,…,Bₙl Aₙl)</code>，把<strong>有效秩从 r 提到 n_l × r，参数量完全不变</strong>。r=8 的预算可拿到 128–512 的有效秩。实测超过 DoRA、AdaLoRA，GLUE 平均 +5%。</li>
+</ul>
+
+<div class="win">
+  <div class="t">三篇合起来给你一个结论</div>
+  <p>LoRA 的问题<strong>不是「低秩」，是「低的有效秩」</strong>。而有效秩<strong>可以不改参数量就拉上去</strong>。</p>
+</div>
+
+<h2><span class="num">02</span>结论：要问「什么该给谁做」，而不是「LoRA 还能怎么改」</h2>
+
+<h3>2.1 三件套</h3>
+
+<div class="fig">
+<svg width="100%" viewBox="0 0 680 268" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>三件套分工：身份载体、并联包、叠加包</title>
+<desc>身份载体与并联包都不接触底模权重；只有叠加包修改权重，因此必须锁在底模已有的 SVD 子空间内。</desc>
+<defs>
+<marker id="ar1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+<rect x="40" y="24" width="186" height="82" rx="10" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+<text x="133" y="50" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#26215C">身份载体</text>
+<text x="133" y="71" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#534AB7">数据对象 · 不是权重</text>
+<text x="133" y="89" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#534AB7">跨主干版本通用</text>
+<rect x="247" y="24" width="186" height="82" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="340" y="50" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#04342C">并联包 ∥-Pack</text>
+<text x="340" y="71" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#0F6E56">旁路网络 / 编码器</text>
+<text x="340" y="89" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#0F6E56">不接触底模权重</text>
+<rect x="454" y="24" width="186" height="82" rx="10" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
+<text x="547" y="50" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#412402">叠加包 Δ-Pack</text>
+<text x="547" y="71" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#854F0B">权重扰动 ΔW</text>
+<text x="547" y="89" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#854F0B">必须锁进底模子空间</text>
+<path d="M133 106 L133 146" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
+<path d="M340 106 L340 146" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
+<path d="M547 106 L547 146" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
+<rect x="40" y="150" width="600" height="66" rx="12" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text x="340" y="176" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#2C2C2A">冻结主干 · 0.6B / 1.5B · NVFP4 · 单流 DiT</text>
+<text x="340" y="198" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#5F5E5A">全部挂件门控默认 0 → 全关时输出与裸模型逐位一致</text>
+<text x="340" y="246" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#5F5E5A">判据：不含 ΔW 的挂件，物理上不可能与底模打架</text>
+</svg>
+<div class="figcap">图 1 · 三件套分工：只有「叠加包」会碰权重，所以只有它需要被约束</div>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th></th><th>身份载体</th><th>并联包 ∥-Pack</th><th>叠加包 Δ-Pack</th></tr></thead>
+<tbody>
+<tr><td><strong>形态</strong></td><td>数据对象（文件）</td><td>旁路网络 / 条件编码器</td><td>权重扰动 ΔW</td></tr>
+<tr><td><strong>改什么</strong></td><td>给主干<strong>注入条件</strong></td><td>给主干<strong>加一条并联通路</strong></td><td><strong>改主干权重本身</strong></td></tr>
+<tr><td><strong>典型规模</strong></td><td>1–5 MB</td><td>100M–1B 参数</td><td>27 MB（全层）</td></tr>
+<tr class="good"><td><strong>会不会打架</strong></td><td><strong>物理上不可能</strong></td><td><strong>物理上不可能</strong></td><td><span class="pill p-no">会，必须约束</span></td></tr>
+<tr><td><strong>跨主干版本</strong></td><td><strong>能</strong>（数据不依赖坐标系）</td><td><strong>能</strong>（只依赖接口约定）</td><td>需子空间约束才勉强能</td></tr>
+<tr><td><strong>该做什么</strong></td><td>角色身份、3D 姿态、结构控制</td><td>跨域能力（写实）、文字渲染、版式</td><td>同域长尾：笔触、色调、细节偏好</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>2.2 分工边界是数学规定的，不是产品选择</h3>
+
+<div class="callout">
+  <div class="t">本轮最重要的一条设计律</div>
+  <p><strong>ΔW 是可以「入侵」底模的；旁路和条件不能。</strong></p>
+  <p>所以：<strong>能力越大、越「域外」，就越不能住在 ΔW 里。</strong></p>
+</div>
+
+<ul>
+<li><strong>身份 → 载体</strong>。它是「这个角色长什么样」的完整描述，信息量远超任何低秩扰动，但它完全不碰权重。</li>
+<li><strong>跨域能力（写实、文字） → 并联包</strong>。体量大，性质是「加一条新通路」，天然不覆盖旧通路。</li>
+<li><strong>同域长尾（笔触、色调） → 叠加包</strong>。小，且必须锁在底模已有的 SVD 子空间里。</li>
+</ul>
+
+<p><strong>回答「LoRA 是不是最优解」</strong>：是，但<strong>只在第三列</strong>是最优。它的参数效率、零推理延迟、生态成熟度都无可替代——<strong>没有理由换掉它，只需要限制它的作用域</strong>。你猜的「互补而不是竞争」是对的，而且分工边界是死的。</p>
+
+<h2><span class="num">03</span>你那个「另一种炼丹方式」：身份载体</h2>
+
+<p>你的原话我复述一遍确认理解：<strong>给角色的完全正面图 + 完全背面图，用类似炼丹的方式「训练」它就能换出这个角色；理论上这两张图的信息量接近一个 3D 模型。</strong></p>
+
+<h3>3.1 反直觉判断：「完全正 + 完全反」对二次元反而是<strong>强</strong>约束</h3>
+
+<p>从几何重建角度，正/反两视图是<strong>最难的配置</strong>——180° 间隔，<strong>没有任何重叠区域</strong>；传统多视图立体（MVS）至少要 3 张且有重叠。</p>
+
+<p>但<strong>对二次元角色，情况反过来了</strong>：</p>
+
+<ol>
+<li><strong>轴对称是行业规范</strong>。二次元设定图天然正面左右对称，背面也一样。「完全正 + 完全反」正好落在设计的对称面上，把左右两侧的一半信息<strong>免费补全</strong>。</li>
+<li><strong>二次元的几何靠轮廓线承载，不靠光影</strong>。写实照片的「正+反」里大量信息在漫反射、阴影、材质里，这些在二次元里<strong>根本不存在</strong>——信息几乎全在<strong>轮廓线 + 轮廓内色块边界</strong>上，两者并集已覆盖绝大部分形状。</li>
+<li><strong>写实的正/反两张图几乎不可能是同一人同一姿势</strong>（现实里拍不到），而二次元的正/反<strong>是同一张设定图的两个视图</strong>，严格一致——消除了最大的误差源。</li>
+</ol>
+
+<div class="win">
+  <div class="t">你的直觉是对的</div>
+  <p>这两张图对二次元角色的约束，<strong>确实比它看起来强得多</strong>。</p>
+</div>
+
+<h3>3.2 但不要反解 3D 网格——反解「角色卡」</h3>
+
+<p>See-through（SIGGRAPH 2026，arXiv 2602.03749）的论文明说：</p>
+<blockquote>“a full 3D modelling pipeline often <strong>impractical and aesthetically incompatible</strong> for anime artwork”</blockquote>
+
+<p>它的做法：</p>
+<ul>
+<li>把一张插画拆成 <strong>19 类语义 RGBA 层</strong>（头发、脸、衣服、配件…），<strong>每一层都把被遮挡的部分补全</strong>；</li>
+<li>再推一个 <strong>pixel-level pseudo-depth / 绘制序</strong>，解决二次元特有的难题：<strong>头发丝与脸交错穿插</strong>，不是简单的自下而上叠层；</li>
+<li>数据引擎<strong>从商用 Live2D 模型反推标注</strong>——Live2D 内部的 ArtMesh 本身带确定性绘制序与可见性掩码，等于<strong>免费的像素级 ground truth</strong>。产出 <strong>9,102 个</strong>完整标注的 2.5D 模型。</li>
+</ul>
+
+<p><strong>为什么这对我们是关键</strong>：二次元角色的「3D 信息」在行业里<strong>本来就以 2.5D 分层形式存在</strong>（VTuber、2D 游戏、视觉小说的标准形态）。硬做网格会<strong>丢掉画风</strong>——因为二次元美学就住在「分层 + 平面着色」里。这和我们前面定的「语义通道管结构、细节通道管画风」是同一条思路。</p>
+
+<h3>3.3 三段式：一次训练 → 秒级换人 → 可选精修</h3>
+
+<div class="fig">
+<svg width="100%" viewBox="0 0 680 270" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>换角色的两条流程：LoRA 炼丹对比角色卡解算</title>
+<desc>同样输入正反两张参考图，LoRA 路线要训练权重并产生入侵维度，只对当前主干有效；角色卡路线只需一次前向，产出可跨版本使用的数据文件。</desc>
+<defs>
+<marker id="ar2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+<text x="40" y="48" dominant-baseline="central" font-size="12" font-weight="500" fill="#854F0B">今日：LoRA 炼丹 → 改权重</text>
+<rect x="40" y="62" width="135" height="58" rx="10" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
+<text x="107" y="82" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="500" fill="#412402">2 张 3D 参考图</text>
+<text x="107" y="101" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#854F0B">正 + 反</text>
+<rect x="195" y="62" width="135" height="58" rx="10" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
+<text x="262" y="82" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="500" fill="#412402">训练 LoRA</text>
+<text x="262" y="101" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#854F0B">数百 – 数千步</text>
+<rect x="350" y="62" width="135" height="58" rx="10" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
+<text x="417" y="82" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="500" fill="#412402">ΔW ≈ 27MB</text>
+<text x="417" y="101" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#854F0B">带入侵维度</text>
+<rect x="505" y="62" width="135" height="58" rx="10" fill="#FCEBEB" stroke="#A32D2D" stroke-width="0.5"/>
+<text x="572" y="82" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="500" fill="#501313">只认当前主干</text>
+<text x="572" y="101" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#A32D2D">换版本即失效</text>
+<path d="M177 91 L191 91" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+<path d="M332 91 L346 91" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+<path d="M487 91 L501 91" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+<text x="40" y="148" dominant-baseline="central" font-size="12" font-weight="500" fill="#0F6E56">本案：角色卡解算 → 解一个数据对象</text>
+<rect x="40" y="162" width="135" height="58" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="107" y="182" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="500" fill="#04342C">2 张 3D 参考图</text>
+<text x="107" y="201" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#0F6E56">正 + 反</text>
+<rect x="195" y="162" width="135" height="58" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="262" y="182" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="500" fill="#04342C">Fitter 前向</text>
+<text x="262" y="201" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#0F6E56">秒级 · 不碰主干</text>
+<rect x="350" y="162" width="135" height="58" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="417" y="182" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="500" fill="#04342C">角色卡 1–5MB</text>
+<text x="417" y="201" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#0F6E56">2.5D 分层 + 深度</text>
+<rect x="505" y="162" width="135" height="58" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="572" y="182" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="500" fill="#04342C">任意版本可用</text>
+<text x="572" y="201" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#0F6E56">数据，不是权重</text>
+<path d="M177 191 L191 191" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+<path d="M332 191 L346 191" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+<path d="M487 191 L501 191" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+<text x="340" y="248" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#5F5E5A">同样两张图，一条改权重，一条解数据 —— 后者体积更小、信息更多、且永不打架</text>
+</svg>
+<div class="figcap">图 2 · 同样两张参考图，两条完全不同的路径</div>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>阶段</th><th>做什么</th><th>频率</th><th>成本</th><th>是否碰主干</th></tr></thead>
+<tbody>
+<tr><td><strong>① 一次训练</strong></td><td>训一个 <strong>Character Fitter</strong>：输入 1–2 张视图，输出<strong>角色卡</strong>（19 层 RGBA latent + 伪深度 + 身份 token）</td><td><strong>一辈子一次</strong></td><td>一次性，数据白拿</td><td><span class="pill p-ok">不碰</span></td></tr>
+<tr><td><strong>② 每个角色</strong></td><td>用户给正/反两张图 → Fitter <strong>前向一次</strong> → 得到角色卡</td><td>每次换角色</td><td><strong>秒级</strong>，峰值约 1.2GB</td><td><span class="pill p-ok">不碰</span></td></tr>
+<tr><td><strong>③ 可选精修</strong></td><td>在角色卡的小参数空间里跑几步拟合；或（要极致时）再叠一个<strong>子空间约束 Δ-Pack</strong></td><td>想要更好才做</td><td>分钟级</td><td><span class="pill p-mid">第 3 种才碰，且被约束</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+  <div class="t">这就是你要的「另一种炼丹」</div>
+  <p>形式上还是「我给它素材，它学会这个角色」，但<strong>梯度不再落到底模权重上，而是落到一个几 MB 的数据对象上</strong>。</p>
+  <p>于是三件事同时成立：<strong>不打架</strong>（主干没动）、<strong>跨版本可迁移</strong>（数据不依赖坐标系）、<strong>秒级</strong>（不需要几百步优化）。</p>
+</div>
+
+<p><strong>信息量对比（估算，需实测）</strong>：角色卡 ≈ <strong>1–5 MB</strong>，全层 rank-16 LoRA ≈ <strong>27 MB</strong>。角色卡描述的是「这个角色本身」，LoRA 描述的是「相对底模的偏移量」——<strong>载体更小，但语义更完整</strong>，因为它不依赖底模。</p>
+
+<h3>3.4 更激进的版本：把「炼丹」变成「一次前向」</h3>
+
+<p>arXiv 2511.03156（Samsung AI，2025-11）用 <strong>Hypernetwork 直接从参考图预测 LoRA 权重</strong>，完全不做微调。两个技巧值得抄：</p>
+<ul>
+<li><strong>输出正则化</strong>：避免「模仿底模优化轨迹」的不稳定，效果等价于自动早停；</li>
+<li><strong>HM-CFG（Hybrid-Model CFG）</strong>：采样时<strong>混合底模的构图能力与个性化模型的身份保真度</strong>，用一个 κ 调权衡。DreamBench 上不微调即超过 DreamBooth。</li>
+</ul>
+
+<p><strong>对我们的形态</strong>：不要让 hypernet 预测「主干权重」（那还是 ΔW，还是会有入侵维度），而是让它<strong>预测「角色卡的条件编码」</strong>——即输出的是<strong>对身份 token 的调制</strong>。这样连第 ②③ 步都省掉：<strong>给图，出角色，零优化</strong>。</p>
+
+<h3>3.5 数据线：现在有现成的了</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>数据源</th><th>规模与规格</th><th>用途</th></tr></thead>
+<tbody>
+<tr><td><strong>NOVA-Human</strong><br><span style="color:var(--text3);font-size:12px">NOVA-3D, arXiv 2405.12505</span></td><td><strong>10.2k 个 3D 二次元角色模型</strong>（来自 VroidHub 的 VRM），渲染 <strong>16 个随机视角 + 4 个固定正交视角（front/back/left/right）</strong>，共 <strong>163.2k 张图</strong>，512²，A-pose，<strong>仅漫反射光照</strong>，带精确相机参数</td><td>训 Fitter 的<strong>完美配对</strong>：正/反输入 ↔ 任意视角 ground truth</td></tr>
+<tr><td><strong>See-through 数据引擎</strong><br><span style="color:var(--text3);font-size:12px">SIGGRAPH 2026</span></td><td>从 <strong>9,102 个商用 Live2D 模型</strong>自举出 19 类语义层 + 遮挡补全 + 绘制序标注（代码已开源）</td><td>训「2.5D 分层解算」的监督信号</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>为什么 VRM 这条线特别值钱</strong>：VRM 是 VTuber 生态的标准格式，<strong>带骨骼、贴图、表情混塑</strong>。一个资产可以渲染出 <strong>任意视角 × 任意姿势 × 任意表情 × 任意光照</strong>。上一轮说的「用渲染器生产数据，而不是去爬别人的图」——这里可以直接兑现成<strong>二次元角色的无限配对数据</strong>。</p>
+
+<div class="bad">
+  <div class="t">⚠️ 许可证必须核查</div>
+  <p>VRoid Hub 上每个模型有<strong>独立的作者授权设置</strong>（有的禁止商用、有的禁止再分发、有的禁止用于 AI 训练）。这套数据<strong>只能用于研究 / 内部验证，绝不能直接进可分发权重</strong>。真正商用必须走<strong>自己建模或购买授权</strong>的资产线。See-through 的数据引擎同理。</p>
+</div>
+
+<div class="info">
+  <div class="t">一个可反向利用的行业技巧</div>
+  <p>业界公认痛点是「AI 不会画标准三视图」，所以 3D 美术师得手工把 AI 立绘"纠正"成正视图 / 侧视图，再投影到模型 UV 上。</p>
+  <p>反过来用：<strong>我们自己造标准正交视图的数据（渲染器生产），而不是指望用户提供</strong>——用户只需要给任意两张他手上的图。</p>
+</div>
+
+<h3>3.6 序列预算：身份 token 必须走 cross-attention，不能 in-context 拼接</h3>
+
+<div class="warn">
+  <div class="t">一个容易照抄踩坑的地方</div>
+  <p>InstantCharacter 用 <code>nb_token=1024</code> 把身份 token <strong>拼进主序列</strong>——在 12B 的 FLUX 上没问题。</p>
+  <p>但我们全图只有 <strong>1024 个图像 token</strong>。再拼 1024 个身份 token，<strong>序列直接翻倍</strong>，注意力成本翻 4 倍，显存第一性原理瞬间失效。</p>
+</div>
+
+<p><strong>我们的解法</strong>：</p>
+<ul>
+<li>身份 token 压到 <strong>256 个</strong>（而非 1024）；</li>
+<li><strong>不进主序列</strong>，通过 <strong>cross-attention 只挂载到少数锚点层</strong>（我们本来就是 3:1 线性:Sigmoid，锚点层天然是 softmax 族的少数派）；</li>
+<li>好处三重：<strong>序列不膨胀</strong>（省显存）、<strong>与文本 token 完全隔离</strong>（不会二次稀释文本注意力——正好呼应最痛的「长提示涣散」）、<strong>门控 g=0 时 bit-exact</strong>（可关断）。</li>
+</ul>
+
+<h2><span class="num">04</span>写实 / 二次元：这个「拓展包」该怎么分层</h2>
+
+<h3>4.1 「同域风格」和「跨域」不是一回事</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>你要的效果</th><th>性质</th><th>该谁做</th></tr></thead>
+<tbody>
+<tr><td>赛璐璐 / 厚涂 / 水彩 / 某画师笔触（都是二次元）</td><td><strong>同域内的风格偏移</strong></td><td><strong>叠加包 Δ-Pack</strong> 足够（27MB，秒级切换）</td></tr>
+<tr class="bad"><td>二次元 → 写实（材质、次表面散射、真实光照模型）</td><td><strong>跨域，支撑集外扩</strong></td><td><strong>并联包 ∥-Pack</strong>，或直接进主干</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>4.2 首选方案：让「写实」成为主干内生的一根轴</h3>
+
+<p>既然本来就要自己训主干，最干净的做法是：<strong>预训练阶段就让主干同时覆盖 photo 与 anime 两个域</strong>，用一个 <strong>domain 条件向量</strong>切换。做法上只是多一个 embedding 维度 + 数据配比，<strong>不增加任何推理成本</strong>。</p>
+
+<ul>
+<li>「写实」从「外挂能力」变成「主干固有旋钮」，<strong>天然不打架、不占显存、可连续插值</strong>；</li>
+<li>以日系为主的诉求依然满足——只是把 anime token 设成默认值；</li>
+<li>顺带覆盖<strong>半写实 / 国风插画 / 3D 渲染风</strong>这些「中间态」，它们本来是二次元主干最难外扩的方向。</li>
+</ul>
+
+<h3>4.3 备选方案：事后加，那就必须是「域包」= 并联包</h3>
+
+<p>如果主干已经训完是纯二次元，事后确实能加，但<strong>必须是并联包，不能是 ΔW</strong>（理由见 §2.2）：</p>
+<ul>
+<li>旁路网络（ControlNet 式）<strong>并联</strong>在主通路上，<strong>物理上不可能清除</strong>底模原有能力；</li>
+<li>而 ΔW 高秩 = <strong>直接改写底模 = 制造入侵维度 = 打架</strong>。</li>
+</ul>
+
+<div class="warn">
+  <div class="t">代价要说清楚</div>
+  <p>并联包的体量比 Δ-Pack 大两个数量级（100M–1B，FP4 下约 50–500MB 显存），且<strong>必须重训过一次</strong>（不是「挂上去就行」）。所以它是<strong>「能做，但贵」</strong>——首选还是 §4.2 的主干内生方案。</p>
+</div>
+
+<h3>4.4 以日系二次元为主，带来的 4 个便宜和 2 个约束</h3>
+
+<div class="grid g2">
+  <div class="card">
+    <div class="lbl">便宜 ①</div>
+    <div class="val">几何条件更干净</div>
+    <div class="note">平面着色 → normal / depth 的信噪比更高，几何分支几乎不被材质干扰，CharaBridge 几何侧更可靠。</div>
+  </div>
+  <div class="card">
+    <div class="lbl">便宜 ②</div>
+    <div class="val">两视图约束更强</div>
+    <div class="note">轴对称是行业规范，「完全正 + 完全反」正好落在对称面上，左右两侧一半信息免费补全。</div>
+  </div>
+  <div class="card">
+    <div class="lbl">便宜 ③</div>
+    <div class="val">2.5D 优于真 3D</div>
+    <div class="note">二次元的正确表征本就是分层 + 平面着色，表征更简单、更保画风。</div>
+  </div>
+  <div class="card">
+    <div class="lbl">便宜 ④</div>
+    <div class="val">数据线现成</div>
+    <div class="note">NOVA-Human（10.2k VRM）+ Live2D 引擎（9,102 模型）+ Danbooru 的 19 类语义标注体系，<strong>标签可直接对齐</strong>。</div>
+  </div>
+</div>
+
+<div class="bad">
+  <div class="t">约束 ①：写实跨域包要更早进规划</div>
+  <p>纯二次元主干的写实先验<strong>几乎为零</strong>，比混合域主干更难外扩。所以 §4.2 的「双域预训练」如果要做，<strong>必须在预训练阶段就决定</strong>，事后补的成本高得多。</p>
+</div>
+
+<div class="info">
+  <div class="t">约束 ②：文字渲染在二次元里权重更高</div>
+  <p>同人志嵌字是刚需。而 See-through 的 19 类语义层<strong>天然可以多出一层「文本框层」</strong>——把 TypographyPack 和角色卡用<strong>同一套分层表示</strong>统一起来，这是一个可以白拿的架构统一。</p>
+</div>
+
+<h2><span class="num">05</span>ComfyUI：要不要支持，成本到底在哪</h2>
+
+<div class="callout">
+  <div class="t">短答</div>
+  <p><strong>不要把它当路线依赖。成本不在「写节点」，在「架构特征」上。</strong></p>
+</div>
+
+<h3>5.1 真实成本拆解</h3>
+
+<p>ComfyUI 的现状是：<strong>通用 loader + 每个架构一套手写节点</strong>。看它的源码组织就知道——<code>ModelMergeSDXL</code>、<code>ModelMergeFlux1</code>、<code>ModelMergeQwenImage</code>、<code>ModelMergeWAN2_1</code>…<strong>每个新架构都要人肉写一份</strong>，把该架构的 block 结构硬编码进节点里（Flux 是「19 double + 38 single」，Qwen-Image 是「60 transformer blocks」）。</p>
+
+<p>所以<strong>好接的架构</strong>是：单文件权重、标准 diffusers 接口、标准 VAE、注意力后端可替换、LoRA 键命名符合 PEFT 约定。<strong>我们的架构恰好有三块硬骨头</strong>：</p>
+
+<div class="fig">
+<svg width="100%" viewBox="0 0 680 324" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>ComfyUI 接入成本拆解：三块硬骨头与建议路径</title>
+<desc>混合 40 通道 latent、非 softmax 注意力、能力总线门控是 ComfyUI 接入的三块硬骨头；建议主交付走 diffusers 原生并预留四个接口。</desc>
+<rect x="40" y="44" width="600" height="52" rx="10" fill="#FCEBEB" stroke="#A32D2D" stroke-width="0.5"/>
+<text x="60" y="68" dominant-baseline="central" font-size="13" font-weight="500" fill="#501313">40 通道混合 latent（语义 8 + 细节 32）</text>
+<text x="60" y="85" dominant-baseline="central" font-size="12" fill="#A32D2D">下游 img2img / inpaint / 放大节点全部假设固定通道数，需重写</text>
+<text x="620" y="70" text-anchor="end" dominant-baseline="central" font-size="12" font-weight="500" fill="#A32D2D">硬骨头</text>
+<rect x="40" y="104" width="600" height="52" rx="10" fill="#FCEBEB" stroke="#A32D2D" stroke-width="0.5"/>
+<text x="60" y="128" dominant-baseline="central" font-size="13" font-weight="500" fill="#501313">非 softmax 注意力（Sigmoid / Softpick）</text>
+<text x="60" y="145" dominant-baseline="central" font-size="12" fill="#A32D2D">现成 kernel 全是 softmax 族，无法套用，必须自写并自行注册</text>
+<text x="620" y="130" text-anchor="end" dominant-baseline="central" font-size="12" font-weight="500" fill="#A32D2D">硬骨头</text>
+<rect x="40" y="164" width="600" height="52" rx="10" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
+<text x="60" y="188" dominant-baseline="central" font-size="13" font-weight="500" fill="#412402">能力总线门控（{ΔW, g, 元数据}）</text>
+<text x="60" y="205" dominant-baseline="central" font-size="12" fill="#854F0B">包不是标准权重键，现有 LoRA 加载节点的键映射流程走不通</text>
+<text x="620" y="190" text-anchor="end" dominant-baseline="central" font-size="12" font-weight="500" fill="#854F0B">中等</text>
+<rect x="40" y="240" width="600" height="64" rx="12" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text x="60" y="264" dominant-baseline="central" font-size="13" font-weight="500" fill="#042C53">建议：主交付走 diffusers 原生 + 单文件权重，ComfyUI 不作为路线依赖</text>
+<text x="60" y="285" dominant-baseline="central" font-size="12" fill="#185FA5">只预留四个兼容接口；等模型够好，由 Comfy-Org 官方化（ERNIE-Image 开源当天即有官方模板）</text>
+</svg>
+<div class="figcap">图 3 · ComfyUI 接入成本拆解</div>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>项目</th><th>一次性成本</th><th>长期成本</th></tr></thead>
+<tbody>
+<tr><td>原生节点集（loader / VAE / 采样 hook / 包加载 / attention override）</td><td>熟手约 1–2 周</td><td>—</td></tr>
+<tr class="bad"><td><strong>维护</strong></td><td>—</td><td><strong>持续</strong>（ComfyUI 内部 API 频繁变动，节点经常失效）</td></tr>
+<tr><td>生态配套（量化格式、示例工作流、ControlNet / IP-Adapter 适配）</td><td>大</td><td>持续</td></tr>
+<tr class="good"><td>让社区来写节点</td><td>≈ 0</td><td>你只需维护 API 稳定性</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="warn">
+  <div class="t">一个未验证点</div>
+  <p>ComfyUI 的主力低比特路径是 <strong>fp8（<code>weight_dtype: fp8_e4m3fn</code>）和 GGUF</strong>。<strong>我们 NVFP4 单文件权重在 ComfyUI 上的可用性，我没有查到确证，需要并进 P0 一起实测</strong>。</p>
+  <p>因为整个显存优势建立在 NVFP4 上——如果 ComfyUI 接不了 NVFP4，在 ComfyUI 里跑我们的模型<strong>显存优势会直接打回 fp8 水平</strong>。</p>
+</div>
+
+<h3>5.2 建议路径</h3>
+
+<p><strong>主交付</strong>：</p>
+<ol>
+<li><strong>diffusers 兼容的 <code>ModelMixin</code></strong> + <strong>单文件 safetensors 权重</strong>；</li>
+<li><strong>一个 30 行的最小推理脚本</strong>（比任何 UI 都重要——它是所有第三方适配的起点）；</li>
+<li>一个 Gradio / CLI 前端（够自己用、够做对比实验）。</li>
+</ol>
+
+<p><strong>预留四个接口</strong>（零成本，现在写进规范就行）：</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>#</th><th>接口</th><th>为什么值得现在做</th></tr></thead>
+<tbody>
+<tr><td>①</td><td>权重命名与 diffusers 同构、单文件</td><td>第三方只差一个 <code>load_state_dict</code></td></tr>
+<tr><td>②</td><td>latent 的<strong>打包 / 解包两个纯函数</strong></td><td>混合 40ch latent 的最大障碍是「别人不知道怎么拆」，给两个函数就解决</td></tr>
+<tr><td>③</td><td><strong>attention 可替换</strong>（不要硬编码 kernel）</td><td>ComfyUI / xformers / 第三方都靠 <code>set_attn_processor</code> 注入</td></tr>
+<tr><td>④</td><td>统一的 <strong><code>load_adapter()</code></strong>（包 + 角色卡同一入口）</td><td>避免「每个挂件一套加载逻辑」的碎片化</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="win">
+  <div class="t">最关键的一条</div>
+  <p><strong>等模型跑出效果，让 Comfy-Org 官方化。</strong>证据是他们的实际行为——FLUX.2 / HiDream / Lumina「<strong>custom nodes within days of release</strong>」；ERNIE-Image 开源当天，Comfy-Org 就 repackage 并发布了官方工作流模板。</p>
+  <p><strong>他们的动力来自「模型够好」，不是你写节点。</strong>在这之前投入两周写节点，收益远低于把主干训好。</p>
+</div>
+
+<p><strong>唯一例外</strong>：<strong>P2′ 的 T0 确定性排版链路</strong>用现成模型跑，<strong>ComfyUI 直接就能用</strong>——这条路完全独立于我们的主干，所以 ComfyUI 在这个子任务上是零成本白拿的。</p>
+
+<h2><span class="num">06</span>本轮新增 / 修订的架构条目</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>#</th><th>条目</th><th>性质</th></tr></thead>
+<tbody>
+<tr><td>15</td><td><strong>身份载体升为一等公民</strong>：新增数据类型「角色卡」，1–5MB，2.5D 分层 + 伪深度 + 身份 token；身份<strong>不再由 Δ-Pack 承担</strong></td><td><span class="pill p-acc">新增</span></td></tr>
+<tr><td>16</td><td><strong>叠加包规格升级</strong>：块对角分解（RaLoRA 式）<strong>有效秩 n_l×r 而参数量不变</strong> + <strong>rsLoRA 缩放 α/√r</strong> + <strong>按 GID 分层</strong> + <strong><code>W_o</code> 优先分配预算</strong></td><td><span class="pill p-mid">修订</span></td></tr>
+<tr><td>17</td><td><strong>「禁止入侵维度」条款</strong>：Δ-Pack 必须在底模 SVD 子空间内构造；训练后做谱检查，<strong>发现正交入侵维度即判定包不合格</strong></td><td><span class="pill p-acc">新增·硬约束</span></td></tr>
+<tr><td>18</td><td><strong>双向包体系二分</strong>：并联包 ∥-Pack（旁路，能力可大，不打架）/ 叠加包 Δ-Pack（ΔW，锁子空间，只做长尾）</td><td><span class="pill p-acc">新增</span></td></tr>
+<tr><td>19</td><td><strong>身份 token 走 cross-attention，不拼主序列</strong>；预算 256 token（而非 1024），挂在少量锚点层</td><td><span class="pill p-mid">修订</span></td></tr>
+<tr><td>20</td><td><strong>主干双域预训练 + domain 条件向量</strong>：让「写实」成为内生旋钮（默认 anime），不做事后外挂</td><td><span class="pill p-acc">新增</span></td></tr>
+<tr><td>21</td><td><strong>ComfyUI 兼容四接口</strong>写入规范；ComfyUI 不作为路线依赖</td><td><span class="pill p-acc">新增</span></td></tr>
+<tr><td>22</td><td>TypographyPack 与角色卡<strong>共用同一套分层表示</strong>（19 类语义层 + 文本框层）</td><td><span class="pill p-acc">新增</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2><span class="num">07</span>路线更新</h2>
+
+<pre><code>P0   验证 NVFP4 QAD 掉不掉点          ← 最高优先级，几天可验证
+     └ 并入：NVFP4 单文件在 ComfyUI 的可用性（未验证）
+P1   换 Latent（32× 混合）
+P1.5 能力总线骨架（含四接口 + 双向包体系）
+P2′  T0 确定性排版链路                ← 独立，可立刻开跑，ComfyUI 直接可用
+P2.6 角色卡数据线 + Character Fitter  ← 本轮新增，独立可并行，纯数据 / 不依赖主干
+P2   换主干（含 双域预训练 + domain 条件向量）
+P3   CharaBridge（多视角身份 + 几何分支）
+P3.5 TypographyPack（与角色卡共用分层表示）
+P4   少步蒸馏
+P4.5 正交化仲裁（谱检查，拦截入侵维度）</code></pre>
+
+<div class="win">
+  <div class="t">新增的 P2.6 值得单独说</div>
+  <p>它<strong>不依赖 NVFP4、不依赖新主干、不依赖量化结论</strong>——只需要 Fitter + 现成数据（NOVA-Human / Live2D 引擎）+ 一个 2.5D 分层表示。</p>
+  <p><strong>这是全案第二个可以立刻开跑的部分</strong>，而且它的产出（角色卡格式）是后面所有身份相关设计的地基。<strong>先定格式，后接主干。</strong></p>
+</div>
+
+<h2><span class="num">08</span>风险与未验证清单</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>项目</th><th>级别</th><th>说明与缓解</th></tr></thead>
+<tbody>
+<tr><td><strong>两视图 → 角色卡的歧义性</strong></td><td><span class="pill p-mid">中</span></td><td>正/反无重叠区域，中间视角靠「渲染辅助监督」补（沿用对偶视角损失 + 距离引导注意力融合）。<strong>凹结构、背面细节</strong>仍是弱项，需实测二次元的实际误差</td></tr>
+<tr class="bad"><td><strong>NOVA-Human / VRoid / Live2D 许可证</strong></td><td><span class="pill p-no">高</span></td><td>每个模型独立授权，多数禁止 AI 训练 / 商用。<strong>只能研究用，绝不能进可分发权重</strong>。商用资产线必须自建或购买</td></tr>
+<tr><td><strong>Block-diagonal LoRA 在扩散上的有效性</strong></td><td><span class="pill p-mid">中</span></td><td>RaLoRA 只在 LLM / 分类上验证过，<strong>DiT 上是空白</strong>。P1.5 做消融，对照 vanilla LoRA / DoRA</td></tr>
+<tr><td><strong>角色卡体积估算（1–5MB）</strong></td><td><span class="pill p-ok">低</span></td><td>基于 19 层 × 1024 token × 32ch × fp16 的粗算，<strong>未实测</strong>；深度图与元数据会推高</td></tr>
+<tr><td><strong>Hypernetwork 预测「条件编码」</strong></td><td><span class="pill p-mid">中</span></td><td>现有工作只验证了「预测 LoRA 权重」，<strong>我们的变体未被验证</strong></td></tr>
+<tr><td><strong>ComfyUI 对 NVFP4 的支持</strong></td><td><span class="pill p-mid">中</span></td><td><strong>未查到确证</strong>，并入 P0 实测</td></tr>
+<tr><td><strong>双域预训练对二次元画质的稀释</strong></td><td><span class="pill p-mid">中</span></td><td>主干同时学 photo 可能拉低 anime 先验。需做数据配比消融；严重时退回「纯二次元主干 + 并联域包」</td></tr>
+<tr><td><strong>「禁止入侵维度」的谱检查阈值</strong></td><td><span class="pill p-ok">低</span></td><td>需定义「正交到多少算入侵」，属工程参数，先定 0.1 余弦相似度以内的宽松告警</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2><span class="num">09</span>本轮引用来源</h2>
+
+<ul>
+<li><strong>InstantCharacter</strong>（腾讯混元 / InstantX，arXiv 2504.12395）：单图角色定制，stacked transformer encoder 适配器，1000 万级角色数据集（paired 多视角 + unpaired 文本-图像），<code>nb_token=1024</code>，可与风格 LoRA 同时加载；官方说明 offload 推理可在 22GB 以内。已知局限：<strong>动物角色相对不稳定</strong>。</li>
+<li><strong>See-through: Single-image Layer Decomposition for Anime Characters</strong>（SIGGRAPH 2026，arXiv 2602.03749）：19 类语义 RGBA 层 + 遮挡补全 + 伪深度绘制序；数据引擎自 9,102 个 Live2D 模型自举；明确论述全 3D 建模管线对二次元「不实用且美学不兼容」。</li>
+<li><strong>LoRA vs Full Fine-tuning: An Illusion of Equivalence</strong>（MIT CSAIL，arXiv 2410.21228）：<strong>intruder dimensions</strong> 的发现；高秩 rsLoRA 可减少该效应。</li>
+<li><strong>LoRA Learns Less and Forgets Less</strong>（arXiv 2405.09673）：全量微调更新秩为常见 LoRA 的 <strong>10–100×</strong>；LoRA 遗忘更少。</li>
+<li><strong>Gradient Intrinsic Dimensionality Alignment</strong>（ICLR 2026）：GID 30–1000（差 100×）；<strong>RaLoRA 块对角分解把有效秩提到 n_l×r，参数量不变</strong>；<strong><code>W_o</code> 的 GID 最高</strong>；敏感性 ≠ 复杂度。</li>
+<li><strong>BD-LoRA</strong>（arXiv 2510.23346）：块对角 LoRA + rsLoRA（α/√r）缩放，高秩下无额外通信开销。</li>
+<li><strong>Finetuning-Free Personalization via Hypernetworks</strong>（Samsung AI，arXiv 2511.03156）：hypernet 直接预测 LoRA 权重；输出正则化稳定训练；<strong>HM-CFG</strong> 平衡底模构图能力与身份保真度。</li>
+<li><strong>NOVA-3D</strong>（arXiv 2405.12505）：<strong>NOVA-Human，10.2k 个 VRM 二次元角色，16 随机视角 + 4 正交视角，共 163.2k 图，仅漫反射光照</strong>。</li>
+<li><strong>GaussianIP</strong>（arXiv 2025）：多视角注意力共享（front/back/left/right）+ <strong>距离引导注意力融合</strong>（中间视角按角距离混合相邻关键视角特征）——可直接借用于中间视角生成。</li>
+<li><strong>DirectTriGS</strong>（CVPR 2025，arXiv 2503.06900）：triplane 作为「类图像连续场」表示 3DGS，<strong>可被 VAE 压缩后用于 latent diffusion</strong>——「角色卡」可压缩性的先例。</li>
+<li><strong>ComfyUI</strong> 源码组织（<code>comfy_extras/nodes_model_merging_model_specific.py</code>）：每架构一套手写节点。<strong>ERNIE-Image</strong> 生态资料：开源当天 Comfy-Org 即发布官方工作流模板，量化走 <strong>GGUF / NVFP4</strong> 两条路径。</li>
+</ul>
+
+<footer>
+  KokonaPolaris 补充设计 04 · 2026-10-02 · 设计稿，未实现<br>
+  所有体积 / 显存 / 耗时数字除注明来源外均为估算，需实测校正。<br>
+  配套主文档已同步至 v1.4。
+</footer>
+
+</div>
+</body>
+</html>

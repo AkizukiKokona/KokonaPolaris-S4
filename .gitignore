@@ -1,0 +1,54 @@
+# ============================================================
+# KokonaPolaris-S4（心夏北极星 / KP）· 仓库忽略清单
+# 原则：只版本化「设计稿 / 源码 / 配置 / 小体积数据」；
+#       模型权重、出图产物、虚拟环境、缓存一律不入库。
+# 目标：仓库体积保持在个位数 MB 量级。
+# 注意：gitignore 只支持「整行」注释，不可在模式后写行尾注释。
+# ============================================================
+
+# ---------- 大体积：绝不入库 ----------
+models/
+out/
+.venv/
+.cache/
+.pipcache/
+repos/
+
+# ---------- 权重 / 大二进制 ----------
+*.safetensors
+*.ckpt
+*.onnx
+*.pth
+*.pt
+*.bin
+*.gguf
+*.h5
+*.msgpack
+*.pkl
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+.ipynb_checkpoints/
+
+# ---------- 运行产物 ----------
+*.log
+runs/
+wandb/
+lightning_logs/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# ---------- 编辑器 / 系统 ----------
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+*.swp
+.DS_Store

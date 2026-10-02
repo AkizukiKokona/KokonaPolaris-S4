@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KokonaPolaris-S4 补充设计 11 · 能力接入与数据交付规范</title>
+<style>
+  :root{
+    --bg:#FAFAF9; --surface:#FFFFFF; --surface2:#F4F3F1;
+    --text:#1C1C1A; --text2:#5F5E5A; --text3:#888780;
+    --border:rgba(0,0,0,0.10); --border2:rgba(0,0,0,0.18);
+    --accent:#534AB7; --accent-l:#EEEDFE; --accent-d:#3C3489;
+    --blue:#185FA5; --blue-l:#E6F1FB;
+    --teal:#0F6E56; --teal-l:#E1F5EE;
+    --amber:#854F0B; --amber-l:#FAEEDA;
+    --red:#A32D2D; --red-l:#FCEBEB;
+    --green:#3B6D11; --green-l:#EAF3DE;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:56px 28px 100px}
+  header{border-bottom:1px solid var(--border);padding-bottom:28px;margin-bottom:40px}
+  .kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:500;margin-bottom:14px}
+  h1{font-size:31px;font-weight:600;letter-spacing:-.02em;line-height:1.25;margin-bottom:12px}
+  .sub{font-size:16px;color:var(--text2);max-width:740px}
+  .meta{margin-top:18px;font-size:13px;color:var(--text3);display:flex;gap:20px;flex-wrap:wrap}
+  h2{font-size:22px;font-weight:600;letter-spacing:-.01em;margin:64px 0 10px;padding-top:18px;border-top:1px solid var(--border)}
+  h2:first-of-type{border-top:none;padding-top:0;margin-top:40px}
+  h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:10px;font-weight:500}
+  h3{font-size:16.5px;font-weight:600;margin:30px 0 10px}
+  p{margin:12px 0}
+  ul,ol{margin:12px 0 12px 22px}
+  li{margin:7px 0}
+  code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.88em;background:var(--surface2);padding:2px 6px;border-radius:4px;color:var(--accent-d)}
+  pre{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;overflow-x:auto;margin:20px 0}
+  pre code{background:none;padding:0;font-size:12.5px;line-height:1.7;color:var(--text2)}
+  .callout{border-left:3px solid var(--accent);background:var(--accent-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .callout .t{font-weight:600;color:var(--accent-d);margin-bottom:6px;font-size:15px}
+  .callout p{color:var(--accent-d);font-size:14.5px;margin:6px 0}
+  .warn{border-left:3px solid var(--amber);background:var(--amber-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .warn .t{font-weight:600;color:var(--amber);margin-bottom:4px;font-size:14.5px}
+  .warn p{color:var(--amber);font-size:14px;margin:4px 0}
+  .bad{border-left:3px solid var(--red);background:var(--red-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .bad .t{font-weight:600;color:var(--red);margin-bottom:4px;font-size:14.5px}
+  .bad p{color:var(--red);font-size:14px;margin:4px 0}
+  .win{border-left:3px solid var(--teal);background:var(--teal-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .win .t{font-weight:600;color:var(--teal);margin-bottom:6px;font-size:15px}
+  .win p{color:var(--teal);font-size:14.5px;margin:6px 0}
+  .tw{overflow-x:auto;margin:20px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;padding:12px 16px;background:var(--surface2);font-weight:600;color:var(--text2);font-size:12.5px;border-bottom:1px solid var(--border);white-space:nowrap}
+  td{padding:11px 16px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.hl{background:var(--accent-l);font-weight:600;color:var(--accent-d)}
+  tr.good td{background:var(--teal-l)}
+  .pill{display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:20px;font-weight:500;white-space:nowrap}
+  .p-ok{background:var(--green-l);color:var(--green)}
+  .p-no{background:var(--red-l);color:var(--red)}
+  .p-mid{background:var(--amber-l);color:var(--amber)}
+  .p-info{background:var(--blue-l);color:var(--blue)}
+  footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--border);font-size:12.5px;color:var(--text3);line-height:1.9}
+  @media(max-width:640px){h1{font-size:24px}.wrap{padding:32px 18px 70px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">KokonaPolaris-S4 · Supplement 11 · v1.1</div>
+  <h1>能力接入与数据交付规范</h1>
+  <p class="sub">面向两方：数据交付方（你）+ 工程侧（我）· 格式只有一套，换能力不换格式</p>
+  <div class="meta"><span>2026-10-03</span><span>接口规范（非推演）</span><span>配套：主文档 v1.13 · 补充 04 / 05 / 10</span><span style="color:var(--accent);font-weight:500">v1.1：试点分两级 · 窗口期 · 已有资产用法 · §4.7 标签不可迁移 · §4.8 中文优先</span></div>
+</header>
+
+<div class="callout">
+  <div class="t">一句话</div>
+  <p><b>不管以后要接入什么能力，数据的格式只有一套。</b></p>
+  <p><b>你只需要交 3 项：图片 + 文字描述 + 分类标签。其余全部由工程侧自动生成。</b></p>
+  <p>⚠️ 这份规范是<b>通用的</b>，不针对任何特定内容 —— <b>同一个插座，插什么由你决定。</b></p>
+</div>
+
+<h2><span class="num">01</span>项目是什么（先对齐定位）</h2>
+
+<div class="win">
+  <div class="t">一句话定位</div>
+  <p><b>KP（心夏北极星）是一个面向 8GB 消费级显卡、原生 4bit 的二次元文生图模型架构。</b></p>
+  <p>卖点不是「参数更大」，而是<b>「小到能塞进 8GB，还能往上挂任何能力」</b>。</p>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>维度</th><th>答案</th></tr></thead>
+<tbody>
+<tr><td>是什么</td><td><b>文生图（Text-to-Image）模型</b> —— 输入文字，输出图像</td></tr>
+<tr><td>跑在哪</td><td><b>8GB 显存消费卡</b>（RTX 50 系那档）—— 第一性约束</td></tr>
+<tr><td>主打</td><td><b>二次元 / 日系画风</b>；写实作为内置开关保留</td></tr>
+<tr class="good"><td>差异</td><td>原生 NVFP4 + 单流 DiT + 32× 混合 latent + <b>能力总线（一套底座、无限挂件）</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>1.2 产品构成（这是 KP 本体）</h3>
+<pre><code>KP 成品 = ① 文本塔（~220M 语言模型，自蒸馏）
+        + ② DiT 主干（自研，0.6B / 1.5B）
+        + ③ VAE（图像 ↔ latent）
+        + ④ 可选能力挂件（按需加载）</code></pre>
+
+<h3>1.3 零件 vs 工具（最容易搞混的一层）</h3>
+<div class="tw">
+<table>
+<thead><tr><th>名字</th><th>类型</th><th>角色</th><th>进产品吗</th></tr></thead>
+<tbody>
+<tr><td><b>Sana 1.6B</b></td><td>生图模型</td><td><b>试件</b> —— 一次性，只用来验「4bit 会不会掉画质」</td><td><span class="pill p-no">不进</span></td></tr>
+<tr><td><b>Z-Image-Turbo</b></td><td>生图模型</td><td><b>教师</b> —— 训练时出图当示范</td><td><span class="pill p-no">只训练期</span></td></tr>
+<tr><td><b>DINOv3</b></td><td>视觉编码器</td><td><b>教师</b> —— 冻结，语义锚定（不出图）</td><td><span class="pill p-no">推理不需要</span></td></tr>
+<tr><td><b>Qwen3-4B</b></td><td>语言模型</td><td><b>教师</b> —— 蒸馏出我们的 220M 文本塔</td><td><span class="pill p-no">师傅走徒留</span></td></tr>
+<tr class="good"><td><b>220M 文本塔</b></td><td>语言模型</td><td><b>文本编码器</b>（文本 → 向量）</td><td><span class="pill p-ok">进产品</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="warn">
+  <div class="t">⚠️ 两个高频误解</div>
+  <p><b>① 「我们接了两个生图模型」—— 没有这回事。</b>产品里只有一个生图主干；Sana 是量尺、Z-Image 是师傅，都是工具台。</p>
+  <p><b>② 「教师只有一个，而且只给图」—— 是三个，且给的不只是图。</b>Z-Image → 出图与去噪轨迹；DINOv3 → 语义特征；Qwen3-4B → 文本表示。<b>0.6B 学 6B，光看成品不够，还要看手感。</b></p>
+</div>
+
+<h2><span class="num">02</span>分工界线（从第一天就存在）</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>侧</th><th>谁</th><th>负责</th></tr></thead>
+<tbody>
+<tr class="good"><td><b>架构侧</b></td><td>工程</td><td>过滤管线的<b>接口</b> · <b>擦除算子 <code>E</code></b>（低秩矩阵，纯数学对象）· <b>账本格式与写入</b> · <b>可逆性验证脚本</b></td></tr>
+<tr><td><b>数据侧</b></td><td>你</td><td><b>数据池的内容</b> —— 收集 / 制作 / 标注 / <b>边界划定</b> / 来源与许可</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>关键性质</b>：架构侧做的东西<b>与「里面装了什么」完全无关</b> —— 像 USB 接口不关心你插的是键盘还是硬盘。</p>
+<p>⇒ <b>不是「走到某一步被迫停手」，而是本来就分属两侧。</b> <b>交接点 = 训练开跑前</b>。</p>
+
+<h2><span class="num">03</span>能力接入：唯一的死线</h2>
+
+<h3>3.1 三层 deadline（只有第 ① 层不可逆）</h3>
+<div class="tw">
+<table>
+<thead><tr><th>#</th><th>要做的事</th><th>死线</th><th>错过怎么办</th></tr></thead>
+<tbody>
+<tr><td><b>①</b></td><td>让能力<b>存在</b>于主干（喂进去）</td><td><b>预训练开始前 · 数据管线定稿</b> —— <span class="pill p-no">不可逆</span></td><td>只能重训主干；或永久走最贵的 ∥-Pack</td></tr>
+<tr><td><b>②</b></td><td>让能力<b>可逆地关掉</b>（擦除 + 记账）</td><td>预训练之后、发布之前（依赖 ①）</td><td>① 没做则无从谈起</td></tr>
+<tr><td><b>③</b></td><td>让能力<b>部署时可开可关</b></td><td><b>任何时间</b></td><td>随时可做（加载挂件）</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>① 的日历位置 = P2 换主干 / G6 预训练</b>，是全案<b>最靠后</b>的几步之一。<b>现在离死线还很远。</b></p>
+
+<div class="win">
+  <div class="t">⭐⭐ v1.1 重要细化：「预训练」是「窗口期」，不是「瞬间」</div>
+  <p>训练是<b>分阶段</b>的 —— <b>预训练 → 中训 → 后训</b>，每个阶段都能引入新数据。准确说法是：<b>「越早进主干越便宜、越稳」</b>，而不是「错过某个瞬间就永久报废」。</p>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>进场时机</th><th>代价</th><th>风险</th></tr></thead>
+<tbody>
+<tr class="good"><td><b>早进（预训练）</b></td><td>最低 —— 数据直接参与学基础表征</td><td>最低</td></tr>
+<tr><td><b>晚进（中训 / 后训）</b></td><td>更高 —— 要额外算力</td><td>有<b>扰动已学能力</b>的风险（需更小学习率 + 更强正交约束）</td></tr>
+<tr><td><b>完全不进</b></td><td>只能走挂件 ∥-Pack（最贵）</td><td>天级 + 重训</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>⇒ <b>窗口期有几个月量级。你不需要今天就凑齐数据，也不需要一次交全。</b></p>
+
+<h3>3.2 悖论解法：别决定「要不要」，只决定「要不要留门」</h3>
+<div class="tw">
+<table>
+<thead><tr><th>方案</th><th>成本</th><th>将来想要时</th></tr></thead>
+<tbody>
+<tr class="good"><td><b>喂了 + 显式擦除并记账</b></td><td><b>≈ 0</b>（多喂一部分数据 + 记一笔账）</td><td><b><code>E⁻¹</code> 秒级取反</b>，不训练、不伤其它能力</td></tr>
+<tr><td><b>不喂</b></td><td>0</td><td>只能加并联助手 ∥-Pack：<b>天级 + 重训 + 可能掉画质</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+  <div class="t">这是「期权」，不是「承诺」</div>
+  <p>买到的是「未来能一秒打开它的权利」，标价接近零。账本躺在硬盘上<b>不占任何运行时开销</b>（门控默认 0）。</p>
+</div>
+
+<h3>3.3 ⚠️ 留门的代价（必须如实知道）</h3>
+<ol>
+  <li><b>擦除可能有残留</b> —— 擦得不够干净，痕迹会渗到别的提示词上。</li>
+  <li><b>擦得太狠会伤邻近能力</b> —— 擦除是低秩算子，动手过猛会波及语义相邻的方向。</li>
+</ol>
+<p><b>把关方式</b>：<code>E⁻¹∘E</code> 之后输出分布回到基线的 <b>KL 测试</b> ⇒ <b>我们训练期间可自测，不依赖你。</b>属<b>工程侧承担的技术风险</b>。</p>
+<p class="meta" style="display:block">技术依据：擦除多为「引导式回避」而非销毁（arXiv 2505.17013）；安全子空间有效秩 k≈6（LoX）；闭式擦除 22 秒（CURE, NeurIPS 2025）。<b>因为我们自己做数据过滤 ⇒ 我们知道擦了什么</b>（社区做不到）。</p>
+
+<h2><span class="num">04</span>数据交付规范（核心）</h2>
+
+<h3>4.1 你必须准备的 —— 3 项，不多不少</h3>
+<div class="tw">
+<table>
+<thead><tr><th>#</th><th>项</th><th>要求</th></tr></thead>
+<tbody>
+<tr><td><b>1</b></td><td><b>图片</b></td><td>PNG / JPG / WebP；<b>短边 ≥ 1024 px</b>（latent 32× 压缩，1024² → 32×32；低于 1024 会被二次浪费）；<b>不要水印、字幕条、边框</b></td></tr>
+<tr><td><b>2</b></td><td><b>文字描述 caption</b></td><td>中 / 英皆可，一句话到一段话。建议覆盖：<b>主体 + 动作 + 构图/视角 + 场景 + 风格</b></td></tr>
+<tr class="good"><td><b>3</b></td><td><b>分类标签 <code>tag</code></b></td><td><b>关键项</b>：标明这条数据属于哪个能力维度。<b>这是擦除账本能定位的唯一依据 —— 没有 tag 就无法「留门」，只能全丢。</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>4.2 目录组织</h3>
+<pre><code>D:\model\data\&lt;批次名&gt;\
+├── images\
+│   ├── 0001.png
+│   ├── 0002.jpg
+│   └── ...
+└── manifest.csv</code></pre>
+<pre><code>file,tag,caption,source
+0001.png,类别A,"一名角色站在雨中，全身构图，冷色调，日式动画风格",自摄
+0002.jpg,类别A,"角色特写，正面视角，室内暖光",自绘</code></pre>
+
+<div class="tw">
+<table>
+<thead><tr><th>列</th><th>必需</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>file</code></td><td>✅</td><td>图片文件名（相对 <code>images/</code>）</td></tr>
+<tr class="good"><td><code>tag</code></td><td>✅</td><td><b>分类标签</b>（同批次内自定名，但<b>必须能区分「要不要擦」的那些</b>）</td></tr>
+<tr><td><code>caption</code></td><td>✅</td><td>文字描述</td></tr>
+<tr><td><code>source</code></td><td>建议</td><td>来源 / 许可备注（便于合规追溯）</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>校验器：<code>python tools/data_spec/validate_manifest.py --dir D:\model\data\&lt;批次名&gt;</code><br>
+它会检查：目录结构、manifest 列名、文件是否存在、<b>短边分辨率</b>、<b>重复率（感知 hash）</b>、caption 缺失、tag 分布。</p>
+
+<h3>4.3 我们自动生成的（你完全不用管）</h3>
+<div class="tw">
+<table>
+<thead><tr><th>自动生成项</th><th>用什么</th></tr></thead>
+<tbody>
+<tr><td>姿态 / 景别 / 构图</td><td>现成人体与姿态估计模型</td></tr>
+<tr><td>深度 / 法线</td><td>现成几何估计模型</td></tr>
+<tr><td>分割掩码 / 部件</td><td>现成分割模型</td></tr>
+<tr><td><b>DINOv3 语义特征</b>（语义通道对齐）</td><td>训练时在线计算</td></tr>
+<tr><td>质量打分与过滤（模糊 / 低信息量）</td><td>自动流水线</td></tr>
+<tr><td><b>感知去重</b></td><td>自动流水线</td></tr>
+<tr><td>分辨率分桶</td><td>自动流水线</td></tr>
+<tr><td>人脸 / 人体检测</td><td>自动流水线</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="bad">
+  <div class="t">⛔ 严禁给你派人工标注任务</div>
+  <p>分层 / 掩码这类如果靠人工，<b>成本会失控</b> —— 全部自动。<b>你的活止于「给图 + 一句话 + 打一个标签」。</b></p>
+</div>
+
+<h3>4.4 三条硬提醒</h3>
+<ol>
+  <li><b>同一个东西不要给多份</b> —— 我们会做感知去重，但源头去重更省时间。</li>
+  <li><b>分辨率宁高勿低</b> —— 短边 1024 是及格线；低于它，那部分信息在 32× 压缩里会被丢掉。</li>
+  <li><b>来源与边界由你这一侧确认</b> —— 这是分工：这批数据会<b>进产品权重</b>，且<b>预训练一旦开始，「喂过」这个事实就固定了</b>（对应 §3.1 的唯一死线）。</li>
+</ol>
+
+<h3>4.5 首批试点与验收</h3>
+<p><b>分两级，别一次凑齐：</b></p>
+<div class="tw">
+<table>
+<thead><tr><th>级别</th><th>规模</th><th>目的</th></tr></thead>
+<tbody>
+<tr class="good"><td><b>第一级 · 先打通管线</b></td><td><b>50–100 张</b></td><td>只要够跑通「格式校验 → 入库 → 编码」全流程即可</td></tr>
+<tr><td><b>第二级 · 看覆盖度</b></td><td>500–2000 张</td><td>判断概念覆盖度与标签可分性，据此定最终规模</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>步骤</th><th>谁</th><th>产出</th></tr></thead>
+<tbody>
+<tr><td>① 交第一级小批</td><td>你</td><td><code>data/&lt;批次名&gt;/</code>（<b>50–100 张就够起步</b>）</td></tr>
+<tr><td>② 跑可用性检查</td><td>我</td><td>格式校验报告：<b>目录/列名/分辨率/重复率/tag 分布/caption 质量</b></td></tr>
+<tr><td>③ 给建议规模</td><td>我</td><td>依据真实数据给出<b>建议规模</b>，而不是拍一个假数字</td></tr>
+<tr><td>④ 分批补齐</td><td>你</td><td>按建议规模分批交，<b>每批都独立可用</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="warn">
+  <div class="t">⚠️ 数据池是增量累积的，不是一次交齐</div>
+  <p>你有多少先交多少；缺的部分标成「待补」，<b>中训 / 后训阶段还能继续进</b>（见 §3.1 的「窗口期」说明）。</p>
+  <p><b>不要为了凑齐而卡住整个项目 —— 先喂能拿到的。</b></p>
+  <p><b>关于「量」的现实提醒</b>：一张图生成几十秒，听起来要「等」，但那是<b>机器在等，不是你在等</b>。批量任务是<b>无人值守</b>的（挂上去 → 去做别的事 / 睡觉 → 醒来看结果）。<b>需要的是一个批处理任务，不是一个团队。</b></p>
+</div>
+
+<h3>4.6 你已有的资产怎么用（不是混乱，是资产）</h3>
+<div class="tw">
+<table>
+<thead><tr><th>已有资产</th><th>能否迁移到 KP</th><th>能用来干什么</th></tr></thead>
+<tbody>
+<tr><td><b>本地某个 WAI 系模型</b></td><td>❌ 不能（架构、latent 全不同）</td><td>作为<b>风格 / 角色数据的生产工具</b>（由你自己运行）</td></tr>
+<tr class="good"><td><b>你自己训的角色 LoRA</b></td><td>❌ <b>不能直接迁移</b></td><td>⭐ <b>生产「角色卡」所需的配对数据</b> —— 同一角色、多视角、同一身份（P2.6 / G5 的输入）</td></tr>
+</tbody>
+</table>
+</div>
+
+<ol>
+  <li><b>LoRA 不能跨模型迁移</b> —— 硬事实：LoRA 是<b>绑死在特定权重 <code>W₀</code> 上</b>的，换权重即失效（这正是主文档「Δ-Pack 必须建在 <code>W₀</code> 子空间」那条设计的由来）。<b>但这不是浪费</b> —— 它证明你<b>已经在做「能力挂件」这件事了</b>；KP 只是把它做成<b>标准化 / 秒级 / 可跨版本</b>。</li>
+  <li>⭐ <b>它是角色卡数据线的现成引擎</b>：同一角色、同一 LoRA，<b>只换视角与姿势</b> → 天然的多视角配对数据。
+    <br>产出：<code>data/&lt;角色名&gt;/{front, back, left, right, 3q}.png</code> + 身份标注
+    <br>用途：<b>G5 角色卡 / P2.6 Character Fitter</b>
+    <br>⭐ <b>这条线现在就能开跑</b>：不依赖 KP 代码、不依赖量化、不依赖任何其它前置 —— <b>它只依赖你手上已有的东西。</b></li>
+</ol>
+
+<h3>4.7 为什么「加标签就触发」不可迁移 —— 以及 <code>tag</code> 的真正用途</h3>
+
+<div class="callout">
+  <div class="t">你的观察是对的</div>
+  <p><b>在别的模型上能触发，KP 上不会。原因不是「没训到位」，是机制根本不同。</b></p>
+</div>
+
+<p><b>「标签触发」是三样东西的联合产物：</b></p>
+<div class="tw">
+<table>
+<thead><tr><th>#</th><th>成分</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><b>词嵌入</b></td><td>文本塔把那个 tag 编码成什么向量</td></tr>
+<tr><td>2</td><td><b>条件通路</b></td><td>该向量如何在主干里传播、被哪些层消费</td></tr>
+<tr><td>3</td><td><b>共现统计</b></td><td>训练时「该 tag ↔ 该类内容」的耦合强度</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>在某个模型 + 某个 LoRA 上，这三样是<b>已经耦合好的一个整体</b>。搬到 KP，<b>三样全变</b> —— 所以标签不会触发同样的东西。</p>
+
+<div class="bad">
+  <div class="t">两条推论（都很硬）</div>
+  <p>❌ <b>不能靠「复现标签」来复现能力</b> —— 换了主干、换了文本塔，标签的语义要<b>重新建立</b>。</p>
+  <p>❌ <b>也不能把别的模型的输出当「真值」</b> —— 它带着那个模型的偏差，以及那个 LoRA 自身的缺陷（数据极少 → 学到的方向不干净 → 极端输入下行为怪异）。</p>
+</div>
+
+<div class="warn">
+  <div class="t">⚠️ 顺带印证一条设计结论</div>
+  <p><b>LoRA 数据极少会学到不干净的更新方向</b>（对应主文档的「入侵维度」问题）。这正是 KP 里「Δ-Pack 必须建在 <code>W₀</code> 的 SVD 子空间内 + 训练后做<b>谱检查</b>」那条约束的由来 ——</p>
+  <p><b>不干净的 LoRA 不是「训得不好」，是方法本身的固有性质。</b></p>
+</div>
+
+<h4 style="font-size:15px;font-weight:600;margin:26px 0 10px;color:var(--teal)">✅ 正解：不复制「标签触发」，而是建 KP 原生的「显式条件轴」</h4>
+<div class="tw">
+<table>
+<thead><tr><th></th><th>标签触发（旧路）</th><th>显式条件轴（KP 路线）</th></tr></thead>
+<tbody>
+<tr><td>机制</td><td>靠自然语言 tag 的<b>共现统计</b></td><td>靠<b>结构化的条件维度</b></td></tr>
+<tr><td>可标定</td><td>❌ 不可（黑盒）</td><td>✅ 可（逐维命名）</td></tr>
+<tr><td>可审计</td><td>❌</td><td>✅（Axis Probe 四测）</td></tr>
+<tr><td>出错时</td><td>只能重训</td><td>可定位、可回滚</td></tr>
+<tr class="good"><td>对应设计律</td><td>隐式<b>请求</b></td><td>显式<b>写入</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<h4 style="font-size:15px;font-weight:600;margin:26px 0 10px;color:var(--accent-d)">⭐ 于是 <code>tag</code> 这一列是「一鱼两吃」</h4>
+<div class="tw">
+<table>
+<thead><tr><th>用途</th><th>说明</th></tr></thead>
+<tbody>
+<tr class="good"><td><b>① 擦除账本定位</b></td><td>标出哪些数据属于「要擦」的那一类</td></tr>
+<tr class="good"><td><b>② 条件轴的训练标签</b></td><td>训练时把 <code>tag</code> 映射到条件维度上 —— <b>将来拨这根轴就能触发</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>⇒ <b><code>tag</code> 不是随手写的备注，它是「标签 → 条件轴」这条通路的原始材料。</b> <b>写得越规范、越一致，将来在 KP 上「拨动即可触发」就越可靠。</b></p>
+
+<p><b>把关门 = G3.5 Axis Probe</b>（单调性 / 正交性 / 可逆性 / <b>低比特可用行程</b>）。</p>
+<ul>
+  <li>⚠️ <b>「加标签立刻触发」正是「单调性」这一测的特例。</b></li>
+  <li>⚠️ <b>诚实提醒</b>：<b>低比特下轴的分辨率受限</b>（FP4 激活只有 16 级 E2M1）→ <b>「秒级触发」不是零成本，代价在低比特下更大。</b> 这正是 G3.5 存在的理由。</li>
+</ul>
+
+<h3>4.8 caption 用什么语言写 —— 中文优先</h3>
+
+<div class="callout">
+  <div class="t">结论：中文优先，保留少量英文做跨语言对齐</div>
+  <p>这不是偏好问题，是<b>架构决定</b>的。SDXL 的中文不行，是因为它的文本塔是 CLIP；KP 的塔是<b>语言模型</b>。</p>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th></th><th>SDXL 时代</th><th>KP</th></tr></thead>
+<tbody>
+<tr><td>文本塔</td><td><b>CLIP</b>（英文图文对比学习）</td><td><b>~220M 语言模型</b>（自 Qwen3-4B 蒸馏，多语言）</td></tr>
+<tr class="good"><td>中文</td><td>基本是噪声（语料里没见过）</td><td><b>天生支持</b></td></tr>
+<tr class="good"><td>输入风格</td><td>逗号标签串（tag soup）</td><td><b>自然语言句子</b></td></tr>
+<tr><td>「标签」的角色</td><td>用户要写的<b>输入咒语</b></td><td>内部<b>条件轴的训练标签</b>（工程侧处理）</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>为什么 SDXL 必须全英文</b>：它的文本塔是 CLIP —— 用<b>英文图文对</b>对比学习出来的词向量表，中文 token 基本没被训过 → 等于噪声。</p>
+<p><b>为什么 KP 可以中文</b>：文本塔的<b>教师是多语言语言模型</b>（Qwen3-4B），中文是它的原生能力，蒸馏时<b>刻意保留</b>即可。⇒ <b>「能理解语言」和「认识英文单词」是两回事</b> —— LLM 塔走前者，CLIP 走后者。</p>
+
+<div class="warn">
+  <div class="t">⚠️ 但中文能力不是白送的</div>
+  <p>它还取决于<b>训练数据里中文 caption 的占比</b>。所以这<b>是个可调的旋钮，要主动设计</b>（不是「反正模型支持」）。</p>
+</div>
+
+<p><b>给你的三条建议：</b></p>
+<ol>
+  <li><b>caption 用中文写</b> —— 母语描述最准确、信息量最大。</li>
+  <li>保留 <b>10–20% 英文 caption</b>（跨语言对齐，便于将来接英文提示词）。</li>
+  <li>⚠️ <b>不要写成「逗号标签串」</b> —— 写成<b>通顺的一句话 / 一小段话</b>（KP 的塔是语言模型，不是词袋）。</li>
+</ol>
+
+<p><b>一句话</b>：SDXL 里 tag 是「<b>输入</b>」；KP 里 tag 退到「<b>内部标注</b>」，<b>用户面对的是自然语言</b>。</p>
+
+<h2><span class="num">05</span>夜间与排程规范</h2>
+<div class="tw">
+<table>
+<thead><tr><th>时段</th><th>允许</th><th>禁止</th></tr></thead>
+<tbody>
+<tr class="good"><td><b>夜间（安静模式 · GPU ~40 W）</b></td><td>文档 · 代码 · 工具链 · 数据校验（CPU/IO） · 单张轻量实验</td><td>—</td></tr>
+<tr class="bad"><td><b>夜间</b></td><td>—</td><td>⛔ <b>压力测试 / 基准跑分 / 大批量出图 / 训练</b></td></tr>
+<tr class="good"><td><b>白天 / 用户解锁（115 W）</b></td><td>全部，含吞吐基准 · FID 批 · 训练</td><td>—</td></tr>
+</tbody>
+</table>
+</div>
+<p><b>理由</b>：夜间 GPU 被强制压到 40 W，重算力跑出来的数字<b>无效</b>。需要真算力时由用户手动切档（<code>nvidia-smi</code> 推不动）。</p>
+
+<h2><span class="num">06</span>交接清单</h2>
+<div class="tw">
+<table>
+<thead><tr><th>✓</th><th>项</th></tr></thead>
+<tbody>
+<tr><td>☐</td><td><b>数据格式</b>：<code>images/</code> + <code>manifest.csv</code>，列名 <code>file,tag,caption,source</code></td></tr>
+<tr><td>☐</td><td><b>图片</b>：短边 ≥ 1024，无多余水印 / 字幕条</td></tr>
+<tr><td>☐</td><td><b>caption</b>：每张都有，覆盖 主体/动作/构图/场景/风格</td></tr>
+<tr><td>☐</td><td><b>caption 语言</b>：中文为主（10–20% 英文对齐），写成<b>句子</b>而非标签串</td></tr>
+<tr><td>☐</td><td><b>tag</b>：每张都有，且<b>能区分「要不要擦」的那一类</b></td></tr>
+<tr><td>☐</td><td><b>第一级规模</b>：<b>50–100 张</b>（先打通管线，不必凑齐）</td></tr>
+<tr><td>☐</td><td><b>分批交付</b>：缺的标「待补」，<b>不要为凑齐而卡住项目</b></td></tr>
+<tr><td>☐</td><td><b>来源备注</b>：<code>source</code> 列填写</td></tr>
+<tr><td>☐</td><td><b>交付位置</b>：<code>D:\model\data\&lt;批次名&gt;\</code></td></tr>
+<tr><td>☐</td><td><b>校验</b>：跑过 <code>validate_manifest.py</code>，0 错误</td></tr>
+</tbody>
+</table>
+</div>
+
+<footer>
+  KokonaPolaris-S4 · 补充设计 11 · <b>v1.1</b> · 2026-10-03<br>
+  本文档为<b>双方接口规范</b>：§1–§3 对齐定位与判据，§4 是数据交付的硬要求（含 §4.7 标签不可迁移），§5 是排程约束，§6 是可勾选的清单。<br>
+  §4 的格式对<b>所有能力</b>通用 —— 换能力不换格式。
+</footer>
+
+</div>
+</body>
+</html>

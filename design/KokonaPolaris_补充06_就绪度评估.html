@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KokonaPolaris 补充设计 06 · 就绪度评估</title>
+<style>
+  :root{
+    --bg:#FAFAF9; --surface:#FFFFFF; --surface2:#F4F3F1;
+    --text:#1C1C1A; --text2:#5F5E5A; --text3:#888780;
+    --border:rgba(0,0,0,0.10); --border2:rgba(0,0,0,0.18);
+    --accent:#534AB7; --accent-l:#EEEDFE; --accent-d:#3C3489;
+    --blue:#185FA5; --blue-l:#E6F1FB;
+    --teal:#0F6E56; --teal-l:#E1F5EE;
+    --amber:#854F0B; --amber-l:#FAEEDA;
+    --red:#A32D2D; --red-l:#FCEBEB;
+    --green:#3B6D11; --green-l:#EAF3DE;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:56px 28px 100px}
+  header{border-bottom:1px solid var(--border);padding-bottom:28px;margin-bottom:40px}
+  .kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:500;margin-bottom:14px}
+  h1{font-size:31px;font-weight:600;letter-spacing:-.02em;line-height:1.25;margin-bottom:12px}
+  .sub{font-size:16px;color:var(--text2);max-width:740px}
+  .meta{margin-top:18px;font-size:13px;color:var(--text3);display:flex;gap:20px;flex-wrap:wrap}
+  h2{font-size:22px;font-weight:600;letter-spacing:-.01em;margin:64px 0 10px;padding-top:18px;border-top:1px solid var(--border)}
+  h2:first-of-type{border-top:none;padding-top:0;margin-top:40px}
+  h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:10px;font-weight:500}
+  h3{font-size:16.5px;font-weight:600;margin:30px 0 10px}
+  h4{font-size:15px;font-weight:600;margin:20px 0 8px}
+  p{margin:12px 0}
+  ul,ol{margin:12px 0 12px 22px}
+  li{margin:7px 0}
+  code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.88em;background:var(--surface2);padding:2px 6px;border-radius:4px;color:var(--accent-d)}
+  pre{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;overflow-x:auto;margin:20px 0}
+  pre code{background:none;padding:0;font-size:12.5px;line-height:1.7;color:var(--text2)}
+  .grid{display:grid;gap:12px;margin:22px 0}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+  .card .lbl{font-size:12px;color:var(--text3);margin-bottom:6px}
+  .card .val{font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .card .note{font-size:13.5px;color:var(--text2);margin-top:8px;line-height:1.7}
+  .callout{border-left:3px solid var(--accent);background:var(--accent-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .callout .t{font-weight:600;color:var(--accent-d);margin-bottom:6px;font-size:15px}
+  .callout p{color:var(--accent-d);font-size:14.5px;margin:6px 0}
+  .warn{border-left:3px solid var(--amber);background:var(--amber-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .warn .t{font-weight:600;color:var(--amber);margin-bottom:4px;font-size:14.5px}
+  .warn p{color:var(--amber);font-size:14px;margin:4px 0}
+  .bad{border-left:3px solid var(--red);background:var(--red-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .bad .t{font-weight:600;color:var(--red);margin-bottom:4px;font-size:14.5px}
+  .bad p{color:var(--red);font-size:14px;margin:4px 0}
+  .info{border-left:3px solid var(--blue);background:var(--blue-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .info .t{font-weight:600;color:var(--blue);margin-bottom:4px;font-size:14.5px}
+  .info p{color:var(--blue);font-size:14px;margin:4px 0}
+  .win{border-left:3px solid var(--teal);background:var(--teal-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .win .t{font-weight:600;color:var(--teal);margin-bottom:6px;font-size:15px}
+  .win p{color:var(--teal);font-size:14.5px;margin:6px 0}
+  .tw{overflow-x:auto;margin:20px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;padding:12px 16px;background:var(--surface2);font-weight:600;color:var(--text2);font-size:12.5px;border-bottom:1px solid var(--border);white-space:nowrap}
+  td{padding:11px 16px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.hl{background:var(--accent-l);font-weight:600;color:var(--accent-d)}
+  tr.bad td{background:var(--red-l)}
+  tr.good td{background:var(--teal-l)}
+  .pill{display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:20px;font-weight:500;white-space:nowrap}
+  .p-ok{background:var(--green-l);color:var(--green)}
+  .p-no{background:var(--red-l);color:var(--red)}
+  .p-mid{background:var(--amber-l);color:var(--amber)}
+  .p-info{background:var(--blue-l);color:var(--blue)}
+  .p-acc{background:var(--accent-l);color:var(--accent-d)}
+  .fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 20px;margin:26px 0;overflow-x:auto}
+  .fig svg{display:block;margin:0 auto;min-width:600px}
+  .figcap{font-size:12.5px;color:var(--text3);text-align:center;margin-top:14px}
+  blockquote{border-left:3px solid var(--border2);padding:4px 0 4px 18px;margin:18px 0;color:var(--text2);font-size:14.5px}
+  footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--border);font-size:12.5px;color:var(--text3);line-height:1.9}
+  @media(max-width:640px){h1{font-size:24px}.wrap{padding:32px 18px 70px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">KokonaPolaris · Supplement 06</div>
+  <h1>就绪度评估</h1>
+  <p class="sub">「理论上准备好了没有」· 正式命名 · 7 条未验证假设 · 8 道带退路的门 · 拿去给别人看时对方会挑什么</p>
+  <div class="meta"><span>2026-10-02</span><span>配套主文档 v1.6</span><span>本文档不改架构，只做评估</span></div>
+</header>
+
+<h2><span class="num">00</span>结论先行</h2>
+
+<div class="win">
+  <div class="t">设计准备好了；工程还没准备好。</div>
+  <p><strong>判决：可以开工，但不能「照着文档直接开训」。</strong>正确的方式是把 7 条假设变成 8 道<strong>带退路的门</strong>，一关一关过。</p>
+</div>
+
+<div class="grid g3">
+  <div class="card">
+    <div class="lbl">设计层</div>
+    <div class="val" style="color:var(--teal)">已收敛 · ~90%</div>
+    <div class="note">架构闭环、判据自洽、无逻辑缺口。剩下的是超参、消融、kernel 细节。</div>
+  </div>
+  <div class="card">
+    <div class="lbl">假设层</div>
+    <div class="val" style="color:var(--amber)">未就绪 · ~15%</div>
+    <div class="note">7 条关键假设只有 2 条有旁证，<strong>其中 2 条能推翻结构</strong>。</div>
+  </div>
+  <div class="card">
+    <div class="lbl">实现层</div>
+    <div class="val" style="color:var(--red)">未开始 · 0%</div>
+    <div class="note">0 行代码。目前全部是设计态。</div>
+  </div>
+</div>
+
+<p>为什么不是「全好了」？因为这方案里的东西分两类：</p>
+<ul>
+  <li><strong>推导出来的</strong>（第一性原理 → 结构）——<strong>这部分已经封口</strong>。比如「token 数是显存第一因」「ΔW 可以入侵底模、旁路不能」「LoRA 是加法，不是创造」。</li>
+  <li><strong>赌出来的</strong>（没有先例 → 只能自测）——<strong>这部分一条都还没验</strong>。别人问「凭什么」，我们现在只能答「凭推理」。</li>
+</ul>
+
+<h2><span class="num">01</span>命名：KokonaPolaris（心夏北极星）</h2>
+
+<h3>1.1 已定下的部分</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>项</th><th>取值</th></tr></thead>
+<tbody>
+<tr><td>家族名</td><td class="hl">KokonaPolaris</td></tr>
+<tr><td>中文名</td><td class="hl">心夏北极星</td></tr>
+<tr><td>缩写</td><td><strong>KP</strong></td></tr>
+<tr><td>尺寸档</td><td><strong>KP-S</strong>（0.6B，主力）／<strong>KP-M</strong>（1.5B，质量档）／<strong>KP-L</strong>（3B，仅作 teacher，不发布）</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+  <div class="t">名字里藏了一层双关——这也是它比随机起名更合适的原因</div>
+  <p>Polaris = 北极星，而本架构里「<strong>对偶 / 极性</strong>」结构反复出现：</p>
+  <p>① <strong>语义 · 细节</strong> 双通道 latent（8ch + 32ch）　② <strong>正 · 背</strong> 对偶视图（核心训练方式）　③ <strong>擦除 · 恢复</strong> 对偶算子（<code>E</code> / <code>E⁻¹</code>）</p>
+  <p><strong>一个名字同时说了「指引」和「对偶」两件事。</strong></p>
+</div>
+
+<h3>1.2 后缀：已定为 <code>-S4</code>（附四个候选的取舍记录）</h3>
+
+<div class="callout">
+  <div class="t">✅ 结论（2026-10-02，用户拍板）：正式名定为 <code>KokonaPolaris-S4</code></div>
+  <p>世代标签（如 <code>-G1</code>）等原型成型后再加。理由：<strong>两个字符装下两个最硬的差异点</strong>（S = Single-stream 单流 / 4 = 原生 FP4）；有型号感、好念、易做版本化。</p>
+</div>
+
+<p>后缀唯一的作用是：<strong>让人只看名字就知道它和 SDXL / Flux 不一样在哪。</strong>下面四个候选的取舍保留下来，作为<strong>决策记录</strong>——</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>候选</th><th>字母含义</th><th>第一眼传达</th><th>好处</th><th>代价</th></tr></thead>
+<tbody>
+<tr>
+  <td class="hl">-S4</td>
+  <td><strong>S</strong>ingle-stream + native FP<strong>4</strong></td>
+  <td>「单流 + 原生 4-bit」</td>
+  <td>两个字符装下<strong>两个最硬的差异点</strong>；型号感强、好念、易版本化（可延伸 <code>KP-S4-S</code> / <code>S4-M</code>）</td>
+  <td>需要解释一次才懂；可能被误读成「第 4 代」</td>
+</tr>
+<tr>
+  <td class="hl">-DiT</td>
+  <td>Diffusion Transformer</td>
+  <td>「这是个扩散 Transformer」</td>
+  <td><strong>零歧义</strong>；写论文 / 找别人看时最不容易被误解</td>
+  <td>不含增量信息（谁都知道是 DiT），<strong>真正的差异点一个都没体现</strong></td>
+</tr>
+<tr>
+  <td class="hl">-Duo</td>
+  <td>对偶（Dual）</td>
+  <td>「这架构靠对偶结构吃饭」</td>
+  <td>与 Polaris 的极性双关；一次概括三组对偶；<strong>品牌感最强</strong></td>
+  <td>技术指向弱，不看文档猜不出是什么；易被当成「双卡 / 双模型」</td>
+</tr>
+<tr>
+  <td class="hl">-Mod</td>
+  <td>Modular</td>
+  <td>「可插拔、能一直挂包」</td>
+  <td>直接点出<strong>全场最独特的差异点</strong>（能力总线）；对使用者最直观</td>
+  <td>读起来像「模块化产品」而不是模型；没体现低显存 / 量化</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="info">
+  <div class="t">我的建议</div>
+  <p>想让名字<strong>带信息</strong>（推荐）→ <code>KokonaPolaris-S4</code>　｜　想让人<strong>一眼不误解</strong>、偏学术正统 → <code>KokonaPolaris-DiT</code>　｜　想让名字<strong>有品牌辨识度</strong> → <code>KokonaPolaris-Duo</code></p>
+  <p><strong>也可以两段都用</strong>：正式名 <code>KokonaPolaris-S4</code>；首次出现时写全 —— 「KokonaPolaris-S4（单流 · 原生 FP4 的扩散 Transformer）」。信息量与清晰度都不丢。</p>
+</div>
+
+<h2><span class="num">02</span>就绪度记分卡</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>维度</th><th>就绪度</th><th>说明</th></tr></thead>
+<tbody>
+<tr class="good"><td>目标与约束</td><td><strong>100%</strong></td><td>四条硬约束清晰且互不冲突（NVFP4 / SM120 · 低显存第一性 · 去 UNet · LoRA 极简易）</td></tr>
+<tr class="good"><td>架构设计</td><td><strong>~90%</strong></td><td>结构闭环；剩余 10% 是超参、消融、kernel 细节</td></tr>
+<tr class="bad"><td>关键假设验证</td><td><strong>~15%</strong></td><td>7 条假设只有 2 条有旁证（A6 / A7），5 条基本空白</td></tr>
+<tr><td>数据与许可</td><td><span class="pill p-mid">~40%</span></td><td>数据线全找到了，但<strong>多数是 NC 许可，只能研究用、不能进可分发权重</strong>——这会成为分发时的真问题</td></tr>
+<tr><td>算力</td><td><span class="pill p-mid">待评估</span></td><td>Micro-budget 把门槛拉到 ~$2k 级，但需要一张 Blackwell 卡做 G0 / G1</td></tr>
+<tr class="bad"><td>工程实现</td><td><strong>0%</strong></td><td>未开始</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2><span class="num">03</span>未验证假设登记表</h2>
+
+<p><strong>这张表就是「准备好了没有」的真正答案。</strong></p>
+
+<div class="tw">
+<table>
+<thead><tr><th>#</th><th>假设</th><th>等级</th><th>现有证据</th><th>若为假的后果</th></tr></thead>
+<tbody>
+<tr class="bad">
+  <td class="hl">A1</td>
+  <td>NVFP4 <strong>QAD</strong> 在扩散 Transformer 上不掉点</td>
+  <td><span class="pill p-no">🔴 结构性</span></td>
+  <td>NVIDIA 在 FLUX 上 QAT 持平 / 微升、PTQ 掉点；<strong>但无「从零预训练」报告</strong></td>
+  <td>量化地基塌 → 整体回退 FP8</td>
+</tr>
+<tr class="bad">
+  <td class="hl">A2</td>
+  <td>32× 混合 latent 的<strong>通道分离能被损失函数强制</strong></td>
+  <td><span class="pill p-no">🔴 结构性</span></td>
+  <td><strong>无直接先例</strong>（本方案自创）</td>
+  <td>L1 三层控制栈作废，画风解耦失效</td>
+</tr>
+<tr>
+  <td class="hl">A3</td>
+  <td><strong>Sigmoid / Softpick</strong> 注意力在长提示上更好、对量化更友好</td>
+  <td><span class="pill p-mid">🟠 配方性</span></td>
+  <td>LLM 侧有「零 attention sink」实证；扩散上未验证</td>
+  <td>退回 softmax，改用 layout token 补偿</td>
+</tr>
+<tr>
+  <td class="hl">A4</td>
+  <td><strong>分辨率维度 Matryoshka</strong> 与无位置编码主干兼容</td>
+  <td><span class="pill p-info">🟡 配方性</span></td>
+  <td>PostDiff 有实证，但不是我们的架构</td>
+  <td>关掉，只保留深度维度 Matryoshka</td>
+</tr>
+<tr>
+  <td class="hl">A5</td>
+  <td><strong>角色卡 + Fitter</strong> 能从正 / 反两视图解出可用表示</td>
+  <td><span class="pill p-mid">🟠 配方性</span></td>
+  <td>InstantCharacter 单图驱动外置适配器；See-through 2.5D 分层有先例；<strong>「正反两视图 → 分层角色卡」这条具体路径无先例</strong></td>
+  <td>退回 LoRA；角色卡降级为辅助条件</td>
+</tr>
+<tr>
+  <td class="hl">A6</td>
+  <td><strong>Micro-budget 配方</strong>在我们规模上可复现</td>
+  <td><span class="pill p-mid">🟠 配方性</span></td>
+  <td>Sony AI：1.16B / 3700 万图 / $1,890 / FID 12.7</td>
+  <td>改走逐层替换</td>
+</tr>
+<tr>
+  <td class="hl">A7</td>
+  <td><strong>少步蒸馏</strong> 4 步不塌</td>
+  <td><span class="pill p-info">🟡 配方性</span></td>
+  <td>社区先例充分（sCM / MeanFlow / DMD2）</td>
+  <td>保持 8–12 步</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="warn">
+  <div class="t">A1 有一个反直觉之处</div>
+  <p>它失效的代价并不大（退回 FP8 方案依然成立），但它<strong>优先级仍是第一</strong>——因为它一旦为假，<strong>前面所有显存测算都要重算</strong>。</p>
+  <p>A2 则相反：它成立与否没人会立刻看出来，但它一旦为假，<strong>「让 LoRA 只做长尾」这条主线就直接消失</strong>。</p>
+</div>
+
+<h2><span class="num">04</span>验证门 G0–G7</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>门</th><th>成本</th><th>通过判据</th><th>不过的退路</th></tr></thead>
+<tbody>
+<tr><td class="hl">G0 环境</td><td>1–2 天</td><td>FP4 block-scaled matmul 数值正确、模型能加载</td><td>回退 FP8</td></tr>
+<tr class="bad"><td class="hl">G1 NVFP4 QAD</td><td>几天–1 周</td><td>FP4 vs BF16 差距 &lt; 2%，且 QAT 优于 PTQ</td><td>回退 FP8</td></tr>
+<tr class="bad"><td class="hl">G2 通道分离</td><td>1–2 周</td><td>交叉扰动后结构指标降 &lt; 5%</td><td>L1 作废，改单通道 latent</td></tr>
+<tr><td class="hl">G3 Sigmoid 注意力</td><td>1–2 周</td><td>长提示 Spatial 更优、短提示不退化</td><td>退回 softmax</td></tr>
+<tr><td class="hl">G4 分辨率 Matryoshka</td><td>1 周</td><td>FID 不劣 + FLOPs −30%</td><td>关掉</td></tr>
+<tr><td class="hl">G5 角色卡</td><td>2–3 周</td><td>一致度接近 LoRA、换角色 &lt; 1 秒</td><td>退回 LoRA</td></tr>
+<tr><td class="hl">G6 Micro-budget</td><td>数周 + ~$2k</td><td>零样本 FID 可接受</td><td>逐层替换</td></tr>
+<tr><td class="hl">G7 少步蒸馏</td><td>数周</td><td>4 步 ≈ 20 步的 90%</td><td>保持 8–12 步</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+  <div class="t">为什么 G1 的判据定在 2%（而不是 0.5%）</div>
+  <p>FLUX 上的实测是——FP4 <strong>PTQ</strong> 会掉点（ImageReward 1.118 → 1.096，约 2%），FP4 <strong>QAT</strong> 不掉反微升（1.119）。</p>
+  <p>所以 2% 正好是「<strong>能不能只用 PTQ</strong>」的分界线：差距在 2% 以内说明 PTQ 就够，超过 2% 才<strong>必须走 QAD</strong>。这正是要判断的事，判据就定在这条线上。</p>
+</div>
+
+<h2><span class="num">05</span>开工顺序（我的建议）</h2>
+
+<div class="bad">
+  <div class="t">两条腿走路，不开三线</div>
+  <p><strong>主线</strong>　G0 → G1（NVFP4 QAD）　← 几天出结论，唯一能推翻地基</p>
+  <p><strong>副线</strong>　P2′（T0 排版链路）　← 零训练、零依赖，立刻可见产出</p>
+</div>
+
+<ol>
+  <li><strong>G1 必须先做</strong>——它是唯一「如果塌了、前面所有显存测算都要重算」的东西。<strong>先验地基，再盖楼。</strong></li>
+  <li><strong>P2′ 必须并行</strong>——它<strong>不与任何风险绑定</strong>：不需要 NVFP4、不需要新主干、甚至不需要训练。哪怕主线全塌，它产出的（会排文本框的 Layout Planner + 字形合成数据管线）依然有用。<strong>这是对冲。</strong></li>
+  <li><strong>现在不必碰 P2.6（角色卡）</strong>——它虽然也独立，但本质属于 G5 的范围。等 G1 有结论、确定要继续时再开，不会损失什么。</li>
+</ol>
+
+<div class="info">
+  <div class="t">如果你手上暂时没有 Blackwell 卡</div>
+  <p>主线就换成 <strong>P2′ + 文档</strong>，先不碰 G0 / G1——硬件相关的结论模拟不出来。</p>
+</div>
+
+<h2><span class="num">06</span>拿去给别人看时，对方最可能挑这六个问题</h2>
+
+<p>这一节是为「我想拿去问别人」写的。<strong>把这六个问题连同答案一起给他，能省掉一轮无效讨论。</strong></p>
+
+<h3>Q1「为什么不直接微调 Z-Image / Sana / Flux，偏要从零？」</h3>
+<p>因为三处改动<strong>每一处都让已有权重作废</strong>：换 VAE（latent 空间没有对应关系）、换文本塔（条件分布变了）、换主干（UNet → 单流 DiT，连拓扑都不同）。所以「站在别人肩上」在结构上不成立。成本侧有反证：Micro-budget 证明从零不是千万级（$1,890 / 1.16B）。</p>
+
+<h3>Q2「NVFP4 是不是伪需求？FP8 不够吗？」</h3>
+<p><strong>这是最该被质疑的一点，也是我自己最不确定的一点。</strong>诚实地说：如果主要场景是 LoRA 训练，<strong>激活显存会淹没权重差异</strong>——1.5B 的 FP4 权重只占 0.84GB，激活才是大头。所以 NVFP4 的收益在<strong>推理</strong>上比在训练上明显。G1 存在的意义正是把这个分歧量化。</p>
+
+<h3>Q3「32× 压缩一定丢细节吧？」</h3>
+<p>会丢，这是信息论问题，不是训练问题。所以：细节由 32ch 细节通道兜底；<strong>文字走独立低压缩 ROI 分支</strong>（40px 汉字在 32× 下只占 1.25 个 latent 格，靠主干渲染在信息论上不可能）。</p>
+
+<h3>Q4「通道分离真能训出来吗？」</h3>
+<p><strong>不知道，这是全案最大的未验证设计假设（A2 / G2）。</strong>唯一能保证的是：不加显式监督，它<strong>一定训不出来</strong>——主干会图省事把两个通道都塞满。</p>
+
+<h3>Q5「角色卡有先例吗？」</h3>
+<p>有相邻先例（InstantCharacter 单图驱动外置适配器、See-through 的 2.5D 分层表示），<strong>但「正 / 反两视图 → 1–5MB 分层角色卡 → 秒级换角色」这条完整路径没有直接先例。</strong></p>
+
+<h3>Q6「8GB 卡训 1024² 角色 LoRA 是不是噱头？」</h3>
+<p>目标是 4–5GB 峰值，依据是 token 数：32× 压缩后 1024² 只有 1024 token，激活与注意力成本按此量级估算。<strong>这条同样依赖 G1 / G2 成立。</strong></p>
+
+<h2><span class="num">07</span>文档地图（该给他看哪份）</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>想看什么</th><th>看哪份</th><th>阅读量</th></tr></thead>
+<tbody>
+<tr class="good"><td><strong>全貌（推荐入口）</strong></td><td><code>KokonaPolaris_架构设计方案.html</code></td><td>15–25 分钟</td></tr>
+<tr><td>底模怎么选 / 注意力为什么涣散</td><td>补充 01</td><td>8 分钟</td></tr>
+<tr><td>能力总线 / 文字渲染</td><td>补充 02</td><td>10 分钟</td></tr>
+<tr><td>LoRA 的两个天花板 / 三层控制栈</td><td>补充 03</td><td>8 分钟</td></tr>
+<tr><td>身份载体 / 双向包体系 / ComfyUI</td><td>补充 04</td><td>12 分钟</td></tr>
+<tr><td>可逆擦除 / 能力谱系成本表</td><td>补充 05</td><td>8 分钟</td></tr>
+<tr class="good"><td><strong>就绪度与风险（本文档）</strong></td><td>补充 06</td><td>10 分钟</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="warn">
+  <div class="t">建议让对方重点看四处（最容易被挑的地方）</div>
+  <p><code>§4.2 混合 Latent</code> · <code>§4.7 能力总线</code> · <code>§5 NVFP4 原生方案</code> · <code>§10 风险</code></p>
+</div>
+
+<h2><span class="num">08</span>需要你拍板的三件事</h2>
+
+<ol>
+  <li><s>家族后缀</s> <strong>✅ 已定 <code>-S4</code></strong>（见 §1.2）。</li>
+  <li><strong>手上有没有 Blackwell（RTX 50 系）卡</strong>——决定 G0 / G1 能不能马上开跑。</li>
+  <li><strong>时间尺度</strong>：这是「几个月做出能看的东西」，还是「一年以上的长线」？<strong>它会改变对 A2 / A5 这类高风险假设的态度</strong>——长线可以赌，短线应该先躲。</li>
+</ol>
+
+<footer>
+  KokonaPolaris（心夏北极星）· 补充设计 06 · 2026-10-02<br>
+  本文档与主文档 v1.6 配套。所有结论均为设计态，未经过任何实验验证。
+</footer>
+
+</div>
+</body>
+</html>

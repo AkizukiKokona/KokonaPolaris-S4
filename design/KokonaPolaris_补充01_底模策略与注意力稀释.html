@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KokonaPolaris 补充设计 01 · 底模策略与注意力稀释</title>
+<style>
+  :root{
+    --bg:#FAFAF9; --surface:#FFFFFF; --surface2:#F4F3F1;
+    --text:#1C1C1A; --text2:#5F5E5A; --text3:#888780;
+    --border:rgba(0,0,0,0.10); --border2:rgba(0,0,0,0.18);
+    --accent:#534AB7; --accent-l:#EEEDFE; --accent-d:#3C3489;
+    --blue:#185FA5; --blue-l:#E6F1FB;
+    --teal:#0F6E56; --teal-l:#E1F5EE;
+    --amber:#854F0B; --amber-l:#FAEEDA;
+    --red:#A32D2D; --red-l:#FCEBEB;
+    --green:#3B6D11; --green-l:#EAF3DE;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:56px 28px 100px}
+  header{border-bottom:1px solid var(--border);padding-bottom:28px;margin-bottom:40px}
+  .kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:500;margin-bottom:14px}
+  h1{font-size:32px;font-weight:600;letter-spacing:-.02em;line-height:1.25;margin-bottom:12px}
+  .sub{font-size:16px;color:var(--text2);max-width:720px}
+  .meta{margin-top:18px;font-size:13px;color:var(--text3);display:flex;gap:20px;flex-wrap:wrap}
+  h2{font-size:22px;font-weight:600;letter-spacing:-.01em;margin:64px 0 10px;padding-top:18px;border-top:1px solid var(--border)}
+  h2:first-of-type{border-top:none;padding-top:0;margin-top:40px}
+  h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:10px;font-weight:500}
+  h3{font-size:16.5px;font-weight:600;margin:30px 0 10px}
+  h4{font-size:15px;font-weight:600;margin:20px 0 8px}
+  p{margin:12px 0}
+  p.lead{color:var(--text2)}
+  ul,ol{margin:12px 0 12px 22px}
+  li{margin:7px 0}
+  code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.88em;background:var(--surface2);padding:2px 6px;border-radius:4px;color:var(--accent-d)}
+  .grid{display:grid;gap:12px;margin:22px 0}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+  .card .lbl{font-size:12px;color:var(--text3);margin-bottom:6px}
+  .card .val{font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .card .note{font-size:13.5px;color:var(--text2);margin-top:8px;line-height:1.7}
+  .callout{border-left:3px solid var(--accent);background:var(--accent-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .callout .t{font-weight:600;color:var(--accent-d);margin-bottom:6px;font-size:15px}
+  .callout p{color:var(--accent-d);font-size:14.5px;margin:6px 0}
+  .warn{border-left:3px solid var(--amber);background:var(--amber-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .warn .t{font-weight:600;color:var(--amber);margin-bottom:4px;font-size:14.5px}
+  .warn p{color:var(--amber);font-size:14px;margin:4px 0}
+  .info{border-left:3px solid var(--blue);background:var(--blue-l);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+  .info .t{font-weight:600;color:var(--blue);margin-bottom:4px;font-size:14.5px}
+  .info p{color:var(--blue);font-size:14px;margin:4px 0}
+  .win{border-left:3px solid var(--teal);background:var(--teal-l);border-radius:0 10px 10px 0;padding:18px 22px;margin:24px 0}
+  .win .t{font-weight:600;color:var(--teal);margin-bottom:6px;font-size:15px}
+  .win p{color:var(--teal);font-size:14.5px;margin:6px 0}
+  .tw{overflow-x:auto;margin:20px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;padding:12px 16px;background:var(--surface2);font-weight:600;color:var(--text2);font-size:12.5px;border-bottom:1px solid var(--border);white-space:nowrap}
+  td{padding:11px 16px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.hl{background:var(--accent-l);font-weight:600;color:var(--accent-d)}
+  tr.bad td{background:var(--red-l)}
+  tr.good td{background:var(--teal-l)}
+  .pill{display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:20px;font-weight:500;white-space:nowrap}
+  .p-ok{background:var(--green-l);color:var(--green)}
+  .p-no{background:var(--red-l);color:var(--red)}
+  .p-mid{background:var(--amber-l);color:var(--amber)}
+  .p-info{background:var(--blue-l);color:var(--blue)}
+  .p-acc{background:var(--accent-l);color:var(--accent-d)}
+  .fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 20px;margin:26px 0;overflow-x:auto}
+  .fig svg{display:block;margin:0 auto;min-width:600px}
+  .figcap{font-size:12.5px;color:var(--text3);text-align:center;margin-top:14px}
+  .kw{background:var(--accent-l);color:var(--accent-d);padding:1px 6px;border-radius:4px;font-weight:500}
+  footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--border);font-size:12.5px;color:var(--text3);line-height:1.9}
+  @media(max-width:640px){h1{font-size:25px}.wrap{padding:32px 18px 70px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">KokonaPolaris · Supplement 01</div>
+  <h1>底模策略与注意力稀释</h1>
+  <p class="sub">你不理解的两个问题 —— 用最直白的方式讲清楚，并给出可执行的设计修订</p>
+  <div class="meta"><span>2026-10-02</span><span>配套主文档 v1.0</span><span>本轮产出 v1.1 修订</span></div>
+</header>
+
+<h2><span class="num">01</span>底模到底该怎么选</h2>
+
+<h3>先把概念对齐</h3>
+<p>你说的「底模」，在不同语境里可能是三件不同的事：</p>
+<div class="tw">
+<table>
+<thead><tr><th>理解</th><th>含义</th><th>你的方案需要吗</th></tr></thead>
+<tbody>
+<tr><td><strong>(a) 起点权重</strong></td><td>我从它的权重开始继续训练</td><td><span class="pill p-no">要不了</span></td></tr>
+<tr class="good"><td><strong>(b) 教师</strong></td><td>我从它学，但不继承权重</td><td><span class="pill p-ok">需要，且是唯一需要的</span></td></tr>
+<tr><td><strong>(c) 风格来源</strong></td><td>画风、审美从哪来</td><td>归到 (b) 里</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+  <div class="t">关键结论：你的架构是全自研的，所以 (a) 这条路在数学上就不存在。</div>
+  <p>只要架构有任一实质性创新，就必然是从零初始化。</p>
+</div>
+
+<h3>为什么「继承权重」这条路不存在</h3>
+<p>你设计里的三处改动，每一处都会让已有权重<strong>全部作废</strong>：</p>
+
+<div class="grid g3">
+  <div class="card">
+    <div class="lbl">改动一</div>
+    <div class="val">换 VAE</div>
+    <div class="note">从 <code>f8/4ch</code> 换成 32× 混合 latent。主干第一个卷积层原本看到的是「128×128×4 个数值，范围 -4~4」，换完后看到的是「32×32×40，前 8 通道还是 DINOv3 语义特征」。<strong>两组数值没有任何对应关系</strong>——不是「需要微调」，是「完全无效」。就像拿中文词典去读德文。</div>
+  </div>
+  <div class="card">
+    <div class="lbl">改动二</div>
+    <div class="val">换文本塔</div>
+    <div class="note">从 T5-XXL（4096 维 / 512 token）换成 220M 蒸馏塔。条件分布也变了，cross-attention 里 K/V 的统计特性完全不同。</div>
+  </div>
+  <div class="card">
+    <div class="lbl">改动三</div>
+    <div class="val">换主干</div>
+    <div class="note">UNet → 单流 DiT。连层的拓扑都不一样了，权重连「位置」都没有，谈不上搬。</div>
+  </div>
+</div>
+
+<h3>这其实是好消息</h3>
+<p><strong>你自由了。你不受任何底模的架构约束。</strong></p>
+<ul>
+  <li>不用管 SDXL 的 latent 是什么形状</li>
+  <li>不用管 Flux 的双流是怎么排的</li>
+  <li>不用管人家的文本塔多少维</li>
+</ul>
+<p>你可以纯粹按「低显存 + LoRA 友好」两个目标去设计。代价只有一个：<strong>算力</strong>——落地路线 P0→P4 就是为了把这个代价压到可承受的范围。</p>
+
+<h3>于是选择标准变了</h3>
+<div class="callout">
+  <div class="t">不是「哪个底模好」，而是「哪个教师能让我蒸馏出最强的 student，并且许可证允许我分发」</div>
+</div>
+
+<h3>限制只有三条</h3>
+
+<h4>限制一 · 许可证（唯一的硬墙）</h4>
+<div class="tw">
+<table>
+<thead><tr><th>许可证</th><th>代表模型</th><th>商用</th></tr></thead>
+<tbody>
+<tr class="good"><td><strong>Apache 2.0</strong><br><span style="font-size:12px;color:var(--text3)">无任何限制</span></td><td>Z-Image / Z-Image-Turbo · Sana · Lumina-Image 2.0 · Qwen-Image · FLUX.1 [schnell] · FLUX.2 [klein] <strong>4B</strong></td><td><span class="pill p-ok">随便用</span></td></tr>
+<tr><td>CreativeML Open RAIL++-M</td><td>SDXL / SD1.5</td><td><span class="pill p-ok">可商用</span> 有使用条款约束</td></tr>
+<tr><td>Stability Community License</td><td>SD 3 / 3.5</td><td><span class="pill p-mid">年收入 &lt; 100 万美元免费</span></td></tr>
+<tr class="bad"><td><strong>Non-Commercial</strong></td><td><strong>FLUX.1 [dev]</strong> · FLUX.2 [klein] <strong>9B</strong> · FLUX.2 [dev]</td><td><span class="pill p-no">不能做产品</span></td></tr>
+</tbody>
+</table>
+</div>
+<div class="warn">
+  <div class="t">一个容易踩的坑</div>
+  <p>FLUX.2 [klein] 的 <strong>4B 是 Apache 2.0</strong>，<strong>9B 却是 Non-Commercial</strong>。同名不同命，别看名字判断。</p>
+</div>
+<p><strong>对你的意义</strong>：只自己用 → 许可证不构成限制，FLUX.1 [dev] 随便当教师。要发布/商用 → 教师必须在 Apache 2.0 白名单里，此时 Z-Image-Turbo 最优。</p>
+
+<h4>限制二 · Latent 空间兼容性</h4>
+<p>教师和 student 的 latent 必须能对齐，否则蒸馏前得先训一个 bridge（额外成本 + 精度损失）。</p>
+<div class="info">
+  <div class="t">这就是「混合 Latent 的语义通道对齐 DINOv3」的隐藏价值</div>
+  <p>DINOv3 是所有教师共享的<strong>公共语言</strong>：不管教师是 SDXL、Flux 还是 Z-Image 生成的图，都能用同一个冻结的 DINOv3 编码成对齐目标。</p>
+  <p>→ 这让<strong>教师选择变得可替换</strong>。以后想换教师，重新生成一遍数据就行，架构不用动。</p>
+</div>
+
+<h4>限制三 · 算力</h4>
+<p>好消息：教师只需要<strong>离线跑一次</strong>生成蒸馏数据，不需要常驻在 8GB 卡上。</p>
+<ul>
+  <li>12B 教师在 8GB 卡上 4-bit + offload，一张图几十秒完全可行</li>
+  <li>跑 5 万张大概几天到一周（挂着慢慢跑就行）</li>
+  <li>生成完之后，教师就再也不需要了</li>
+</ul>
+
+<h3>我的具体选择</h3>
+<div class="tw">
+<table>
+<thead><tr><th>角色</th><th>选择</th><th>为什么是它</th></tr></thead>
+<tbody>
+<tr class="good"><td><strong>主教师</strong><br><span style="font-size:12px;color:var(--text3)">视觉质量</span></td><td><strong>Z-Image-Turbo</strong><br>6B · Apache 2.0</td><td>开源最强质量/速度比；Artificial Analysis ELO 1152，超过 32B 的 FLUX.2；许可证干净；6B 蒸馏成本可控</td></tr>
+<tr><td>质量上限参照<br><span style="font-size:12px;color:var(--text3)">仅离线对照，不参与分发</span></td><td>FLUX.1 [dev]<br>12B · Non-Commercial</td><td>目前最好的视觉教师之一，只做离线对照和「最后一档」蒸馏，不碰许可证红线</td></tr>
+<tr><td><strong>语义锚定</strong></td><td><strong>DINOv3</strong>（冻结）</td><td>混合 Latent 的公共语言 + REPA 目标，跨教师通用</td></tr>
+<tr><td><strong>文本教师</strong></td><td><strong>Qwen3-4B</strong> → 蒸馏到 ~220M</td><td>Z-Image 已验证它对中英文字形与指令遵循有效</td></tr>
+<tr class="bad"><td><strong>少步教师</strong></td><td colspan="2">⚠️ <strong>不要直接抄 Z-Image-Turbo 的 8 步</strong>。它自己就是蒸馏产物，链式蒸馏会累积失真。应该从我们自己的 BF16 teacher 重新做 Decoupled-DMD → rCM</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>「flux 代表未来，结合一点」—— 借什么、不借什么</h3>
+<div class="tw">
+<table>
+<thead><tr><th>值得借</th><th>怎么借</th></tr></thead>
+<tbody>
+<tr><td><strong>Rectified Flow 目标</strong></td><td>直接采用（主设计里已经是）。这是 Flux 最根本的贡献</td></tr>
+<tr><td><strong>双流 → 单流的过渡结构</strong></td><td>浅层（前 4–6 个 block，此时分辨率最低）保留 <strong>double-stream</strong>，让文本与图像各自有一套权重再交叉交互；深层全部 single-stream。<strong>既拿到 Flux 的文本对齐优势，又保持单流主体对 LoRA 友好</strong></td></tr>
+<tr><td><strong>Schnell 的 LADD 蒸馏经验</strong></td><td>参考它怎么把 20–50 步压到 1–4 步</td></tr>
+</tbody>
+</table>
+</div>
+<div class="tw">
+<table>
+<thead><tr><th>不要借</th><th>为什么</th></tr></thead>
+<tbody>
+<tr><td>12B 规模</td><td>与低显存目标直接冲突</td></tr>
+<tr><td>T5-XXL 文本塔</td><td>单独占 9.8GB，是 Flux 在 8GB 卡上必须 offload 的主因</td></tr>
+<tr><td>全栈双流</td><td>LoRA 要打两套 block，训练与调参成本翻倍</td></tr>
+<tr><td>Non-Commercial 许可</td><td>除非你只自己用</td></tr>
+</tbody>
+</table>
+</div>
+<div class="callout">
+  <div class="t">一句话：借 Flux 的「思想」，不借它的「体积」。</div>
+</div>
+
+<h2><span class="num">02</span>注意力为什么会涣散</h2>
+
+<div class="callout">
+  <div class="t">一句话说清病根</div>
+  <p>Softmax 是<strong>「分蛋糕」</strong>：总概率永远是 1。人越多，每个人分到的越少。</p>
+</div>
+
+<p>SDXL 的 cross-attention 里，图像 token 当 query，文本 token 当 key/value。softmax 会把所有文本 token 的注意力权重<strong>归一化到总和恰好等于 1</strong>。</p>
+<p>你写 10 个有效词，它们要去跟 BOS、EOS、标点、以及一堆无意义的 token <strong>抢这 1 块蛋糕</strong>。写得越长，有效词分到的份额越小 → 模型「听到了但没听清」→ 开始乱画。</p>
+<p><strong>这不是 SDXL 的 bug，是 softmax 的数学性质。</strong>任何用 softmax 的模型都有，只是 SDXL 的盘子特别小，所以最先崩。</p>
+
+<div class="fig">
+<svg width="100%" viewBox="0 0 660 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Softmax 归一化竞争与 Sigmoid 独立打分对比">
+<text x="30" y="26" font-size="14" font-weight="600" fill="#A32D2D">① SDXL · Softmax：所有 token 抢同一块「概率蛋糕」</text>
+<g fill="#F1EFE8" stroke="#B4B2A9" stroke-width="0.5">
+  <rect x="30" y="44" width="32" height="18" rx="4"/><rect x="72" y="44" width="32" height="18" rx="4"/><rect x="114" y="44" width="32" height="18" rx="4"/>
+  <rect x="156" y="44" width="32" height="18" rx="4"/><rect x="198" y="44" width="32" height="18" rx="4"/>
+  <rect x="282" y="44" width="32" height="18" rx="4"/><rect x="324" y="44" width="32" height="18" rx="4"/>
+  <rect x="408" y="44" width="32" height="18" rx="4"/><rect x="450" y="44" width="32" height="18" rx="4"/><rect x="492" y="44" width="32" height="18" rx="4"/>
+</g>
+<g fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5">
+  <rect x="240" y="44" width="32" height="18" rx="4"/><rect x="366" y="44" width="32" height="18" rx="4"/><rect x="534" y="44" width="32" height="18" rx="4"/>
+</g>
+<g fill="#D3D1C7">
+  <rect x="30" y="129" width="32" height="9"/><rect x="72" y="127" width="32" height="11"/><rect x="114" y="130" width="32" height="8"/>
+  <rect x="156" y="128" width="32" height="10"/><rect x="198" y="129" width="32" height="9"/>
+  <rect x="282" y="130" width="32" height="8"/><rect x="324" y="129" width="32" height="9"/>
+  <rect x="450" y="128" width="32" height="10"/><rect x="492" y="130" width="32" height="8"/>
+</g>
+<g fill="#534AB7">
+  <rect x="240" y="108" width="32" height="30"/><rect x="366" y="104" width="32" height="34"/><rect x="534" y="110" width="32" height="28"/>
+</g>
+<line x1="30" y1="138" x2="566" y2="138" stroke="#888780" stroke-width="1"/>
+<text x="382" y="94" text-anchor="middle" font-size="12" font-weight="600" fill="#534AB7">有效词</text>
+<text x="30" y="158" font-size="12" fill="#5F5E5A">总量恒为 1：3 个有效词合计只分到约一半，单个词被摊薄成细条 →「听到了但没听清」</text>
+
+<text x="30" y="200" font-size="14" font-weight="600" fill="#0F6E56">② KokonaPolaris · Sigmoid / Softpick：每个 token 独立打分，互不抢占</text>
+<g fill="#F1EFE8" stroke="#B4B2A9" stroke-width="0.5">
+  <rect x="30" y="218" width="32" height="18" rx="4"/><rect x="72" y="218" width="32" height="18" rx="4"/><rect x="114" y="218" width="32" height="18" rx="4"/>
+  <rect x="156" y="218" width="32" height="18" rx="4"/><rect x="198" y="218" width="32" height="18" rx="4"/>
+  <rect x="282" y="218" width="32" height="18" rx="4"/><rect x="324" y="218" width="32" height="18" rx="4"/>
+  <rect x="408" y="218" width="32" height="18" rx="4"/><rect x="450" y="218" width="32" height="18" rx="4"/><rect x="492" y="218" width="32" height="18" rx="4"/>
+</g>
+<g fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5">
+  <rect x="240" y="218" width="32" height="18" rx="4"/><rect x="366" y="218" width="32" height="18" rx="4"/><rect x="534" y="218" width="32" height="18" rx="4"/>
+</g>
+<g fill="#D3D1C7">
+  <rect x="30" y="276" width="32" height="10"/><rect x="72" y="274" width="32" height="12"/><rect x="114" y="277" width="32" height="9"/>
+  <rect x="156" y="275" width="32" height="11"/><rect x="198" y="276" width="32" height="10"/>
+  <rect x="282" y="277" width="32" height="9"/><rect x="324" y="276" width="32" height="10"/>
+  <rect x="450" y="275" width="32" height="11"/><rect x="492" y="277" width="32" height="9"/>
+</g>
+<g fill="#0F6E56">
+  <rect x="240" y="230" width="32" height="56"/><rect x="366" y="226" width="32" height="60"/><rect x="534" y="234" width="32" height="52"/>
+</g>
+<line x1="30" y1="286" x2="566" y2="286" stroke="#888780" stroke-width="1"/>
+<text x="382" y="216" text-anchor="middle" font-size="12" font-weight="600" fill="#0F6E56">有效词</text>
+<text x="30" y="304" font-size="12" fill="#5F5E5A">总量不守恒：多个有效词可同时拿满信号，且无 attention sink → 激活离群值更少</text>
+</svg>
+<div class="figcap">方块 = 文本 token 示意（实际 77 个）；下方柱高 = 该 token 获得的注意力权重</div>
+</div>
+
+<h3>SDXL 的三重叠加</h3>
+
+<h4>第一重 · 77 token 的硬上限</h4>
+<ul>
+  <li>SDXL 用<strong>两个 CLIP</strong>（CLIP-L + OpenCLIP-bigG/14），<strong>各自 77 token 上下文，实际可用 75</strong>。</li>
+  <li>文本条件 = 两个编码器输出的通道拼接：<code>c = concat(h_L, h_G) ∈ R^(77×2048)</code></li>
+  <li>超过 75 的部分：UI（ComfyUI / A1111）会<strong>每 75 token 切一块，分别编码再拼起来</strong>。
+    <ul>
+      <li>但 SDXL <strong>训练时从没见过这种长文本</strong>（分布外）</li>
+      <li>而且<strong>跨 chunk 的注意力是断的</strong>——chunk 边界两侧的 token 互相看不见</li>
+      <li>所以 chunking 有时候比直接截断还糟</li>
+    </ul>
+  </li>
+  <li>最阴的是：<strong>截断是静默的</strong>。UI 不报错，你只会发现「我明明写了，图里没有」。</li>
+</ul>
+<div class="info">
+  <div class="t">你说的「空间实在太小了」——完全准确</div>
+  <p><code>77 × 2048</code> 就是 SDXL 的全部条件空间。</p>
+</div>
+
+<h4>第二重 · Softmax 稀释（上面那张图）</h4>
+
+<h4>第三重 · CLIP 本身是「概念袋子」</h4>
+<ul>
+  <li>CLIP 的预训练目标是<strong>整句图文匹配</strong>（对比学习），不是细粒度组合理解。</li>
+  <li>它对「红球在蓝方块左边」这种<strong>空间关系基本无感</strong>——对比学习只需要「这句话大致描述这张图」，不需要精确方位。</li>
+  <li>这就是为什么后来大家都往文本塔里塞 T5 或 LLM：Flux 用 T5-XXL <strong>512 token</strong> + CLIP 77；SD3.5 Large 用 T5-XXL <strong>256 token</strong> + 两个 CLIP 各 77。</li>
+</ul>
+
+<h3>硬数据：问题有多大</h3>
+<p><strong>T2I-CompBench</strong>（组合能力基准，满分 100）：</p>
+<div class="tw">
+<table>
+<thead><tr><th>模型</th><th>Color</th><th>Shape</th><th>Texture</th><th>Spatial</th><th>Complex</th><th>平均</th></tr></thead>
+<tbody>
+<tr><td>SD 1.5</td><td>37.6</td><td>37.1</td><td>41.9</td><td>11.7</td><td>30.5</td><td>31.8</td></tr>
+<tr class="bad"><td><strong>SDXL-base-1.0</strong></td><td>58.8</td><td>46.9</td><td>53.0</td><td><strong>21.3</strong></td><td>32.4</td><td><strong>42.5</strong></td></tr>
+<tr><td>PixArt-α</td><td>66.9</td><td>49.3</td><td>64.8</td><td>20.6</td><td>34.3</td><td>47.2</td></tr>
+<tr><td>FLUX.1</td><td>74.1</td><td>57.2</td><td>69.2</td><td>28.6</td><td>37.0</td><td>53.2</td></tr>
+<tr><td>OmniGen2</td><td>77.6</td><td>51.6</td><td>70.9</td><td>39.3</td><td>37.1</td><td>55.3</td></tr>
+<tr class="good"><td>Bagel + R3-Refiner</td><td>84.2</td><td>60.3</td><td>73.9</td><td>35.7</td><td>39.8</td><td><strong>58.8</strong></td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>这张表把你的痛点量化了：</strong></p>
+<ol>
+  <li><strong>SDXL 的 Spatial = 21.3，几乎是全场垫底</strong>（SD1.5 才 11.7）。</li>
+  <li>它的 Color 能到 <strong>58.8</strong>（不差！），但 Spatial 只有 <strong>21.3</strong>。→ 这就是你描述的「<span class="kw">颜色管得住，位置管不住，东西一多就开始串</span>」。</li>
+  <li><strong>FLUX 也才 28.6</strong>。空间关系是<strong>所有模型都没解决</strong>的问题，只是 SDXL 特别差。</li>
+  <li>从 SDXL（42.5）到 FLUX（53.2）的提升主要来自 Color / Texture，<strong>Spatial 只涨了 7 分</strong>——加个大文本塔并不能治本。</li>
+</ol>
+<div class="callout">
+  <div class="t">结论：这确实是一块巨大的优化空间，而且有成熟基准可以量化验收。</div>
+</div>
+
+<h3>KokonaPolaris 的五层解法</h3>
+
+<h4>解法一（治本）· 不用 softmax 做归一化竞争</h4>
+<div class="tw">
+<table>
+<thead><tr><th>类型</th><th>公式</th><th>行为</th></tr></thead>
+<tbody>
+<tr><td>Softmax</td><td><code>softmax(QKᵀ/√d)</code></td><td>强制总和 = 1，<strong>token 互相抢</strong></td></tr>
+<tr class="good"><td><strong>Sigmoid</strong></td><td><code>σ(QKᵀ/√d)</code></td><td>每个 query-key 对<strong>独立</strong>打分，<strong>无归一化，互不干扰</strong></td></tr>
+<tr class="good"><td><strong>Softpick</strong></td><td><code>relu(exp(x)−1) / Σ relu(exp(x)−1)</code></td><td>softmax 与 ReLU 之间的中间态，保留一点稀疏性</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>效果：从「选出最重要的那一个」变成「同时考虑所有相关的」。</strong></p>
+
+<div class="win">
+  <div class="t">⚡ 意外收获：这一招同时治好了 NVFP4 的痛点</div>
+  <p>这是我这次调研最有价值的发现：<strong>Sigmoid / Softpick 这类改造过的注意力能做到接近零的 attention sink 率，并显著减少激活离群值（activation outliers）→ 让低比特量化显著更鲁棒。</strong></p>
+  <p>为什么重要？我们的 NVFP4 设计最怕的就是<strong>激活离群值</strong>——FP4 只有 15 个可表示的数值，一个巨大的 outlier 会把整块的 scale 拉爆，同块其他值全被压成 0。这也是为什么 NVIDIA 的四件套配方里必须有 RHT 去专门平滑 outlier。</p>
+  <p><strong>而 attention sink 恰恰是激活离群值的主要来源之一。</strong></p>
+</div>
+
+<div class="grid g3">
+  <div class="card"><div class="val">① 长提示不再被稀释</div><div class="note">Spatial 分数直接受益 —— 你的核心诉求</div></div>
+  <div class="card"><div class="val">② 激活离群值减少</div><div class="note">NVFP4 精度提升，QAT 更容易收敛</div></div>
+  <div class="card"><div class="val">③ 无归一化竞争</div><div class="note">天然适配线性注意力，更省显存</div></div>
+</div>
+<div class="callout">
+  <div class="t">同一个改动，同时打中你的两个痛点。</div>
+</div>
+
+<div class="warn">
+  <div class="t">代价（要诚实说出来）</div>
+  <p>⚠️ <strong>必须从零训练</strong>，无法在预训练模型上改造 —— 无所谓，我们本来就是从零。</p>
+  <p>⚠️ <strong>可能和现有优化过的 attention kernel 不兼容</strong> —— 需要自己写 Triton kernel，工作量可控。</p>
+  <p>⚠️ <strong>过度平坦会损失「sharp attention」能力</strong> —— 所以<strong>不要全换</strong>，保留极少量 softmax 锚点层。</p>
+</div>
+
+<h4>解法二（架构级，最值钱）· 显式空间 token（Layout Tokens）</h4>
+<div class="fig">
+<svg width="100%" viewBox="0 0 660 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="文本到图像的两段式路由">
+<defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+</defs>
+<text x="30" y="24" font-size="13" font-weight="600" fill="#888780">现在（SDXL / Flux）</text>
+<rect x="30" y="36" width="130" height="44" rx="8" fill="#F1EFE8" stroke="#B4B2A9" stroke-width="0.5"/>
+<text x="95" y="58" text-anchor="middle" font-size="13" font-weight="500" fill="#444441">文本 token</text>
+<text x="95" y="73" text-anchor="middle" font-size="11" fill="#888780">一坨，不分角色</text>
+<rect x="330" y="36" width="130" height="44" rx="8" fill="#F1EFE8" stroke="#B4B2A9" stroke-width="0.5"/>
+<text x="395" y="58" text-anchor="middle" font-size="13" font-weight="500" fill="#444441">图像 token</text>
+<text x="395" y="73" text-anchor="middle" font-size="11" fill="#888780">信息直接灌入</text>
+<path d="M160 58 L 326 58" fill="none" stroke="#A32D2D" stroke-width="1.5" marker-end="url(#ah)"/>
+<text x="243" y="50" text-anchor="middle" font-size="11.5" fill="#A32D2D">一次性 attention → 容易串味</text>
+
+<text x="30" y="118" font-size="13" font-weight="600" fill="#888780">KokonaPolaris</text>
+<rect x="30" y="130" width="120" height="44" rx="8" fill="#F1EFE8" stroke="#B4B2A9" stroke-width="0.5"/>
+<text x="90" y="157" text-anchor="middle" font-size="13" font-weight="500" fill="#444441">文本 token</text>
+<rect x="215" y="130" width="150" height="44" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+<text x="290" y="152" text-anchor="middle" font-size="13" font-weight="500" fill="#3C3489">16 个布局 token</text>
+<text x="290" y="167" text-anchor="middle" font-size="11" fill="#534AB7">4×4 粗网格 + 2D 位置编码</text>
+<rect x="430" y="130" width="130" height="44" rx="8" fill="#F1EFE8" stroke="#B4B2A9" stroke-width="0.5"/>
+<text x="495" y="157" text-anchor="middle" font-size="13" font-weight="500" fill="#444441">图像 token</text>
+<path d="M150 152 L 211 152" fill="none" stroke="#534AB7" stroke-width="1.5" marker-end="url(#ah)"/>
+<text x="180" y="140" text-anchor="middle" font-size="10.5" fill="#534AB7">路由</text>
+<path d="M365 152 L 426 152" fill="none" stroke="#534AB7" stroke-width="1.5" marker-end="url(#ah)"/>
+<text x="396" y="140" text-anchor="middle" font-size="10.5" fill="#534AB7">送达</text>
+<text x="30" y="192" font-size="12" fill="#5F5E5A">把「文本→图像」的一次性 attention，拆成「文本→布局→图像」的两段式路由：路径更清晰、显式引入空间先验</text>
+</svg>
+</div>
+
+<h4>解法三（性价比最高）· 提示词编译器</h4>
+<p>模型改不动的话，<strong>改输入</strong>。用一个小 LLM 把短提示<strong>编译</strong>成结构化表示：</p>
+<div class="tw">
+<table>
+<thead><tr><th>用户输入</th><th>编译器输出</th></tr></thead>
+<tbody>
+<tr><td style="white-space:nowrap">「赛博朋克少女在雨夜东京」</td><td>
+<strong>主体</strong>: 少女 ｜ <strong>属性</strong>: 青铜护目镜 / 湿发 ｜ <strong>位置</strong>: 画面中央<br>
+<strong>环境</strong>: 涩谷十字路口 ｜ <strong>时间</strong>: 雨夜 ｜ <strong>光照</strong>: 霓虹反射<br>
+<strong>背景</strong>: 悬浮广告屏(左上) / 磁浮车(右侧中景)<br>
+<strong>风格</strong>: 电影感 / 浅景深
+</td></tr>
+</tbody>
+</table>
+</div>
+<p>Z-Image 已经有 Prompt Enhancer 在做类似的事。<strong>这条对「低数据训练」尤其关键：结构化标注等于给模型提供了免费的空间监督信号。</strong></p>
+
+<h4>解法四（工程）· 文本侧 KV 分组</h4>
+<p>把文本 token 按角色分组（名词短语 / 属性 / 风格 / 关系），组内和组间走不同的注意力路径，避免所有 token 挤在一个池子里抢。</p>
+
+<h4>解法五（后训练）· 奖励筛选</h4>
+<p>T2I-CompBench 的原始论文就提出了 <strong>GORS</strong>（Generative model finetuning with Reward-driven Sample selection）——用组合能力的奖励信号筛出好样本再微调。<strong>成本低、见效快，投入产出比最高的一环。</strong></p>
+
+<h3>修订后的注意力设计</h3>
+<div class="tw">
+<table>
+<thead><tr><th>层</th><th>类型</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>每 4 层中 3 层</td><td>Gated Linear Attention</td><td>O(N)，省显存</td></tr>
+<tr class="good"><td>每 4 层中 1 层</td><td><strong>Sigmoid / Softpick Attention</strong></td><td>非归一化，不稀释</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>额外约束：</strong></p>
+<ul>
+  <li>全局不出现 softmax（仅在 patch embed 后的第 0 层保留一次，用于初始对齐）</li>
+  <li>文本条件走独立的 <strong>K = 16 个 layout token</strong> 路由（2D 网格位置编码）</li>
+  <li>文本侧 KV 按角色分组，组间不共享注意力池</li>
+</ul>
+<p><strong>训练时的额外损失：</strong></p>
+<ul>
+  <li>布局 token 与真实空间布局的弱监督（可用 3D 合成数据的 bbox / depth <strong>免费</strong>得到）</li>
+  <li>T2I-CompBench 风格的空间关系奖励（后训练阶段，GORS 式）</li>
+</ul>
+
+<h3>验收指标（可直接量化）</h3>
+<div class="tw">
+<table>
+<thead><tr><th>指标</th><th>基线（SDXL）</th><th>目标</th></tr></thead>
+<tbody>
+<tr><td>T2I-CompBench Spatial</td><td>21.3</td><td class="hl">&gt; 35</td></tr>
+<tr><td>T2I-CompBench 平均</td><td>42.5</td><td class="hl">&gt; 55</td></tr>
+<tr><td>长提示（&gt;150 token）下的一致性</td><td>显著退化</td><td class="hl">不退化</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2><span class="num">03</span>这一轮改了什么</h2>
+<div class="tw">
+<table>
+<thead><tr><th>项</th><th>v1.0</th><th>v1.1（本轮修订）</th></tr></thead>
+<tbody>
+<tr><td><strong>底模</strong></td><td>未定</td><td class="hl">不选底模，选教师：主教师 Z-Image-Turbo（Apache 2.0）+ DINOv3 语义锚定 + Qwen3-4B 文本教师</td></tr>
+<tr><td><strong>权重来源</strong></td><td>—</td><td class="hl">从零初始化；教师只提供蒸馏数据（离线生成一次）</td></tr>
+<tr><td><strong>架构自由度</strong></td><td>—</td><td class="hl">完全自由（因为不继承任何权重）</td></tr>
+<tr><td><strong>从 Flux 借</strong></td><td>rectified flow</td><td class="hl">+ 浅层 double-stream（前 4–6 个 block）</td></tr>
+<tr><td><strong>注意力</strong></td><td>3:1 线性 : softmax</td><td class="hl">3:1 线性 : Sigmoid/Softpick（<strong>去 softmax</strong>）</td></tr>
+<tr><td><strong>文本路由</strong></td><td>直接 cross-attention</td><td class="hl">+ 16 个 layout token 两段式路由</td></tr>
+<tr><td><strong>新增验收</strong></td><td>无</td><td class="hl">T2I-CompBench Spatial &gt; 35</td></tr>
+</tbody>
+</table>
+</div>
+
+<footer>
+  <strong>KokonaPolaris 补充设计 01 · 底模策略与注意力稀释</strong><br>
+  数据来源：T2I-CompBench 公开榜单 · SWAT / Attention Sink 综述 · SDXL 文本编码器规范 · 各模型官方许可条款 · NVIDIA NVFP4 论文<br>
+  所有显存与性能数字为基于公开数据的估算，需实测校正。
+</footer>
+
+</div>
+</body>
+</html>
