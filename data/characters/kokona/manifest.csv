@@ -1,3 +1,3 @@
-file,tag,caption,source
-front.png,Kokona,角色正面全身，站立正对镜头，双手叉腰，棕短发配蓝黄兔耳帽，蓝黄配色夏日主题泳装与短裤，日式动画风格，透明背景（已去底）,游戏内截图（用户提供，rembg U2Net 自动去底）
-back.png,Kokona,同角色背面全身，与正面完全同一姿势，背对镜头，可见发型后部、蓝色蝴蝶结与泳装背面结构，透明背景（已去底）,游戏内截图（用户提供，rembg U2Net 自动去底）
+file,tag,caption,source,character,view,pose
+front.png,Kokona,"角色正面全身，站立正对镜头，双手叉腰，棕短发配蓝黄兔耳帽，蓝黄配色夏日主题泳装与短裤，日式动画风格，透明背景（已去底）",游戏内截图（用户提供，rembg U2Net 自动去底）,kokona,front,stand_hands_on_hips
+back.png,Kokona,"同角色背面全身，与正面完全同一姿势，背对镜头，可见发型后部、蓝色蝴蝶结与泳装背面结构，透明背景（已去底）",游戏内截图（用户提供，rembg U2Net 自动去底）,kokona,back,stand_hands_on_hips

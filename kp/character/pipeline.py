@@ -114,25 +114,43 @@ class Entry:
     caption: str
     source: str
     path: str
+    attrs: dict = None            # 可选：已声明的轴取值（view / pose / shader / character）
+
+    def __post_init__(self):
+        if self.attrs is None:
+            self.attrs = {}
 
 
 def load_manifest(batch_dir: str) -> List[Entry]:
-    """读取并校验 manifest.csv（列名与文件存在性）。"""
+    """读取并校验 manifest.csv（前 4 列必需；轴列可选）。
+
+    ⭐ 轴列（`character,view,pose,shader`）是**可选的**，但一旦提供，
+       配对阶段就**用声明的值**，不再从文件名猜。
+       ⚠️ 这不需要人工标注：轴取值应由**渲染器 / 生成脚本**写进 manifest
+       （用户仍然只交 图 + caption + tag，见《补充 11》§4.1）。
+    """
     mf = os.path.join(batch_dir, "manifest.csv")
     if not os.path.isfile(mf):
         raise FileNotFoundError(f"缺少 manifest.csv：{mf}")
     out: List[Entry] = []
+    from .pairing import AXES
     with open(mf, encoding="utf-8") as f:
         rd = csv.DictReader(f)
         need = {"file", "tag", "caption", "source"}
-        missing = need - set(rd.fieldnames or [])
+        cols = {(c or "").strip().lower(): c for c in (rd.fieldnames or [])}
+        missing = need - set(cols)
         if missing:
             raise ValueError(f"manifest 缺少列 {sorted(missing)}")
+        opt = [a for a in ("character",) + AXES if a in cols]
         for row in rd:
-            p = os.path.join(batch_dir, "images", row["file"])
+            p = os.path.join(batch_dir, "images", row[cols["file"]])
             if not os.path.isfile(p):
                 raise FileNotFoundError(f"manifest 指向的图不存在：{p}")
-            out.append(Entry(row["file"], row["tag"], row["caption"], row["source"], p))
+            attrs = {a: (row.get(cols[a]) or "").strip() for a in opt}
+            if not attrs.get("character"):
+                attrs["character"] = (row.get(cols["tag"]) or "").strip()
+            out.append(Entry(row[cols["file"]], row[cols["tag"]],
+                             row[cols["caption"]], row[cols["source"]], p, attrs))
     if not out:
         raise ValueError("manifest 为空")
     return out
@@ -223,19 +241,59 @@ def stage_layers(entries: List[Entry], norm_dir: str, out_dir: str,
     return info
 
 
-def stage_pair(entries: List[Entry], norm_dir: str) -> dict:
-    """按 tag 分组，检查「同角色多视图」是否齐全（角色卡最少 正 + 背）。"""
+def stage_pair(entries: List[Entry], norm_dir: str,
+               target_views: Optional[Tuple[str, ...]] = None,
+               verbose: bool = False) -> dict:
+    """**声明式**配对：同角色 + 只动 `view`（其余轴相同）。
+
+    ⚠️ 与旧版的区别（这是一次**正确性**修正）：旧版靠文件名里有没有
+    `front` / 以 `f` 开头来判"这是正视图" —— 那是**猜**。一旦数据线换命名
+    （渲染器导出 / LoRA 批量生成），猜测会**静默给出错误配对**，
+    而错误配对直接污染 Fitter 的训练目标，比报错难查得多。
+
+    ⇒ 现在：**有声明就用声明**；**没有声明就明说没有**，绝不猜。
+    """
+    from .pairing import AXES, PairSpec, Record, build_pairs, format_pair_report
+
+    records = [Record(key=e.file, identity=e.attrs.get("character") or e.tag,
+                      attrs={a: e.attrs.get(a, "") for a in ("character",) + AXES})
+               for e in entries]
+    spec = PairSpec(vary=("view",), match=(), identity="character")
+    tv = {"view": target_views} if target_views else None
+    rep = build_pairs(records, spec, target_values=tv,
+                      name_of={e.file: e.file for e in entries})
+    if verbose:
+        print(format_pair_report(rep))
+
+    # ---- 兼容旧结构：每个 tag 一条，供 card.meta / report 使用 ----
     by_tag: Dict[str, List[Entry]] = {}
     for e in entries:
         by_tag.setdefault(e.tag, []).append(e)
+    # ⚠️ 配对里用的是 identity（`character` 列，可能大小写/写法与 tag 不同），
+    #    报告里按 tag 分组 ⇒ 必须用「文件名 → tag」映射回填，别拿 identity 当键。
+    tag_of = {e.file: e.tag for e in entries}
+    pairs_by_tag: Dict[str, list] = {}
+    for p in rep.pairs:
+        tag = tag_of.get(p.anchor, tag_of.get(p.positive, p.identity))
+        pairs_by_tag.setdefault(tag, []).append(p.as_dict())
+
     out = {}
     for tag, es in by_tag.items():
-        names = [x.file.lower() for x in es]
-        has_front = any("front" in n or n.startswith("f") for n in names)
-        has_back = any("back" in n or n.startswith("b") for n in names)
-        out[tag] = {"views": [x.file for x in es], "count": len(es),
-                    "has_front": has_front, "has_back": has_back,
-                    "ok_min_views": len(es) >= 2 and has_front and has_back}
+        declared = all("view" in e.attrs and e.attrs["view"] for e in es)
+        views = sorted({e.attrs.get("view", "") for e in es if e.attrs.get("view")})
+        vlow = {v.lower() for v in views}
+        has_front = bool({"front", "正", "正视图", "f"} & vlow)
+        has_back = bool({"back", "背", "背视图", "b", "rear"} & vlow)
+        out[tag] = {
+            "views": [e.file for e in es], "count": len(es),
+            "declared_view": declared, "view_values": views,
+            "has_front": has_front, "has_back": has_back,
+            "ok_min_views": declared and len(es) >= 2,
+            "pairs": pairs_by_tag.get(tag, []),
+            "n_pairs": len(pairs_by_tag.get(tag, [])),
+            "gap": "" if declared else "未声明 view 列 → 无法配对（不要用文件名去猜）",
+        }
+    out["_report"] = rep.as_dict()
     return out
 
 
@@ -309,9 +367,17 @@ def stage_report(batch: str, counts: dict, norm_stats: dict, layer_info: dict,
         lines.append("")
     lines.append("## 配对（角色卡最少 正 + 背）")
     for tag, p in pair_info.items():
+        if tag.startswith("_"):
+            continue
         ok = "✅" if p["ok_min_views"] else "⚠️"
-        lines.append(f"- {ok} `{tag}`：{p['count']} 视图 {p['views']}"
-                     f"（正={p['has_front']}, 背={p['has_back']}）")
+        src = f"声明 view={p['view_values']}" if p["declared_view"] else "**未声明 view**"
+        lines.append(f"- {ok} `{tag}`：{p['count']} 视图 {src}"
+                     f"（正={p['has_front']}, 背={p['has_back']}, 配对 {p['n_pairs']} 对）")
+        if p.get("gap"):
+            lines.append(f"  - ⚠️ {p['gap']}")
+    pr = pair_info.get("_report", {})
+    for g in pr.get("gaps", []):
+        lines.append(f"- ⚠️ {g}")
     lines.append("")
     lines.append("## 产出角色卡")
     for tag, p in cards.items():
@@ -340,10 +406,14 @@ def run_batch(batch: str = "kokona", data_root: str = "data/characters",
     cards = stage_pack(entries, os.path.join(out_dir, "norm"), layers, pair,
                        os.path.join(out_dir, "cards"))
     rep = stage_report(batch, {"entries": len(entries)}, norm, layers, pair, cards, out_dir)
+    bad = [t for t, v in pair.items()
+           if not t.startswith("_") and not v["ok_min_views"]]
     summary = {"batch": batch, "entries": len(entries), "cards": cards,
                "report": rep, "pair": pair,
-               "warnings": [] if all(v["ok_min_views"] for v in pair.values())
-               else ["存在视图数不足的角色（角色卡最少需要 正 + 背 两视图）"]}
+               "n_pairs": pair.get("_report", {}).get("n_pairs", 0),
+               "warnings": [] if not bad else
+               [f"{len(bad)} 个角色的视图未声明或不足"
+                f"（角色卡最少需要 正 + 背 两视图，且 view 要**声明**而非从文件名猜）"]}
     with open(os.path.join(out_dir, "pipeline.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     return summary
@@ -354,10 +424,25 @@ def main(argv=None) -> int:
     ap.add_argument("--batch", default="kokona")
     ap.add_argument("--data-root", default="data/characters")
     ap.add_argument("--out-root", default="out/characters")
+    ap.add_argument("--pairing", action="store_true",
+                    help="额外打印多视角配对报告（含「该补拍什么」的缺口清单）")
+    ap.add_argument("--target-views", default=None,
+                    help="逗号分隔，用于报缺口，例如 front,back,left,right")
     a = ap.parse_args(argv)
+
+    tv = tuple(x.strip() for x in a.target_views.split(",")) if a.target_views else None
+    if a.pairing:
+        entries = load_manifest(os.path.join(a.data_root, a.batch))
+        pair = stage_pair(entries, os.path.join(a.out_root, a.batch, "norm"),
+                          target_views=tv, verbose=True)
+        return 0 if all(v["ok_min_views"] for k, v in pair.items()
+                        if not k.startswith("_")) else 1
+
     s = run_batch(a.batch, a.data_root, a.out_root)
     print(f"✅ 批次 {s['batch']}：{s['entries']} 条 → {len(s['cards'])} 张角色卡")
     print(f"   报告：{s['report']}")
+    if s.get("n_pairs"):
+        print(f"   多视角配对：{s['n_pairs']} 对")
     for w in s["warnings"]:
         print(f"   ⚠️ {w}")
     return 0

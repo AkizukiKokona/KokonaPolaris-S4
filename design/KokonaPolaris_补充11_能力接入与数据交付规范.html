@@ -70,7 +70,7 @@
   <div class="kicker">KokonaPolaris-S4 · Supplement 11 · v1.2</div>
   <h1>能力接入与数据交付规范</h1>
   <p class="sub">面向两方：数据交付方（你）+ 工程侧（我）· 格式只有一套，换能力不换格式</p>
-  <div class="meta"><span>2026-10-03</span><span>接口规范（非推演）</span><span>配套：主文档 v1.14 · 补充 04 / 05 / 10</span><span style="color:var(--accent);font-weight:500">v1.3：§4.8.1 新增可执行判据 audit_captions.py（配比 / 标签串 / 汉字覆盖）</span></div>
+  <div class="meta"><span>2026-10-03</span><span>接口规范（非推演）</span><span>配套：主文档 v1.14 · 补充 04 / 05 / 10</span><span style="color:var(--accent);font-weight:500">v1.4：manifest 增【轴列】→ 多视角配对改「声明式」，删掉猜文件名的旧逻辑</span></div>
 </header>
 
 <div class="callout">
@@ -220,9 +220,9 @@
 │   ├── 0002.jpg
 │   └── ...
 └── manifest.csv</code></pre>
-<pre><code>file,tag,caption,source
-0001.png,类别A,"一名角色站在雨中，全身构图，冷色调，日式动画风格",自摄
-0002.jpg,类别A,"角色特写，正面视角，室内暖光",自绘</code></pre>
+<pre><code>file,tag,caption,source,character,view,pose
+0001.png,类别A,"一名角色站在雨中，全身构图，冷色调，日式动画风格",自摄,kokona,front,stand
+0002.jpg,类别A,"同一角色背面，与正视图同姿势，室内暖光",自绘,kokona,back,stand</code></pre>
 
 <div class="tw">
 <table>
@@ -232,12 +232,28 @@
 <tr class="good"><td><code>tag</code></td><td>✅</td><td><b>分类标签</b>（同批次内自定名，但<b>必须能区分「要不要擦」的那些</b>）</td></tr>
 <tr><td><code>caption</code></td><td>✅</td><td>文字描述</td></tr>
 <tr><td><code>source</code></td><td>建议</td><td>来源 / 许可备注（便于合规追溯）</td></tr>
+<tr class="good"><td><code>character</code></td><td>可选</td><td>角色标识（缺省回落到 <code>tag</code>）。<b>角色卡线用它分组</b></td></tr>
+<tr class="good"><td><code>view</code></td><td>可选</td><td>视角（<code>front</code>/<code>back</code>/<code>left</code>/<code>right</code>）。⭐ <b>角色卡配对的关键列</b></td></tr>
+<tr class="good"><td><code>pose</code></td><td>可选</td><td>姿态标识。<b>配对时要求「相同」</b>，这样才是「只动视角」</td></tr>
+<tr><td><code>shader</code></td><td>可选</td><td>着色器 / 渲染风格标识（四旋钮之一，用于风格线的正交监督）</td></tr>
 </tbody>
 </table>
 </div>
 
+<div class="callout">
+  <div class="t">⭐ 轴列必须由渲染器 / 生成脚本填写，不要手工敲</div>
+  <p>它们<b>不是额外的标注负担</b> —— <b>渲染器本来就知道视角</b>，生成脚本本来就知道提示词，顺手写进 manifest 即可。</p>
+  <p>⚠️ <b>为什么不能靠文件名猜</b>：早期版本靠文件名里有没有 <code>front</code> 来判正视图。这是<b>猜</b> ——
+  一旦数据线换命名（渲染器导出、批量生成、别处拿来的图），猜测会<b>静默给出错误的配对</b>，
+  而错误配对直接污染 Fitter 的训练目标，<b>比报错难查得多</b>。</p>
+  <p>⇒ 现在的规则是：<b>有声明就用声明；没有声明就明说没有</b>。</p>
+  <p>配对报告：<code>python -m kp.character.pipeline --pairing --target-views front,back,left,right</code>
+  —— 直接告诉你<b>还缺哪些视角</b>（「该补拍什么」）。</p>
+</div>
+
 <p>校验器：<code>python tools/data_spec/validate_manifest.py --dir D:\model\data\&lt;批次名&gt;</code><br>
-它会检查：目录结构、manifest 列名、文件是否存在、<b>短边分辨率</b>、<b>重复率（感知 hash）</b>、caption 缺失、tag 分布。</p>
+它会检查：目录结构、manifest 列名、文件是否存在、<b>短边分辨率</b>、<b>重复率（感知 hash）</b>、caption 缺失、tag 分布。<br>
+caption 语言与形态另由 <code>audit_captions.py</code> 把关（§4.8.1）。</p>
 
 <h3>4.3 我们自动生成的（你完全不用管）</h3>
 <div class="tw">

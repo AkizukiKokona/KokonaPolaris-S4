@@ -21,6 +21,7 @@
    14. Layout Planner：中文折行/避头尾/竖排 + ROIBranch 低压缩分支
    15. caption 语料审计：语言配比 / 标签串检测 / 汉字覆盖（P1.8）
    16. Axis Probe：G3.5 四测（单调/正交/可逆/低比特行程）—— 装置本身先过对照样本
+   17. 多视角配对：声明式单旋钮配对 / 拒绝猜测 / 缺口清单（角色卡数据线）
 """
 from __future__ import annotations
 
@@ -729,6 +730,62 @@ def main() -> int:
         assert rep2.n_pass == 5 and rep2.l3_axes == []
         return "不过 → 0/5 归 L3；通过 → 5/5 留在 L1（报告含归 L3 提示）"
     check("判定律：不过的轴默认归 L3", _axis_verdict)
+
+    # ---------------- 17. 多视角配对（角色卡数据线） ----------------
+    section("17. 多视角配对（声明式 · 单旋钮变化）")
+    from kp.character.pairing import (Record, PairSpec, build_pairs,
+                                      format_pair_report)
+
+    def _pair_single_knob():
+        """标准情形：同角色、同姿势，只有 view 不同 ⇒ 恰好配出单旋钮对。"""
+        rs = [
+            Record("f.png", "kokona", {"view": "front", "pose": "stand"}),
+            Record("b.png", "kokona", {"view": "back", "pose": "stand"}),
+            Record("l.png", "kokona", {"view": "left", "pose": "stand"}),
+        ]
+        rep = build_pairs(rs, PairSpec(vary=("view",), match=("pose",)))
+        # 3 视图两两配对 = C(3,2) = 3 对
+        assert rep.n_pairs == 3, rep.n_pairs
+        assert len(rep.paired_keys) == 3
+        assert not rep.undeclared and not rep.gaps
+        return f"3 视图 → {rep.n_pairs} 对（组合式扩增）"
+    check("同角色 + 只动一个旋钮 → 配对", _pair_single_knob)
+
+    def _pair_respects_match():
+        """`match` 轴不同 ⇒ **不许**配对（否则学到的不是"只动一个旋钮"）。"""
+        rs = [
+            Record("a.png", "kokona", {"view": "front", "pose": "stand"}),
+            Record("b.png", "kokona", {"view": "back", "pose": "sit"}),   # 姿势也变了
+        ]
+        rep = build_pairs(rs, PairSpec(vary=("view",), match=("pose",)))
+        assert rep.n_pairs == 0, rep.n_pairs
+        assert set(rep.isolated) == {"a.png", "b.png"}, rep.isolated
+        return "姿势同时变了 → 0 对，两条都记为孤立（不污染训练目标）"
+    check("match 轴不同则拒绝配对", _pair_respects_match)
+
+    def _pair_never_guesses():
+        """⭐ 没有声明就**明说没有**，绝不用文件名去猜（这是本模块存在的理由）。"""
+        rs = [
+            Record("front.png", "kokona", {}),      # 名字里带 front，但**没声明**
+            Record("back.png", "kokona", {}),
+        ]
+        rep = build_pairs(rs, PairSpec(vary=("view",), match=()))
+        assert rep.n_pairs == 0, "不声明就配对 = 猜，必须拒绝"
+        assert len(rep.undeclared) == 2, rep.undeclared
+        assert any("未声明" in g for g in rep.gaps), rep.gaps
+        return f"两者都缺 view 列 → 0 对 + {len(rep.undeclared)} 条 undeclared + 缺口说明"
+    check("未声明 view → 拒绝配对并报缺口（不猜）", _pair_never_guesses)
+
+    def _pair_gap_report():
+        """给定期望取值时应报出「还缺哪些视角」—— 这是给用户看的「该补拍什么」。"""
+        rs = [Record("f.png", "kokona", {"view": "front"})]
+        rep = build_pairs(rs, PairSpec(vary=("view",), match=()),
+                          target_values={"view": ("front", "back", "left", "right")})
+        txt = format_pair_report(rep)
+        assert any("back" in g and "left" in g for g in rep.gaps), rep.gaps
+        assert "该补拍什么" in txt
+        return "缺 back/left/right 被明确列出（用户据此补拍）"
+    check("缺口清单（该补拍什么）", _pair_gap_report)
 
     # ---------------- 汇总 ----------------
     return _summary()
