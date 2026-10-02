@@ -20,6 +20,7 @@
    13. CharaBridge：身份+几何双分支，关断返回 None（bit-exact）
    14. Layout Planner：中文折行/避头尾/竖排 + ROIBranch 低压缩分支
    15. caption 语料审计：语言配比 / 标签串检测 / 汉字覆盖（P1.8）
+   16. Axis Probe：G3.5 四测（单调/正交/可逆/低比特行程）—— 装置本身先过对照样本
 """
 from __future__ import annotations
 
@@ -675,6 +676,59 @@ def main() -> int:
         return (f"汉字覆盖 {len(a.char_set)} 个（去重并集）；"
                 f"1000 条配额建议 zh={plan['zh']}/en={plan['en']}/ja={plan['ja']}")
     check("汉字覆盖统计 + 配额反推", _coverage)
+
+    # ---------------- 16. Axis Probe（G3.5 四测） ----------------
+    section("16. Axis Probe（G3.5 · L1 条件轴真实性四测）")
+    from kp.probe import AxisProbe, axis_report_text
+    from kp.probe.synthetic import Synthetic
+
+    def _axis_probe():
+        S = Synthetic(n_axes=6, dim=256)
+        fns = S.all()
+        exp = S.expected_failures()
+        got = {}
+        for name, f in fns.items():
+            rep = AxisProbe(f, n_axes=6, seed=0).run()
+            got[name] = rep.results[0].failures
+        # ① 干净正交轴必须四测全过
+        assert got["clean"] == [], f"clean 不该有失败项：{got['clean']}"
+        # ②③④ 各样本恰好触发其对应的那一测
+        for name in ("coupled", "suppressed", "nonlinear"):
+            assert set(exp[name]) <= set(got[name]), \
+                f"{name} 应触发 {exp[name]}，实测 {got[name]}"
+        return (f"4 类样本各司其职：clean 全过；"
+                f"coupled→{got['coupled']}；suppressed→{got['suppressed']}；"
+                f"nonlinear→{got['nonlinear']}")
+    check("四测能分别抓出串扰 / 非单调 / 低比特抹平", _axis_probe)
+
+    def _axis_lowbit_is_essential():
+        """⭐ 关键：`suppressed` 必须**只**在低比特行程一测上失败。
+
+        如果它同时也挂了单调/正交/可逆，那说明这一测是可被替代的 ——
+        而设计稿的论点是「**低比特行程在 bf16 上调参时完全看不出来**，
+        只有把量化器接进回路才暴露」。这条断言就是在守这个论点。
+        """
+        S = Synthetic(n_axes=6, dim=256)
+        r = AxisProbe(S.suppressed(), n_axes=6, seed=0).run().results[0]
+        assert r.failures == ["低比特行程"], f"实际失败项 {r.failures}"
+        assert r.mono >= 0.9 and r.ortho <= 0.3 and r.rev >= 0.9, r.as_dict()
+        assert r.travel_range_keep < 0.5, r.travel_range_keep
+        return (f"被抑制的轴：单调 {r.mono:.2f} / 串扰 {r.ortho:.2f} / 可逆 {r.rev:.2f} "
+                f"全过，**只有**行程 {r.travel_keep:.2f} 挂 —— 量化回路之外看不见")
+    check("低比特行程不可被前三测替代（G3.5 的要害）", _axis_lowbit_is_essential)
+
+    def _axis_verdict():
+        """未过门的轴必须被明确判为「归 L3」。"""
+        S = Synthetic(n_axes=5, dim=256)          # n_axes 必须与探针一致
+        rep = AxisProbe(S.suppressed(), n_axes=5, seed=0).run()
+        assert rep.n_pass == 0 and len(rep.l3_axes) == 5, rep.as_dict()
+        assert all("L3" in r.verdict for r in rep.results)
+        txt = axis_report_text(rep)
+        assert "未过门的轴默认归" in txt
+        rep2 = AxisProbe(S.clean(), n_axes=5, seed=0).run()
+        assert rep2.n_pass == 5 and rep2.l3_axes == []
+        return "不过 → 0/5 归 L3；通过 → 5/5 留在 L1（报告含归 L3 提示）"
+    check("判定律：不过的轴默认归 L3", _axis_verdict)
 
     # ---------------- 汇总 ----------------
     return _summary()
