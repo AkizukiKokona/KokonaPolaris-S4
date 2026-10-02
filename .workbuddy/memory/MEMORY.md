@@ -84,9 +84,10 @@ Polaris 双关「北极星 + 极性/对偶」：语义·细节双通道 latent /
 - **E5b 可训性**：ModelOpt fake-quant 无反向 → 崩；**真根因 = 插件把 SDPA 换成无 backward 的 `FP8SDPA`**（与量化器无关），patch 回原版 SDPA 即解。**全参 QAT 本机不可行**（AdamW ≈12.8GB）⇒ **必须 adapter 式 QAD**（与 Δ-Pack 同构）。自研可微 NVFP4 fake-quant（`tools/e5b_qad.py`）已独立复现倒 U 形。
 
 ## 参考实现骨架（D:\model\kp，2026-10-03 落地）
-纯 CPU 可跑；`python -m kp.selftest` = **17/17 通过**（含门控全 0 bit-exact / 谱检查双向 / `E⁻¹∘E` KL≈0）；`python -m kp.arch_report` = 架构速览与参数量核对。
-分层：`latent`（40ch 混合 latent + 打包纯函数 + 通道监督件）/ `capability`（bus / delta_pack / parallel_pack / erase）/ `models`（dit / vae / text_tower）/ `character`（card / fitter）/ `sample`。
-版本控制：本地 git 仓库 **KokonaPolaris-S4**（工作库 = `D:\model`；裸镜像 origin = `repos/KokonaPolaris-S4.git`）。只版本化设计稿/源码/配置/小数据（97 文件 / `.git` 4.2MB），11GB 权重与出图产物已忽略。
+纯 CPU 可跑；`python -m kp.selftest` = **25/25 通过**（含门控全 0 bit-exact / 谱检查双向 / `E⁻¹∘E` KL≈0 / NVFP4 与参考实现对拍 / 能力包落盘加载往返 / QAD loss 下降且梯度只进包）；`python -m kp.arch_report` = 架构速览与参数量核对。
+分层：`latent`（40ch 混合 latent + 打包纯函数 + 通道监督件）/ `capability`（bus / delta_pack / parallel_pack / erase）/ `models`（dit / vae / text_tower）/ `character`（card / fitter / pipeline）/ `quant`（nvfp4）/ `train`（qad）/ `sample`。
+⭐ **adapter 预算投影**（`kp.train.budget_projection`）：KP-S 可训 **1.89M / 0.33%**、AdamW ≈0.02GB；KP-M 3.89M / 0.22% —— 与 **E5b 在 Sana 1.6B 的实测（5.99M/0.37%）同量级**，**独立复现「必须 adapter 式 QAD、全参 QAT 不可行」**。
+版本控制：本地 git 仓库 **KokonaPolaris-S4**（工作库 = `D:\model`；裸镜像 origin = `repos/KokonaPolaris-S4.git`）。只版本化设计稿/源码/配置/小数据，11GB 权重与出图产物已忽略。
 ⚠️ **待用户拍板**：**KP-M 主干实测 1.806B，比标称 1.5B 大 +20.4%**（KP-S 实测 565.9M ≈ 0.6B ✅ 吻合）→ 建议下调 dim/layers；**未擅自改配置**。
 
 ## 就绪度与验证门
