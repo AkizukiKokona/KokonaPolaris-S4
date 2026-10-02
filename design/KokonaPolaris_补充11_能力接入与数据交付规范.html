@@ -70,7 +70,7 @@
   <div class="kicker">KokonaPolaris-S4 · Supplement 11 · v1.2</div>
   <h1>能力接入与数据交付规范</h1>
   <p class="sub">面向两方：数据交付方（你）+ 工程侧（我）· 格式只有一套，换能力不换格式</p>
-  <div class="meta"><span>2026-10-03</span><span>接口规范（非推演）</span><span>配套：主文档 v1.14 · 补充 04 / 05 / 10</span><span style="color:var(--accent);font-weight:500">v1.2：§4.8 升级为硬要求 · 中文自然语言写入路线图 P1.8</span></div>
+  <div class="meta"><span>2026-10-03</span><span>接口规范（非推演）</span><span>配套：主文档 v1.14 · 补充 04 / 05 / 10</span><span style="color:var(--accent);font-weight:500">v1.3：§4.8.1 新增可执行判据 audit_captions.py（配比 / 标签串 / 汉字覆盖）</span></div>
 </header>
 
 <div class="callout">
@@ -431,6 +431,37 @@
 
 <p><b>一句话</b>：SDXL 里 tag 是「<b>输入</b>」；KP 里 tag 退到「<b>内部标注</b>」，<b>用户面对的是自然语言</b>。</p>
 
+<h3>4.8.1 可执行判据 —— <code>audit_captions.py</code></h3>
+<div class="callout">
+  <div class="t">为什么必须有守门人</div>
+  <p>上面三条建议<b>不能只停在纸面</b>：配比一旦进了预训练就<b>改不动了</b> ⇒ 它必须有<b>可跑的检查</b>，而不是靠自觉。</p>
+</div>
+<pre><code># 审一个交付批次（读 manifest.csv 的 caption 列）
+python tools/data_spec/audit_captions.py --dir D:\model\data\&lt;批次名&gt;
+
+# 顺便看「还差多少条」
+python tools/data_spec/audit_captions.py --dir ... --plan 2000
+
+# 出 JSON 报告给下游
+python tools/data_spec/audit_captions.py --dir ... --json out/caption_audit.json</code></pre>
+<div class="tw">
+<table>
+<thead><tr><th>项</th><th>目标</th><th>含义</th></tr></thead>
+<tbody>
+<tr class="good"><td><b>中文占比</b></td><td><b>80%</b>（70–90%）</td><td>低于下界 = 白白丢掉 LLM 塔的原生优势</td></tr>
+<tr class="good"><td><b>英文对齐</b></td><td><b>8–22%</b></td><td>低于下界 = 英文 prompt / 跨语言泛化退化</td></tr>
+<tr><td>日文占比</td><td>≤ 15%</td><td>日系画风需要日文，但不宜反客为主</td></tr>
+<tr><td>中英混排</td><td>≤ 25%</td><td>混排会让塔学到「同句切语言」的<b>伪相关</b></td></tr>
+<tr class="bad"><td><b>标签串</b></td><td><b>禁止</b>（得分 ≥ 0.6）</td><td>见 §4.7：标签会退回「不可迁移的隐式通路」</td></tr>
+<tr><td>字数</td><td>8–300</td><td>过短信息不足 · 过长稀释 token 预算</td></tr>
+</tbody>
+</table>
+</div>
+<p><b>「标签串」怎么判</b>（不硬编码任何具体标签词，避免过拟合到某个社区的写法）：被分隔符切出的片段<b>多且短</b> + 分隔符<b>密集</b> + <b>无句末标点</b> + <b>无虚词/连接词</b> ⇒ 判为标签串。全角句末标点直接算；半角只认<b>行尾</b>的 <code>.</code>/<code>!</code>/<code>?</code> —— 否则 <code>8k.</code> 这类结尾会骗过检查。</p>
+<p><b>语言判定用「词数」不用「字母数」</b>：<code>少女穿着白色 dress 站在海边。</code> 里拉丁字母数会压过汉字数，但语义上它仍是<b>中文 caption</b>；按字母数判会误判成 mixed，从而<b>错误触发「混排偏高」告警</b>。</p>
+<p><b>汉字覆盖统计</b>：报告列出这批语料里<b>出现过的不同汉字</b>（去重并集），用于对文本塔 tokenizer 的词表覆盖把关 —— <b>没出现过的字，塔学不到</b>。</p>
+<p>⭐ <b>一句话</b>：这条检查的价值不在「报告好看」，而在于它是<b>不可逆死线前唯一的刹车</b>。</p>
+
 <h2><span class="num">05</span>夜间与排程规范</h2>
 <div class="tw">
 <table>
@@ -458,7 +489,7 @@
 <tr><td>☐</td><td><b>分批交付</b>：缺的标「待补」，<b>不要为凑齐而卡住项目</b></td></tr>
 <tr><td>☐</td><td><b>来源备注</b>：<code>source</code> 列填写</td></tr>
 <tr><td>☐</td><td><b>交付位置</b>：<code>D:\model\data\&lt;批次名&gt;\</code></td></tr>
-<tr><td>☐</td><td><b>校验</b>：跑过 <code>validate_manifest.py</code>，0 错误</td></tr>
+<tr><td>☐</td><td><b>校验（两步都要跑）</b>：<code>validate_manifest.py</code>（格式 / 重复 / 分辨率，要求 0 错误）+ <b><code>audit_captions.py</code></b>（<b>caption 语言配比与形态</b>，见 §4.8.1，要求判通过）</td></tr>
 </tbody>
 </table>
 </div>

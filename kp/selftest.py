@@ -5,22 +5,21 @@
     python kp/selftest.py
 
 逐项验证设计稿里的**可验收不变量**：
-    1. latent 打包/解包 往返一致（fp32 / bf16）
-    2. 通道分离监督件（split/join/swap/MI 惩罚）
-    3. ★ 门控全 0 ⇒ 与裸模型 **bit-exact**
-    4. ★ Δ-Pack 谱检查：子空间初始化【合格】/ 正交扰动【不合格】
-    5. ★ 擦除 `E⁻¹∘E` 可逆（KL ≈ 0）
-    6. ∥-Pack 零初始化 + 短路
-    7. 主干前向形状 + 挂包前后 bit-exact
-    8. VAE 32× 编解码形状
-    9. CharacterFitter 输出身份 token 形状
-   10. Rectified Flow + Matryoshka 采样可跑
-   11. NVFP4 模拟量化：与参考实现对拍 + STE 可微 + 量化开关
-   12. 能力包 落盘/加载 往返（save_adapter → load_adapter）
-   13. QAD：冻结主干 + 只训 Δ-Pack（loss 下降且梯度只进包）
-   14. SVDPack：子空间约束（按构造通过谱检查）+ 跨版本可迁移
-   15. CharaBridge：身份+几何双分支，关断返回 None（bit-exact）
-   16. Layout Planner：中文折行/避头尾/竖排 + ROIBranch 低压缩分支
+    1. latent 打包/解包 往返一致（fp32 / bf16）+ 通道分离监督件
+    2. ★ 门控全 0 ⇒ 与裸模型 **bit-exact**
+    3. ★ Δ-Pack 谱检查：子空间初始化【合格】/ 正交扰动【不合格】
+    4. ★ 擦除 `E⁻¹∘E` 可逆（KL ≈ 0）
+    5. ∥-Pack 零初始化 + 短路（不可表示为 ΔW）
+    6. 主干前向形状 + 挂包前后 bit-exact + VAE 32× + 文本塔接口
+    7. 角色卡 + CharacterFitter 输出身份 token
+    8. Rectified Flow + Matryoshka 采样可跑且可复现
+    9. NVFP4 模拟量化：与参考实现对拍 + STE 可微 + 量化开关
+   10. 能力包 落盘/加载 往返（save_adapter → load_adapter）
+   11. QAD：冻结主干 + 只训 Δ-Pack（loss 下降且梯度只进包）
+   12. SVDPack：子空间约束（按构造通过谱检查）+ 跨版本可迁移
+   13. CharaBridge：身份+几何双分支，关断返回 None（bit-exact）
+   14. Layout Planner：中文折行/避头尾/竖排 + ROIBranch 低压缩分支
+   15. caption 语料审计：语言配比 / 标签串检测 / 汉字覆盖（P1.8）
 """
 from __future__ import annotations
 
@@ -606,6 +605,76 @@ def main() -> int:
         assert out.shape == (1, 16, 64), out.shape
         return f"4× 压缩 ROI → {tuple(out.shape)}；关断时 None"
     check("ROIBranch 低压缩分支", _roi_branch)
+
+    # ---------------- 15. caption 语料审计（P1.8） ----------------
+    section("15. caption 语料审计（P1.8 中文自然语言支持）")
+    from kp.data import (audit_captions, detect_language, tag_soup_score,
+                         suggest_language_plan)
+
+    def _lang_detect():
+        cases = {
+            "一位少女站在海边。": "zh",
+            "海辺に立つ少女。": "ja",                       # 有假名 ⇒ 日文，不能算中文
+            "A girl stands on the beach.": "en",
+            "少女穿着白色 dress 站在海边。": "zh",           # 夹 1 个英文词 ⇒ 仍是中文
+            "少女 wearing a white dress 在海边。": "mixed",   # 英文词多 ⇒ 混排
+            "12345 !!!": "other",
+        }
+        bad = {t: (l, detect_language(t)) for t, l in cases.items()
+               if detect_language(t) != l}
+        assert not bad, f"语言判定错误：{bad}"
+        return f"{len(cases)} 例全对（含假名→ja、夹词→zh、多词→mixed）"
+    check("语言判定（zh/ja/en/mixed/other）", _lang_detect)
+
+    def _tag_soup():
+        good = [
+            "一位长发少女站在夏日的海边，微笑着看向镜头。",
+            "少女回眸，海风吹乱了她的发丝。",
+            "A girl with long silver hair stands on a rooftop at dusk.",
+            "夕阳把整片天空染成橘红色，少女的影子被拉得很长。",
+        ]
+        bad = [
+            "1girl, solo, long hair, blue eyes, smile, white shirt, outdoors",
+            "masterpiece, best quality, ultra detailed, 8k, anime style",
+            "长发, 蓝眼睛, 微笑, 白衬衫, 户外, 白天",
+        ]
+        fp = [(t, tag_soup_score(t)) for t in good if tag_soup_score(t) >= 0.6]
+        fn = [(t, tag_soup_score(t)) for t in bad if tag_soup_score(t) < 0.6]
+        assert not fp, f"自然语言被误判为标签串：{fp}"
+        assert not fn, f"标签串漏检：{fn}"
+        return (f"自然语言 {len(good)}/{len(good)} 不误报，"
+                f"标签串 {len(bad)}/{len(bad)} 全命中")
+    check("标签串（tag soup）检测", _tag_soup)
+
+    def _audit_mix():
+        zh = ["一位少女站在夏日的海边，微笑着看向镜头。" * 1] * 8
+        en = ["A girl stands on a beach at summer."] * 2
+        ok = audit_captions(zh + en)
+        assert ok.passed, (ok.lang_share, ok.issues)
+        # 缺英文对齐 → 必须给出 issue 且判失败
+        no_en = audit_captions(zh)
+        assert not no_en.passed and no_en.issues, no_en.lang_share
+        # 标签串 → 必须判违规
+        soup = audit_captions(["1girl, solo, long hair, blue eyes, smile, white shirt"])
+        assert not soup.passed and any(k == "标签串" for _, k, _ in soup.violations)
+        return (f"合规语料通过（zh {ok.lang_share['zh']:.0%}/en {ok.lang_share['en']:.0%}）；"
+                f"缺英文/含标签串均被判失败")
+    check("语言配比达标判定 + 违规定位", _audit_mix)
+
+    def _coverage():
+        caps = ["心夏北极星站在海边。", "北极星的光芒落在海面。",
+                "心夏望向远方。"]
+        a = audit_captions(caps, zh_band=(0.0, 1.0), en_band=(0.0, 0.0))
+        # 汉字集合 = 三句汉字去重后的并集（独立写出期望值，不用同一套区间判定）
+        exp = {"心", "夏", "北", "极", "星", "站", "在", "海", "边",
+               "的", "光", "芒", "落", "面", "望", "向", "远", "方"}
+        assert set(a.char_set) == exp, sorted(a.char_set)
+        assert len(a.char_set) == 18, len(a.char_set)
+        plan = suggest_language_plan(1000)
+        assert plan["total"] == 1000 and plan["zh"] > plan["en"], plan
+        return (f"汉字覆盖 {len(a.char_set)} 个（去重并集）；"
+                f"1000 条配额建议 zh={plan['zh']}/en={plan['en']}/ja={plan['ja']}")
+    check("汉字覆盖统计 + 配额反推", _coverage)
 
     # ---------------- 汇总 ----------------
     return _summary()
