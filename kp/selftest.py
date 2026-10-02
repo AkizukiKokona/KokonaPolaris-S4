@@ -18,6 +18,9 @@
    11. NVFP4 模拟量化：与参考实现对拍 + STE 可微 + 量化开关
    12. 能力包 落盘/加载 往返（save_adapter → load_adapter）
    13. QAD：冻结主干 + 只训 Δ-Pack（loss 下降且梯度只进包）
+   14. SVDPack：子空间约束（按构造通过谱检查）+ 跨版本可迁移
+   15. CharaBridge：身份+几何双分支，关断返回 None（bit-exact）
+   16. Layout Planner：中文折行/避头尾/竖排 + ROIBranch 低压缩分支
 """
 from __future__ import annotations
 
@@ -453,7 +456,162 @@ def main() -> int:
                 f" —— 对照 E5b 实测 5.99M/0.37%")
     check("adapter 预算投影（真实 KP-S/KP-M）", _qad_budget)
 
+    # ---------------- 12. SVDPack ----------------
+    section("12. SVDPack（子空间约束 / 跨版本可迁移）")
+    from kp.capability import SVDPack
+
+    def _svd_pack():
+        w0 = torch.randn(96, 64)
+        p = SVDPack.init_from("s1", w0, rank=8)
+        assert float(p.delta_weight().abs().max()) == 0.0, "σ=0 时 ΔW 必须恒为 0"
+        rep = p.spectral_report(w0)
+        assert rep.passed and rep.min_cos_high_rank > 0.99, rep
+        with torch.no_grad():
+            p.sigma.normal_()
+        rep2 = p.spectral_report(w0)
+        assert rep2.passed and rep2.min_cos_high_rank > 0.99, rep2
+        return (f"可训参数仅 {p.trainable_params}（存储 {p.stored_params}）｜"
+                f"cos_min={rep2.min_cos_high_rank:.4f}（按构造≈1）")
+    check("按构造通过谱检查（不可能产生入侵维度）", _svd_pack)
+
+    def _svd_portable():
+        w0 = torch.randn(96, 64)
+        p = SVDPack.init_from("s2", w0, rank=8)
+        with torch.no_grad():
+            p.sigma.normal_()
+        dw = p.delta_weight().clone()
+        spec = p.to_spec("blocks.0.attn.qkv")
+        w0_new = torch.randn(96, 64)                 # 模拟「主干换了一个版本」
+        q = SVDPack.from_spec(w0_new, spec)
+        assert torch.allclose(q.delta_weight(), dw, atol=1e-6), "跨版本 ΔW 应逐值不变"
+        return "换 W0 后 ΔW 逐值不变 ⇒ 跨主干版本直接可用"
+    check("跨版本可迁移（基被存储，不从 W0 重算）", _svd_portable)
+
+    def _svd_in_layer():
+        w = torch.randn(48, 32)
+        gl = GatedLinear(w)
+        x = torch.randn(4, 32)
+        base = gl(x)
+        p = SVDPack.init_from("s3", w, rank=6)      # gate 默认 0（CAP.gate_init）
+        gl.add_pack(p)
+        assert torch.equal(gl(x), base), "σ=0 时挂包应 bit-exact"
+        with torch.no_grad():
+            p.sigma.normal_()
+        # ★ 两条不变量要**分开**验：门控=0 时 σ≠0 也必须 bit-exact（整条旁路短路）
+        assert torch.equal(gl(x), base), "门控=0 时即使 σ≠0 也必须 bit-exact"
+        gl.set_gate("s3", 1.0)
+        assert not torch.equal(gl(x), base), "开门控后应生效"
+        gl.set_gate("s3", 0.0)
+        assert torch.equal(gl(x), base), "关断后应 bit-exact"
+        return "挂包(σ=0) bit-exact → 门控=0·σ≠0 仍 bit-exact → 开门生效 → 关断复原"
+    check("接入 GatedLinear（可关断）", _svd_in_layer)
+
+    # ---------------- 13. CharaBridge ----------------
+    section("13. CharaBridge（身份 + 几何双分支）")
+    from kp.models import CharaBridge
+
+    def _cb_off():
+        cb = CharaBridge(dim=64, n_tokens=16, view_dim=32, heads=4)
+        refs = torch.randn(1, 2, 3, 64, 64)
+        assert cb(refs) is None, "门控=0 时应返回 None（整条分支跳过）"
+        cb.set_gate(1.0)
+        tok = cb(refs)
+        assert tok is not None and tok.shape == (1, 16, 64), getattr(tok, "shape", None)
+        return "gate=0 → None；gate=1 → (1,16,64)"
+    check("关断返回 None（而非零向量）", _cb_off)
+
+    def _cb_geo():
+        cb = CharaBridge(dim=64, n_tokens=16, view_dim=32, heads=4, gate=1.0)
+        refs = torch.randn(1, 2, 3, 64, 64)
+        geo = torch.randn(1, 2, 3, 64, 64)
+        a, b = cb(refs, geo=None), cb(refs, geo=geo)
+        assert a.shape == b.shape == (1, 16, 64)
+        assert not torch.allclose(a, b), "几何分支应当改变输出"
+        return "几何分支（normal/depth/ray-pose）确实参与融合"
+    check("几何分支生效", _cb_geo)
+
+    def _cb_dit():
+        torch.manual_seed(3)
+        m = SingleStreamDiT(tiny, latent_ch=40, identity_anchor_layers=[1])
+        x = torch.randn(1, 40, 8, 8)
+        t = torch.full((1,), 300.0)
+        with torch.no_grad():
+            v_off = m(x, t, identity_ctx=None)
+        cb = CharaBridge(dim=64, n_tokens=16, view_dim=32, heads=4, gate=0.0)
+        assert cb(torch.randn(1, 2, 3, 64, 64)) is None
+        with torch.no_grad():
+            assert torch.equal(v_off, m(x, t, identity_ctx=None))
+        tok = CharaBridge(dim=64, n_tokens=16, view_dim=32, heads=4,
+                          gate=1.0)(torch.randn(1, 2, 3, 64, 64))
+        # ① adaLN-Zero 保护：身份门控初始为 0 ⇒ 此时注入身份 token 也不改变输出
+        with torch.no_grad():
+            assert torch.equal(v_off, m(x, t, identity_ctx=tok)), \
+                "adaLN-Zero 下身份门控为 0，注入 token 不应改变输出"
+        # ② 显式打开身份门（adaLN 输出的第 9 段 g3）后，注入才生效
+        d = m.cfg.dim
+        with torch.no_grad():
+            for blk in m.blocks:
+                if blk.identity_cross is not None:
+                    blk.adaLN[-1].bias[8 * d:9 * d].fill_(0.5)
+            v_off2 = m(x, t, identity_ctx=None)
+            v_on = m(x, t, identity_ctx=tok)
+        assert torch.equal(v_off2, v_off), "仅开门、不给身份 token ⇒ 仍逐位不变"
+        assert not torch.equal(v_on, v_off2), "开门后注入身份 token 应改变输出"
+        return "关断时主干逐位不变；adaLN-Zero 下注入无效；开门后注入生效"
+    check("与主干联动：关断 bit-exact", _cb_dit)
+
+    # ---------------- 14. Layout Planner ----------------
+    section("14. Layout Planner（确定性排版 · T0）")
+    from kp.typography import TextBlock, LayoutSpec, plan, roi_boxes, NO_LINE_START, ROIBranch
+
+    def _layout_basic():
+        L = plan(LayoutSpec(canvas=(1024, 1024), margin=64,
+                            blocks=[TextBlock("心夏北极星", size=96, align="center")]))
+        assert L["valid"], (L["boxes"], L["warnings"])
+        b = L["boxes"][0]
+        assert len(b["lines"]) == 1, b["lines"]
+        assert len(roi_boxes(L)) == 1
+        return f"5 字一行放下：框 {b['w']:.0f}×{b['h']:.0f}，valid={L['valid']}"
+    check("中文短句一行放下", _layout_basic)
+
+    def _layout_wrap():
+        txt = "心夏北极星，" * 12
+        L = plan(LayoutSpec(canvas=(1024, 1024), margin=64,
+                            blocks=[TextBlock(txt, size=64)]))
+        b = L["boxes"][0]
+        assert len(b["lines"]) > 1, b["lines"]
+        assert all(not ln or ln[0] not in NO_LINE_START for ln in b["lines"]), b["lines"]
+        return f"{len(txt)} 字 → {len(b['lines'])} 行（避头尾生效）"
+    check("长文本折行 + 避头尾", _layout_wrap)
+
+    def _layout_multi():
+        L = plan(LayoutSpec(canvas=(1024, 1024), margin=64, blocks=[
+            TextBlock("第一章", size=72, align="center"),
+            TextBlock("心夏北极星是一个自研文生图架构。" * 2, size=40),
+            TextBlock("竖排测试", size=64, direction="v", align="right"),
+        ]))
+        assert len(L["boxes"]) == 3
+        assert L["boxes"][2]["direction"] == "v"
+        assert L["valid"], (L["boxes"], L["warnings"])
+        return f"3 块（含竖排）全部合法，valid={L['valid']}"
+    check("多块 + 竖排 + 合法性校验", _layout_multi)
+
+    def _roi_branch():
+        br = ROIBranch(compression=4, dim=64, base=16, tokens_per_roi=16)
+        img = torch.randn(1, 3, 256, 256)
+        rois = [{"x0": 0, "y0": 0, "x1": 64, "y1": 64}]
+        assert br(img, rois) is None, "关断时应返回 None"
+        br.set_gate(1.0)
+        out = br(img, rois)
+        assert out.shape == (1, 16, 64), out.shape
+        return f"4× 压缩 ROI → {tuple(out.shape)}；关断时 None"
+    check("ROIBranch 低压缩分支", _roi_branch)
+
     # ---------------- 汇总 ----------------
+    return _summary()
+
+
+def _summary() -> int:
     n_pass = sum(1 for _, ok, _ in RESULTS if ok)
     n = len(RESULTS)
     print("\n" + "=" * 68)
@@ -470,4 +628,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # ⚠️ 某一节的 import / 语法错误不应让整份报告消失 —— 兜底也要打出汇总
+    try:
+        code = main()
+    except BaseException as e:  # noqa: BLE001
+        traceback.print_exc()
+        print(f"\n⚠️ 自检在某一节**中断**：{type(e).__name__}: {e}")
+        code = _summary() or 1
+    sys.exit(code)

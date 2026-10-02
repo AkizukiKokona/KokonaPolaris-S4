@@ -99,6 +99,19 @@ def spectral_check(delta_w: torch.Tensor, w0: torch.Tensor, *,
     w = w0.detach().to(torch.float32).cpu()
     m, n = w.shape
 
+    # ⚠️ 零扰动必须**单独处理**：对 ΔW ≡ 0 求 SVD 得到的是「任意正交基 × 奇异值 0」，
+    #    拿它的左奇异向量去和 W0 比 cos 纯属比较噪声（实测会给出 cos≈0.53 的假"不合格"）。
+    #    语义上零扰动的「高排名分量」只有 0 个 ⇒ 不可能有侵入维度 ⇒ 判合格。
+    if float((dw ** 2).sum()) <= 1e-24:
+        return SpectralReport(
+            passed=True, min_cos_high_rank=1.0, max_cos_high_rank=1.0,
+            energy_in_subspace=1.0, energy_out_subspace=0.0,
+            rank_delta=0, n_high_rank=0,
+            threshold=float(cos_threshold if cos_threshold is not None
+                            else CAP.spectral_cos_threshold),
+            target=target,
+        )
+
     k0 = max(1, int(rank_ratio * min(m, n)))
     U0, _, _ = torch.linalg.svd(w, full_matrices=False)   # (m, min(m,n))
     U0 = U0[:, :k0]                                        # 正交基 (m, k0)
