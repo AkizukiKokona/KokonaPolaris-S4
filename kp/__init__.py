@@ -5,16 +5,32 @@
 分层：
     kp.latent      混合 latent（32× 压缩，8ch 语义 + 32ch 细节 = 40ch）
     kp.models      单流 DiT 主干（3:1 混合注意力 / QK-Norm / Rectified Flow）
+                     + HybridVAE（32×）+ TextTower（~220M 多语言，自 Qwen3-4B 蒸馏）
     kp.capability  能力总线（∥-Pack / Δ-Pack / 擦除算子 E / 门控 bit-exact）
     kp.character   角色卡数据对象 + Character Fitter
+    kp.sample      Rectified Flow 采样器 + 分辨率 Matryoshka
 
 硬约束（不可动摇）：
     1. NVFP4 原生（SM120 兼容）
     2. 低显存优先（显存第一因是 token 数）
     3. 弃用 UNet
     4. 能力包全关时必须与裸模型 bit-exact
-"""
-from . import config  # noqa: F401
 
-__version__ = "0.1.0-skeleton"
-__all__ = ["config"]
+自检：`python -m kp.selftest`（纯 CPU，夜间安全）
+"""
+from __future__ import annotations
+
+from . import config  # noqa: F401
+from .config import LATENT, DIT_S, DIT_M, QUANT, CAP, RUNTIME  # noqa: F401
+
+__version__ = "0.2.0-skeleton"
+
+__all__ = ["config", "LATENT", "DIT_S", "DIT_M", "QUANT", "CAP", "RUNTIME",
+           "__version__"]
+
+
+def __getattr__(name):  # 懒加载重子模块，避免 `import kp` 就拉起 torch 全栈
+    if name in {"latent", "models", "capability", "character", "sample"}:
+        import importlib
+        return importlib.import_module(f".{name}", __name__)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

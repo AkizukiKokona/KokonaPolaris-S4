@@ -8,10 +8,10 @@ from .bus import (  # noqa: F401
 )
 from .delta_pack import DeltaPack, spectral_check, SpectralReport  # noqa: F401
 from .parallel_pack import ParallelPack  # noqa: F401
-from .erase import EraseOperator, EraseLedger, kl_test  # noqa: F401
+from .erase import EraseOperator, EraseLedger, kl_test, erasure_roundtrip  # noqa: F401
 
 __all__ = [
     "CapabilityPack", "GatedLinear", "CapabilityBus", "load_adapter",
     "all_gates_zero", "DeltaPack", "spectral_check", "SpectralReport",
-    "ParallelPack", "EraseOperator", "EraseLedger", "kl_test",
+    "ParallelPack", "EraseOperator", "EraseLedger", "kl_test", "erasure_roundtrip",
 ]
