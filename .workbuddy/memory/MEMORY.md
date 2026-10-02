@@ -99,7 +99,8 @@ Polaris 双关「北极星 + 极性/对偶」：语义·细节双通道 latent /
 NOVA-Human（10.2k VRM，512²，Fitter 完美配对；⚠️ 仅研究用）；See-through（9,102 Live2D 自举 19 类语义层，开源）。标准正交视图由我们用渲染器生产，不指望用户提供。
 
 ## 路线
-**P0 验证 NVFP4 QAD（最高优先级；并入「NVFP4 单文件 ComfyUI 可用性」）→ P1 换 Latent → P1.5 能力总线骨架（含四接口 + 双向包）→ P2′ T0 排版链路（✓ 已跑通）→ P2.6 角色卡数据线 + Character Fitter（可并行）→ P2 换主干（含双域预训练）→ P3 CharaBridge → P3.5 TypographyPack → P4 少步蒸馏 → P4.5 正交化仲裁（含谱检查）。**
+**P0 验证 NVFP4 QAD（最高优先级；并入「NVFP4 单文件 ComfyUI 可用性」）→ P1 换 Latent → P1.5 能力总线骨架（含四接口 + 双向包）→ P1.8 中文自然语言支持（v1.14 新增，用户明确要求「从底层构建」；与 P2 同批，共享「数据管线定稿」不可逆死线）→ P2′ T0 排版链路（✓ 已跑通）→ P2.6 角色卡数据线 + Character Fitter（可并行）→ P2 换主干（含双域预训练）→ P3 CharaBridge → P3.5 TypographyPack → P4 少步蒸馏 → P4.5 正交化仲裁（含谱检查）。**
+> ⭐ **P1.8 的实质**：KP 文本塔是 LLM 而非 CLIP ⇒ 中文是原生能力；**唯一开关 = 训练数据里中文 caption 占比**，而该占比**预训练前定稿后不可逆**。⇒ caption 中文为主 + 10–20% 英文对齐；**禁止退回纯英文标签串**。
 
 ## 文档位置
 `D:/model/design/` 下全为 `KokonaPolaris_*`：主文档 `.md`/`.html`（**v1.13**）+ 补充 01–09、11。
