@@ -67,10 +67,10 @@
 <div class="wrap">
 
 <header>
-  <div class="kicker">KokonaPolaris-S4 · Supplement 11 · v1.1</div>
+  <div class="kicker">KokonaPolaris-S4 · Supplement 11 · v1.2</div>
   <h1>能力接入与数据交付规范</h1>
   <p class="sub">面向两方：数据交付方（你）+ 工程侧（我）· 格式只有一套，换能力不换格式</p>
-  <div class="meta"><span>2026-10-03</span><span>接口规范（非推演）</span><span>配套：主文档 v1.13 · 补充 04 / 05 / 10</span><span style="color:var(--accent);font-weight:500">v1.1：试点分两级 · 窗口期 · 已有资产用法 · §4.7 标签不可迁移 · §4.8 中文优先</span></div>
+  <div class="meta"><span>2026-10-03</span><span>接口规范（非推演）</span><span>配套：主文档 v1.14 · 补充 04 / 05 / 10</span><span style="color:var(--accent);font-weight:500">v1.2：§4.8 升级为硬要求 · 中文自然语言写入路线图 P1.8</span></div>
 </header>
 
 <div class="callout">
@@ -411,6 +411,17 @@
   <p>它还取决于<b>训练数据里中文 caption 的占比</b>。所以这<b>是个可调的旋钮，要主动设计</b>（不是「反正模型支持」）。</p>
 </div>
 
+<div class="callout">
+  <div class="t">⭐⭐ 这是一条硬要求，不是偏好（2026-10-03 用户明确）</div>
+  <p>KP <b>必须从底层就支持中文自然语言描述</b>。</p>
+  <ul>
+    <li>已写入<b>正式路线图条目 P1.8</b>（主文档 §9.1），<b>与 P2 换主干同批</b>。</li>
+    <li>它不是「以后加个功能」，而是<b>「预训练前数据管线定稿」的一个子项</b> —— 定稿后<b>不可逆</b>（与「能力接入」共享第 ① 层死线）。</li>
+    <li><b>工程侧对应件</b>：文本塔（<code>kp/models/text_tower.py</code>）的多语言词表 + 蒸馏时<b>刻意保留</b>中文；<b>数据侧对应件</b>：<b>caption 中文优先</b>（下面三条建议）。</li>
+    <li>⚠️ <b>反面教材</b>：不要为了「保险」退回「纯英文标签串」——那等于<b>主动放弃</b> KP 相对 SDXL 的最大语言优势（§4.7 已证标签触发本就不可迁移）。</li>
+  </ul>
+</div>
+
 <p><b>给你的三条建议：</b></p>
 <ol>
   <li><b>caption 用中文写</b> —— 母语描述最准确、信息量最大。</li>
@@ -441,7 +452,7 @@
 <tr><td>☐</td><td><b>数据格式</b>：<code>images/</code> + <code>manifest.csv</code>，列名 <code>file,tag,caption,source</code></td></tr>
 <tr><td>☐</td><td><b>图片</b>：短边 ≥ 1024，无多余水印 / 字幕条</td></tr>
 <tr><td>☐</td><td><b>caption</b>：每张都有，覆盖 主体/动作/构图/场景/风格</td></tr>
-<tr><td>☐</td><td><b>caption 语言</b>：中文为主（10–20% 英文对齐），写成<b>句子</b>而非标签串</td></tr>
+<tr><td>☐</td><td><b>caption 语言</b>：<b>中文为主</b>（10–20% 英文对齐），写成<b>句子</b>而非标签串 —— 路线图 <b>P1.8「中文自然语言支持」</b> 的数据侧落点，<b>硬要求</b></td></tr>
 <tr><td>☐</td><td><b>tag</b>：每张都有，且<b>能区分「要不要擦」的那一类</b></td></tr>
 <tr><td>☐</td><td><b>第一级规模</b>：<b>50–100 张</b>（先打通管线，不必凑齐）</td></tr>
 <tr><td>☐</td><td><b>分批交付</b>：缺的标「待补」，<b>不要为凑齐而卡住项目</b></td></tr>
@@ -453,7 +464,7 @@
 </div>
 
 <footer>
-  KokonaPolaris-S4 · 补充设计 11 · <b>v1.1</b> · 2026-10-03<br>
+  KokonaPolaris-S4 · 补充设计 11 · <b>v1.2</b> · 2026-10-03<br>
   本文档为<b>双方接口规范</b>：§1–§3 对齐定位与判据，§4 是数据交付的硬要求（含 §4.7 标签不可迁移），§5 是排程约束，§6 是可勾选的清单。<br>
   §4 的格式对<b>所有能力</b>通用 —— 换能力不换格式。
 </footer>

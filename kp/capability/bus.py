@@ -85,8 +85,20 @@ class GatedLinear(nn.Module):
                              None if bias is None else bias.detach().clone())
         # 标志：本体是否被 NVFP4 量化（仅作档案，注入点永远在量化器之外）
         self.base_quantized = quantized
+        self.quant = None            # QuantSpec | None（None = 不量化）
         self.packs = nn.ModuleList()
         self._bypass_off = True
+
+    # --- 量化（⚠️ 注入点始终在量化器之外） ---
+    def set_quant(self, spec) -> "GatedLinear":
+        """设置量化规格（`None` = 不量化）。返回 self 便于链式调用。
+
+        ⭐ 量化只作用于**主干算子**：`y = F.linear(q(x), q(W)) + Σ pack(x)`。
+        能力包看到的是**未量化**的激活，其输出也**不被量化** ——
+        否则 ΔW 会先被量化再相加，既破坏可逆性、也让 bit-exact 失效。
+        """
+        self.quant = spec
+        return self
 
     # --- 装配 ---
     def add_pack(self, pack: CapabilityPack) -> "GatedLinear":
@@ -114,17 +126,22 @@ class GatedLinear(nn.Module):
 
     # --- 前向 ---
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self._bypass_off:                     # ★ bit-exact 路径
-            return F.linear(x, self.weight, self.bias)
-        y = F.linear(x, self.weight, self.bias)  # 主干（其内部可被量化）
-        for p in self.packs:                     # 注入点：量化器之外
+        if self.quant is None:
+            if self._bypass_off:                     # ★ bit-exact 路径
+                return F.linear(x, self.weight, self.bias)
+            y = F.linear(x, self.weight, self.bias)  # 主干
+        else:                                        # 量化主干（模拟量化 + STE）
+            y = F.linear(self.quant.quantize_act(x),
+                         self.quant.quantize_weight(self.weight), self.bias)
+        for p in self.packs:                         # 注入点：量化器之外
             if not p.is_off:
-                y = y + p(x)
+                y = y + p(x)                         # ★ 包看到的是未量化的 x
         return y
 
     def extra_repr(self) -> str:
         return (f"in={self.in_features}, out={self.out_features}, "
-                f"packs={[p.name for p in self.packs]}, bypass_off={self._bypass_off}")
+                f"packs={[p.name for p in self.packs]}, bypass_off={self._bypass_off}, "
+                f"quant={None if self.quant is None else self.quant.weight + '/' + self.quant.act}")
 
 
 # ---------------------------------------------------------------------------

@@ -15,6 +15,7 @@
     8. VAE 32× 编解码形状
     9. CharacterFitter 输出身份 token 形状
    10. Rectified Flow + Matryoshka 采样可跑
+   11. NVFP4 模拟量化：与参考实现对拍 + STE 可微 + 量化开关
 """
 from __future__ import annotations
 
@@ -306,6 +307,56 @@ def main() -> int:
         assert torch.equal(z, z2), "同 seed 采样不可复现"
         return f"4 步 Matryoshka 16→64 token，{tuple(z.shape)}，同 seed 可复现"
     check("采样可跑且可复现", _sample)
+
+    # ---------------- 9. NVFP4 ----------------
+    section("9. NVFP4 模拟量化（W4A8 · STE）")
+    from kp.quant import (QuantSpec, quant_fp4, quant_fp8, quant_fp4_ste,
+                          quant_fp8_ste, relative_error, precision_table)
+
+    def _ref_match():
+        def ref_fp4(x, blk=16):
+            shape = x.shape
+            inn = shape[-1]
+            if inn % blk:
+                blk = inn
+            xb = x.reshape(-1, inn // blk, blk)
+            amax = xb.abs().amax(dim=-1, keepdim=True).clamp(min=1e-12)
+            scale = (amax / 6.0).to(torch.float8_e4m3fn).to(x.dtype).clamp(min=1e-12)
+            q = (xb / scale).round().clamp(-6.0, 6.0)
+            return (q * scale).reshape(shape)
+        x = torch.randn(64, 128)
+        assert torch.equal(quant_fp4(x, 16, ste=False), ref_fp4(x, 16)), "与参考实现不一致"
+        return "与 tools/e5b_qad.py 的 quant_fp4 逐位一致"
+    check("与已有参考实现对拍", _ref_match)
+
+    def _ste_grad():
+        x = torch.randn(8, 64, requires_grad=True)
+        quant_fp4_ste(x, 16).sum().backward()
+        assert x.grad is not None and torch.equal(x.grad, torch.ones_like(x.grad)), x.grad
+        return "STE 直通：梯度恒 1（可反传）"
+    check("STE 可微", _ste_grad)
+
+    def _block_err():
+        w = torch.randn(256, 256)
+        e16 = relative_error(quant_fp4(w, 16, ste=False), w)
+        e32 = relative_error(quant_fp4(w, 32, ste=False), w)
+        e8 = relative_error(quant_fp8(w, ste=False), w)
+        assert e16 < e32, f"block16 应优于 block32：{e16} vs {e32}"
+        return f"block16={e16:.2%} < block32={e32:.2%}（小 block 更优）· fp8={e8:.2%}"
+    check("block 大小与误差（16 优于 32，复核 E5）", _block_err)
+
+    def _gl_quant():
+        w = torch.randn(64, 32)
+        gl = GatedLinear(w)
+        x = torch.randn(5, 32)
+        base = gl(x)
+        gl.set_quant(QuantSpec(weight="fp4", act="fp8"))
+        q = gl(x)
+        assert torch.isfinite(q).all() and not torch.equal(base, q), "量化应改变输出"
+        gl.set_quant(None)
+        assert torch.equal(gl(x), base), "关闭量化后必须恢复 bit-exact"
+        return "量化改变输出；关闭后恢复 bit-exact"
+    check("GatedLinear 量化开关（关后 bit-exact）", _gl_quant)
 
     # ---------------- 汇总 ----------------
     n_pass = sum(1 for _, ok, _ in RESULTS if ok)
