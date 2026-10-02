@@ -16,6 +16,8 @@
     9. CharacterFitter 输出身份 token 形状
    10. Rectified Flow + Matryoshka 采样可跑
    11. NVFP4 模拟量化：与参考实现对拍 + STE 可微 + 量化开关
+   12. 能力包 落盘/加载 往返（save_adapter → load_adapter）
+   13. QAD：冻结主干 + 只训 Δ-Pack（loss 下降且梯度只进包）
 """
 from __future__ import annotations
 
@@ -357,6 +359,99 @@ def main() -> int:
         assert torch.equal(gl(x), base), "关闭量化后必须恢复 bit-exact"
         return "量化改变输出；关闭后恢复 bit-exact"
     check("GatedLinear 量化开关（关后 bit-exact）", _gl_quant)
+
+    # ---------------- 10. 能力包落盘 / 加载 ----------------
+    section("10. 能力包落盘 / 加载往返（四接口之一）")
+    from kp.capability import save_adapter, load_adapter
+    import tempfile
+    import os as _os
+
+    def _adapter_roundtrip():
+        w = torch.randn(48, 32)
+        gl = GatedLinear(w)
+        x = torch.randn(4, 32)
+        base = gl(x)
+        d = DeltaPack("d1", 32, 48, rank=4, seed=5)
+        with torch.no_grad():
+            d.A.normal_()
+            d.B.normal_()
+        gl.add_pack(d)
+        pp = ParallelPack("p1", 32, 48, hidden=64)
+        with torch.no_grad():
+            pp.down.weight.normal_()
+            pp.up.weight.normal_()
+            pp.up.bias.normal_()
+        gl.add_pack(pp)
+        gl.set_gate("d1", 0.7)
+        gl.set_gate("p1", 0.3)
+        y = gl(x)
+        path = _os.path.join(tempfile.gettempdir(), "_kp_adapter_selftest.pt")
+        n = save_adapter(gl, path)
+        gl2 = GatedLinear(w)
+        mounted = load_adapter(gl2, path)
+        gl2.set_gate("d1", 0.7)
+        gl2.set_gate("p1", 0.3)
+        assert torch.allclose(gl2(x), y, atol=1e-6), float((gl2(x) - y).abs().max())
+        gl2.set_gate("d1", 0.0)
+        gl2.set_gate("p1", 0.0)
+        assert torch.equal(gl2(x), base), "全关后应恢复 bit-exact"
+        return f"导出 {n} 个包 / 挂载 {len(mounted)} 个；数值一致，全关后 bit-exact"
+    check("save_adapter → load_adapter 往返", _adapter_roundtrip)
+
+    def _adapter_dit():
+        torch.manual_seed(7)
+        m1 = SingleStreamDiT(tiny, latent_ch=40, identity_anchor_layers=[1])
+        torch.manual_seed(7)
+        m2 = SingleStreamDiT(tiny, latent_ch=40, identity_anchor_layers=[1])
+        for i, (name, glmod) in enumerate(m1.gated_linears().items()):
+            d = DeltaPack(f"d{i}", glmod.in_features, glmod.out_features, rank=2, seed=i)
+            with torch.no_grad():
+                d.A.normal_()
+                d.B.normal_()
+            glmod.add_pack(d)
+            glmod.set_gate(d.name, 1.0)
+        path = _os.path.join(tempfile.gettempdir(), "_kp_adapter_dit.pt")
+        n = save_adapter(m1, path)
+        mounted = load_adapter(m2, path)
+        x = torch.randn(1, 40, 8, 8)
+        t = torch.full((1,), 300.0)
+        with torch.no_grad():
+            assert torch.allclose(m1(x, t), m2(x, t), atol=1e-6), "整模型往返不一致"
+        return f"{n} 个包跨模型往返一致（挂载 {len(mounted)}）"
+    check("整模型级 落盘/加载 往返", _adapter_dit)
+
+    # ---------------- 11. QAD ----------------
+    section("11. QAD：冻结主干 + 只训 Δ-Pack")
+    from kp.train import set_quant as qad_set_quant, run_qad, grad_health, budget_projection
+
+    def _qad():
+        torch.manual_seed(11)
+        mm = SingleStreamDiT(tiny, latent_ch=40, identity_anchor_layers=[1])
+        nq = qad_set_quant(mm)
+        x = torch.randn(1, 40, 8, 8)
+        t = torch.full((1,), 400.0)
+        res = run_qad(mm, x, t, steps=20, seed=11)
+        assert res.loss_drop > 0.5, (f"loss 未显著下降："
+                                    f"{res.history[0]['loss']} → {res.history[-1]['loss']}")
+        gh = grad_health(mm)
+        assert gh["base_max_grad"] == 0.0, "冻结主干不应有梯度"
+        assert gh["pack_max_grad"] > 0, "包参数应有梯度"
+        b = res.budget
+        return (f"{nq} 注入点量化；loss {res.history[0]['loss']:.5f}→"
+                f"{res.history[-1]['loss']:.5f}（降 {res.loss_drop:.0%}）"
+                f"｜主干梯度 0，包梯度 {gh['pack_max_grad']:.2e}")
+    check("QAD loss 下降 + 梯度只进包", _qad)
+
+    def _qad_budget():
+        proj = budget_projection(rank=4)
+        s, m = proj["KP-S"], proj["KP-M"]
+        assert s["trainable_ratio"] < 0.01, s
+        assert m["trainable_ratio"] < 0.01, m
+        return (f"真实规模投影：KP-S 可训 {s['trainable']/1e6:.2f}M"
+                f"（{s['trainable_ratio']:.2%}，AdamW ≈{s['adamw_state_gb']:.2f}GB）｜"
+                f"KP-M {m['trainable']/1e6:.2f}M（{m['trainable_ratio']:.2%}）"
+                f" —— 对照 E5b 实测 5.99M/0.37%")
+    check("adapter 预算投影（真实 KP-S/KP-M）", _qad_budget)
 
     # ---------------- 汇总 ----------------
     n_pass = sum(1 for _, ok, _ in RESULTS if ok)

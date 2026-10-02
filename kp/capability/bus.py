@@ -51,7 +51,12 @@ class CapabilityPack(nn.Module, ABC):
     # --- 通用 ---
     @property
     def is_off(self) -> bool:
-        return float(self.gate.detach()) == 0.0
+        g = self.gate
+        # meta device 上没有真实数据（`.item()` 不可用）——此时只做结构计数，
+        # 不参与 bit-exact 判定，返回 False 即可。
+        if g.is_meta or g.device.type == "meta":
+            return False
+        return float(g.detach()) == 0.0
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.is_off:                      # ★ 短路，不参与任何计算
@@ -235,3 +240,24 @@ def load_adapter(model: nn.Module, path: str, *, gate: float = None,
         host.add_pack(pack)
         mounted.append(pack)
     return mounted
+
+
+def save_adapter(model: nn.Module, path: str, *,
+                 targets: Optional[Sequence[str]] = None) -> int:
+    """把模型上已挂载的能力包导出成统一载荷（与 `load_adapter` 对称）。
+
+    ⚠️ 载荷是**自描述**的：每项含 `{name, kind, target, state, meta}`，
+       因此加载端不需要预先知道挂了什么类型的包。
+       返回导出的包数量。
+    """
+    named = dict(model.named_modules())
+    specs = []
+    for target, mod in named.items():
+        if not isinstance(mod, GatedLinear):
+            continue
+        if targets is not None and target not in targets:
+            continue
+        for p in mod.packs:
+            specs.append(p.to_spec(target))
+    torch.save({"format_version": 1, "packs": specs}, path)
+    return len(specs)
