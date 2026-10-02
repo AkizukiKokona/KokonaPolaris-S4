@@ -83,8 +83,14 @@ Polaris 双关「北极星 + 极性/对偶」：语义·细节双通道 latent /
 - 🔴 **永久规范**：① 逐像素 PSNR/SSIM 只用于同轨迹复现性，**不可判画质** → G1 主判据须分布级；② PTQ 是模拟量化，其峰值显存**不能论证 NVFP4 显存收益**。
 - **E5b 可训性**：ModelOpt fake-quant 无反向 → 崩；**真根因 = 插件把 SDPA 换成无 backward 的 `FP8SDPA`**（与量化器无关），patch 回原版 SDPA 即解。**全参 QAT 本机不可行**（AdamW ≈12.8GB）⇒ **必须 adapter 式 QAD**（与 Δ-Pack 同构）。自研可微 NVFP4 fake-quant（`tools/e5b_qad.py`）已独立复现倒 U 形。
 
+## 参考实现骨架（D:\model\kp，2026-10-03 落地）
+纯 CPU 可跑；`python -m kp.selftest` = **17/17 通过**（含门控全 0 bit-exact / 谱检查双向 / `E⁻¹∘E` KL≈0）；`python -m kp.arch_report` = 架构速览与参数量核对。
+分层：`latent`（40ch 混合 latent + 打包纯函数 + 通道监督件）/ `capability`（bus / delta_pack / parallel_pack / erase）/ `models`（dit / vae / text_tower）/ `character`（card / fitter）/ `sample`。
+版本控制：本地 git 仓库 **KokonaPolaris-S4**（工作库 = `D:\model`；裸镜像 origin = `repos/KokonaPolaris-S4.git`）。只版本化设计稿/源码/配置/小数据（97 文件 / `.git` 4.2MB），11GB 权重与出图产物已忽略。
+⚠️ **待用户拍板**：**KP-M 主干实测 1.806B，比标称 1.5B 大 +20.4%**（KP-S 实测 565.9M ≈ 0.6B ✅ 吻合）→ 建议下调 dim/layers；**未擅自改配置**。
+
 ## 就绪度与验证门
-**判决：设计层收敛（~90%）／假设层未就绪（~15%）／实现层 0% → 骨架开写中。**
+**判决：设计层收敛（~90%）／假设层未就绪（~15%）／实现层骨架已落地（自检 17/17），等待与设计稿对账。**
 **未验证假设**：A1（NVFP4 QAD 在 DiT 不掉点）、A2（32× 混合 latent 通道分离可被损失强制）＝**结构性**；A3–A7（Sigmoid 注意力 / Matryoshka / 角色卡 Fitter / Micro-budget / 少步蒸馏）＝**配方性**。
 **验证门**：**G0 环境 🟢** → **G1 NVFP4 QAD ✅ 初步通过（W4A8）** → G2 通道分离 → G3 Sigmoid 注意力 → 🔴 **G3.5 L1 条件轴真实性**（四测；不过则 L1 这条 90% 主路径塌掉，改走 Style-Pack）→ G4 Matryoshka → G5 角色卡 → G6 Micro-budget（需租云）→ G7 少步蒸馏。
 **E0–E8**：✅ E0–E4b、E5、E5b、E6 已跑；**唯一遗留 = G1 正式 FID（≥50 张/臂，需白天解锁）** ⇒ **无前置验证拦路，可直接开写 KP 代码。**
