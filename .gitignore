@@ -7,8 +7,40 @@
 # ============================================================
 
 # ---------- 大体积：绝不入库 ----------
-models/
+# ⚠️ `out/` 的处理很讲究：G1/G5 的实测 json 是**原始证据**，换机后无法复现
+#（要 GPU + 靶子），体积只 ~75KB；而 .pt/.png/embeds 是可再生的中间产物。
+#
+# ⚠️⚠️ 三条 git 规则（都踩过，全部实测出来的）：
+#   ① `!` **无法**在父目录被排除时救回子目录 ⇒ 每层都要显式 `!` 放开。
+#   ② `out/*` 排除的是**直接子项**（含目录），后续 `!out/characters/...` 无法穿透。
+#   ③ 后出现的模式优先；**具体路径**比通配更有决定性。
+# ⇒ 做法：排除 `out/*` → 用 `!` **逐层放开**到目标文件 → 再关掉同层其他内容。
 out/
+!out/
+out/*
+# ---- 逐层放开 characters/kokona ----
+!out/characters/
+!out/characters/kokona/
+out/characters/kokona/*
+!out/characters/kokona/pipeline.json
+!out/characters/kokona/pipeline_report.md
+!out/characters/kokona/cards/
+out/characters/kokona/cards/*
+!out/characters/kokona/cards/Kokona.json
+# ⚠️ `.card`（2.2MB torch.save 二进制）**不入库**：
+#   ① 可由 `python -m kp.character.pipeline` 从 data/ 重新生成
+#   ② 里面的 identity_token 目前是**未训练的占位**（无语义价值）
+#   ③ 二进制 diff 不可读，收益远小于代价
+#   ⇒ 只留 6KB 的可读 json 摘要。真正训好的 Fitter 权重将来放 data/characters/<角色>/。
+# ---- 其余实验目录：全忽略 ----
+out/e4b_bf16/
+out/e5/
+out/e5b/
+out/e6/
+out/kp/
+out/*.log
+
+models/
 .venv/
 .cache/
 .pipcache/

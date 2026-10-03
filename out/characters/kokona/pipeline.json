@@ -1,0 +1,79 @@
+{
+  "batch": "kokona",
+  "entries": 2,
+  "cards": {
+    "Kokona": "out/characters\\kokona\\cards\\Kokona.card"
+  },
+  "report": "out/characters\\kokona\\pipeline_report.md",
+  "pair": {
+    "Kokona": {
+      "views": [
+        "front.png",
+        "back.png"
+      ],
+      "count": 2,
+      "declared_view": true,
+      "view_values": [
+        "back",
+        "front"
+      ],
+      "has_front": true,
+      "has_back": true,
+      "ok_min_views": true,
+      "pairs": [
+        {
+          "identity": "kokona",
+          "anchor": "front.png",
+          "positive": "back.png",
+          "varied": {
+            "view": [
+              "front",
+              "back"
+            ]
+          }
+        }
+      ],
+      "n_pairs": 1,
+      "gap": ""
+    },
+    "_report": {
+      "spec": {
+        "vary": [
+          "view"
+        ],
+        "match": [],
+        "identity": "character"
+      },
+      "n_records": 2,
+      "n_pairs": 1,
+      "pairs": [
+        {
+          "identity": "kokona",
+          "anchor": "front.png",
+          "positive": "back.png",
+          "varied": {
+            "view": [
+              "front",
+              "back"
+            ]
+          }
+        }
+      ],
+      "coverage": {
+        "kokona": {
+          "view": {
+            "front": 1,
+            "back": 1
+          }
+        }
+      },
+      "undeclared": [],
+      "isolated": [],
+      "gaps": [],
+      "balanced": true
+    }
+  },
+  "n_pairs": 1,
+  "fit": null,
+  "warnings": []
+}
