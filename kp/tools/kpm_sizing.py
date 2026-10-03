@@ -91,8 +91,48 @@ def table() -> str:
     return "\n".join(L)
 
 
+def text_tower_table() -> str:
+    """文本塔规模对账（⚠️ **必须 params + buffer**，只数 parameters 会错）。
+
+    🔴 **为什么单独写这个函数**（今天已踩两次同样的坑）：
+    `GatedLinear` 的权重注册为 **buffer**（"冻结主干"设计）⇒ **不在 `parameters()` 里**。
+    我连续两次只数 `parameters()`，得出「layers 14 和 24 参数量相同」的**错误结论**，
+    还一度怀疑 `layers` 没接线。
+    ⇒ `arch_report._count()` 早就写对了（params + buffer），**这里必须复用同样的口径**。
+    """
+    from ..models.text_tower import TextTower, TextTowerCfg
+    L = ["=" * 78,
+         "文本塔规模对账（params + buffer · 标称 220M）",
+         "=" * 78,
+         f"{'配置':<24s} {'params':>10s} {'buffer':>10s} {'合计':>10s} {'vs 标称':>10s}",
+         "-" * 78]
+    for tag, dim, lay in (("当前 dim768/L14", 768, 14), ("dim768/L24", 768, 24),
+                          ("dim1024/L14", 1024, 14), ("dim1024/L24", 1024, 24),
+                          ("dim1280/L14", 1280, 14)):
+        m = TextTower(TextTowerCfg(dim=dim, layers=lay))
+        p = sum(x.numel() for x in m.parameters())
+        b = sum(x.numel() for x in m.buffers() if x.is_floating_point())
+        n = p + b
+        L.append(f"{tag:<24s} {p/1e6:9.1f}M {b/1e6:9.1f}M {n/1e6:9.1f}M "
+                 f"{100*(n/220e6-1):+9.1f}%")
+    cur = TextTower(TextTowerCfg())
+    p = sum(x.numel() for x in cur.parameters())
+    b = sum(x.numel() for x in cur.buffers() if x.is_floating_point())
+    L += ["", "⭐ 当前配置与标称的关系：",
+          f"   合计 {(p+b)/1e6:.1f}M vs 标称 220M ⇒ **{100*((p+b)/220e6-1):+.1f}%（吻合）**",
+          "   ⚠️ 词表嵌入占大头（`vocab=151936 × dim`），但那是**查表**不是算力 ⇒",
+          "      推理成本主要看 layers×dim，不是总参数。",
+          "   ⚠️ **本项目已两次因只数 `parameters()` 而误判**（GatedLinear 权重在 buffer）。",
+          "      涉及参数量的一切结论，都必须用 `params + buffer` 口径。"]
+    return "\n".join(L)
+
+
 def main(argv: Optional[List[str]] = None) -> int:
-    print(table())
+    import argparse
+    ap_ = argparse.ArgumentParser(description="KP 尺寸对账（KP-M 主干 + 文本塔）")
+    ap_.add_argument("--tower", action="store_true", help="只看文本塔")
+    a = ap_.parse_args(argv)
+    print(text_tower_table() if a.tower else table())
     return 0
 
 
