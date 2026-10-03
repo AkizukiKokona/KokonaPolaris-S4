@@ -15,7 +15,15 @@
 特征：InceptionV3 2048-d（torchvision 权重已在本机缓存）
 运行：source /d/model/env.sh && "$KP_PY" tools/e5b_g1_fast.py
 """
-from kp.paths import OUT
+
+import sys
+from pathlib import Path
+
+# ⚠️ 入口自举：直接 `python tools/e5b_g1_fast.py` 时 `sys.path[0]` 是 **tools/** 而非仓库根
+#    ⇒ `import kp.paths` 报 ModuleNotFoundError；照 tools/onboard.py:18，⛔ 不写死绝对路径
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from kp.paths import OUT  # noqa: E402
 import os, re, json, itertools
 import numpy as np
 import torch

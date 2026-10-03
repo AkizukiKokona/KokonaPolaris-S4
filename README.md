@@ -3,7 +3,7 @@
 > **自研文生图架构**（非 SDXL / Flux 修补）。主打二次元 / 日系，写实是**主干内生的 domain 旋钮**。
 > **无底模，一个权重都不继承。**
 
-⚠️ **本仓库是「设计 + 参考实现骨架」，不是成品模型。** 骨架自检 **70/70** 通过（纯 CPU）。
+⚠️ **本仓库是「设计 + 参考实现骨架」，不是成品模型。** 骨架自检 **72/72** 通过（纯 CPU）。
 
 ---
 
@@ -79,11 +79,11 @@ cd KokonaPolaris-S4
 python tools/onboard.py
 ```
 
-**只需要 `torch` / `numpy` / `pillow` 就能跑全部 70 项自检**（纯 CPU，无需下载模型）。
+**只需要 `torch` / `numpy` / `pillow` 就能跑全部 72 项自检**（纯 CPU，无需下载模型）。
 
 | 常用命令 | 作用 |
 |---|---|
-| `python -m kp.selftest` | **70 项不变量自检**（纯 CPU，夜间安全） |
+| `python -m kp.selftest` | **72 项不变量自检**（纯 CPU，夜间安全） |
 | `python -m kp.arch_report` | 架构速览 + 真实参数量核对 |
 | `python -m kp.character.pipeline` | 角色卡数据管线 |
 | `python -m kp.train.fitter` | Character Fitter 训练闭环 |
@@ -114,7 +114,7 @@ python tools/onboard.py
 
 **G0 环境 🟢 → G1 ✅ 初步通过（W4A8）→ G2 通道分离 → G3 Sigmoid 注意力 → 🔴 G3.5 L1 条件轴真实性 → G4 Matryoshka → G5 角色卡 → G6 Micro-budget（需租云）→ G7 少步蒸馏**
 
-当前：**设计层收敛（~90%）/ 假设层未就绪 / 实现层骨架已落地（70/70）**。
+当前：**设计层收敛（~90%）/ 假设层未就绪 / 实现层骨架已落地（72/72）**。
 唯一遗留：**G1 正式 FID（≥50 张/臂，需白天解锁功耗）**。
 
 ---
@@ -123,7 +123,7 @@ python tools/onboard.py
 
 ```
 design/     设计稿（主文档 v1.14 + 补充 01–11 + 迁移手册）★ 项目的真相
-kp/         参考实现骨架（41 个 Python 文件，全部纯 CPU 可跑）
+kp/         参考实现骨架（44 个 Python 文件，全部纯 CPU 可跑）
   config.py     全部可调旋钮（QUANT / CAP / CAPTION / AXIS / LATENT / DIT）
   paths.py      路径唯一真源（三级探测，跨机可移植）
   latent/       40ch 混合 latent + 打包纯函数

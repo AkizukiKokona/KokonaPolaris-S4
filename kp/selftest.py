@@ -1264,6 +1264,45 @@ def main() -> int:
                 f"（{gain:.2f}× 更低 ✅）")
     check("L311 量化友好性：Sigmoid 激活离群值更低", _g3_quant_friendly)
 
+    # ---------------- 22. 排版链路闭环（plan → ROIBranch → composite） ----------------
+    section("22. 排版链路闭环（拼回 latent · 判据可证伪）")
+    from kp.typography.composite import (  # noqa: E402
+        composite_latent,
+        run_acceptance as _tc_accept,
+        DegenerateLayoutError as _TCL,
+    )
+
+    def _tc_acceptance():
+        """⭐ 三件套闭环的 12 条用例：正样本 1 + **负对照 3** + 退化 5 + 重叠 2。
+
+        ⚠️ 负对照是关键：全零 / 随机噪声 / 平移一格都必须**判不合格**。
+        只有正样本能过的判据是摆设（照 G2 / G3.5 的老规矩）。
+        """
+        r = _tc_accept()
+        assert r["ok"], f"排版闭环验收失败 {r['n_failed']}/{r['n_cases']}：" + \
+                        "; ".join(c["name"] for c in r["cases"] if not c["ok"])
+        pos = [c for c in r["cases"] if c["name"].startswith("正样本")][0]
+        neg = [c for c in r["cases"] if c["name"].startswith("负对照")]
+        deg = [c for c in r["cases"] if c["name"].startswith("退化")]
+        ovl = [c for c in r["cases"] if c["name"].startswith("重叠")]
+        return (f"{r['n_cases']}/{r['n_cases']} 通过（正样本 1 / 负对照 {len(neg)} / "
+                f"退化 {len(deg)} / 重叠 {len(ovl)}）")
+    check("12 条用例全过（含 3 条负对照 + 5 条退化）", _tc_acceptance)
+
+    def _tc_degenerate_raises():
+        """退化输入必须**抛** `DegenerateLayoutError`，不能静默返回。
+
+        ⛔ 空 layout 直接传给 `windows_from_layout` —— 这是唯一入口，
+        所以断言它在这里抛出，而不是去测别的包装函数。
+        """
+        from kp.typography.composite import windows_from_layout as _wf
+        try:
+            _wf({}, scale=32, shape=(32, 32))
+        except _TCL as e:
+            return f"空 layout 正确抛 DegenerateLayoutError：{str(e)[:44]}"
+        raise AssertionError("空 layout 竟然没抛异常 ⇒ 退化输入被静默吞掉了")
+    check("退化输入：空 layout 抛错而非静默", _tc_degenerate_raises)
+
     # ---------------- 汇总 ----------------
     return _summary()
 

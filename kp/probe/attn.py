@@ -303,13 +303,29 @@ def contrast_report(delta: float = 8.0,
 
 
 def known_answer_samples(*, n_seq: Sequence[int] = (16, 32, 64, 128)) -> Dict[str, float]:
-    """**已知答案**的对照样本 —— 装置必须先在它们上给出正确答案。
+    """**已知答案**的对照样本 —— 验的是 **α 估计器本身**（log-log 最小二乘斜率）。
 
-    ⭐ 照抄「装置层必须先过已知答案」这条规矩（G3.5 §16 的做法）：
-    没有这一步，装置在真模型上给出的数字没有意义。
+    ⚠️ **先分清两层，否则会误以为它和 `kp/selftest.py` §21 重复**
+       （审计 `out/audit_stale_and_dead.md` §4.1 正是把这两层混为一谈才标成孤儿）：
 
-    · `flat`     —— 每个 token 份额恒 1/N ⇒ α 必须 = 1（**定义上的强稀释**）
-    · `concentrated` —— 份额恒 0.9 ⇒ α 必须 = 0（**定义上的零稀释**）
+    【层 ①「估计器层」= 本函数】
+        验 `α` 是怎么**算**出来的：喂**构造出来的**份额序列，不碰 `_attn_core`。
+          · flat         份额恒 1/N ⇒ α 必须 = 1（**定义上的强稀释**）
+          · concentrated 份额恒 0.9 ⇒ α 必须 = 0（**定义上的零稀释**）
+        这一层错了，§21 的所有 α 数字都无意义（拟合层就写错了）。
+
+    【层 ②「机制 / 代码路径层」= `kp/selftest.py` §21】
+        走**真代码路径**（`dilution_exponent` → `attention_weights` →
+        `kp.models.dit._attn_core`），验的是**设计主张**本身：
+          · 等 logit ⇒ α 必为 1（尺子有分辨力）
+          · softmax 靠**抬信号**不稀释（平移不变）
+          · sigmoid 靠**压背景到负侧**才不稀释（看绝对零点）
+
+    ⇒ **两层互补、不是二选一**：本函数管「算得对不对」，§21 管「测的是不是真东西」。
+       建议接线（见本轮修复报告）：把本函数加成 §21 的一节「**先验尺子**」，
+       放在现有三项之前 —— 它更便宜（纯 CPU、无矩阵乘），且能拦住拟合层的错。
+
+    实测值（n_seq = 16/32/64/128）：`{'flat_alpha': 1.0, 'concentrated_alpha': -0.0}`。
     """
     def _alpha(shares: Sequence[float]) -> float:
         xs = [math.log(n) for n in n_seq]

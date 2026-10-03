@@ -67,7 +67,7 @@ import torch
 from ..config import AXIS, LATENT, DiTCfg
 from ..models import SingleStreamDiT
 from ..quant.nvfp4 import DESIGN_SPEC, OFFICIAL_DEFAULT_SPEC, QuantSpec
-from .axis import AxisProbe, AxisProbeReport, AxisResult
+from .axis import AxisProbe, AxisProbeReport
 
 __all__ = [
     "DOMAIN_AXES", "DOMAIN_AXIS_NAMES", "DOMAIN_AXIS_DESC", "DOMAIN_AXIS_SRC",
@@ -725,16 +725,23 @@ def real_axis_report_text(rep: RealProbeReport) -> str:
 # ---------------------------------------------------------------------------
 # ⑧ 高层入口
 # ---------------------------------------------------------------------------
-DEFAULT_SHAPE = dict(dim=192, layers=6, heads=6)
+# 测试形状主干的**唯一真源**。⚠️ 审计（`out/audit_stale_and_dead.md` §4.1）指出：
+# 这三个数字曾与 `build_test_backbone` 的默认参数**逐字重复** —— 改形状只改一处
+# 会静默留下另一处（旧值），是典型的「静默陷阱」。现在函数签名**直接引用**它，
+# 单一真源成立，改形状只需改这一行。
+DEFAULT_SHAPE: Dict[str, int] = dict(dim=192, layers=6, heads=6)
 
 
-def build_test_backbone(*, dim: int = 192, layers: int = 6, heads: int = 6,
+def build_test_backbone(*, dim: int = DEFAULT_SHAPE["dim"],
+                        layers: int = DEFAULT_SHAPE["layers"],
+                        heads: int = DEFAULT_SHAPE["heads"],
                         seed: int = 0, latent_ch: Optional[int] = None,
                         identity_anchor_layers: Sequence[int] = ()
                         ) -> SingleStreamDiT:
     """测试形状主干（**不是** KP-S 全尺寸：纯 CPU 可跑是硬要求）。
 
     固定种子 ⇒ 权重逐位可复现 ⇒ 四测数字可复算。
+    形状默认值取自 `DEFAULT_SHAPE`（单一真源，勿在此另写数字）。
     """
     torch.manual_seed(int(seed))
     cfg = DiTCfg(dim=int(dim), layers=int(layers), heads=int(heads), mlp_ratio=2.0,

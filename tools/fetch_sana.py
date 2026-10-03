@@ -24,7 +24,16 @@
    `huggingface_hub.constants.ENDPOINT` 是 **import 时读进常量的**，
    运行时改环境变量**不生效** ⇒ 会得出「所有通道都通」的假结论（本机踩过）。
 """
-from kp.paths import MODELS_SANA
+
+import sys
+from pathlib import Path
+
+# ⚠️ 入口自举：直接 `python tools/fetch_sana.py` 时 `sys.path[0]` 是 **tools/** 而非仓库根
+#    ⇒ `import kp.paths` 报 ModuleNotFoundError；照 tools/onboard.py:18，⛔ 不写死绝对路径
+#    （注意：下面 _download_worker 里那行 sys.path.insert 是给子进程用的，与这里无关）
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from kp.paths import MODELS_SANA  # noqa: E402
 import argparse
 import os
 import sys

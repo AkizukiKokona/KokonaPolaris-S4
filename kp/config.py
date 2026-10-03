@@ -166,8 +166,24 @@ AXIS = AxisCfg()
 # ---------------------------------------------------------------------------
 # 超参
 # ---------------------------------------------------------------------------
+# ⚠️ 预留旋钮 —— **当前是空壳**（详见 `RuntimeCfg` 的 docstring）
 @dataclass
 class RuntimeCfg:
+    """⭐ ⚠️ **预留（当前空壳）** —— 这不是一组**生效中**的旋钮。
+
+    审计（`out/audit_stale_and_dead.md` §4.1）查明：`RuntimeCfg` / `RUNTIME`
+    **没有任何字段被 `kp/` 消费** —— 全库只出现在 `kp/__init__.py:24,28` 的 re-export 上，
+    `dtype` / `device` / `seed` / `vram_*` / `tags` 都没有读者。
+
+    ⇒ **改这里不会改变任何行为**。`ONBOARDING.md` §3 的文件地图曾把它和
+       QUANT/CAP/CAPTION/AXIS/LATENT/DIT 并列为「可调旋钮」，现已改标为「预留（空壳）」。
+
+    ⛔ **不要因为零消费就删掉**：删不删是**架构决策**（要不要引入统一运行时配置层），
+       需用户拍板，不在死代码清理的授权范围内。
+    ✅ 将来要接线时，两个字段组的语义已经写在这里：运行时 dtype/设备/种子走 `RuntimeCfg`，
+       **架构**（层数/头数/通道/门线）一律留在 `DiTCfg` / `LatentCfg` / `QuantCfg` 等
+       frozen 架构常量里 —— 后者是「改动即架构改动」，不该被运行期参数覆盖。
+    """
     dtype: str = "bfloat16"
     device: str = "cpu"                       # 骨架默认 CPU（夜间安全）
     seed: int = 0

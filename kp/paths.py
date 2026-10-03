@@ -57,7 +57,17 @@ MODELS_SANA: Path = MODELS / "Sana_1600M_1024px_BF16_diffusers"
 
 
 def ensure(*p: Path) -> Path:
-    """确保目录存在并返回它（唯一允许创建目录的入口）。"""
+    """确保目录存在并返回它（**约定的唯一 mkdir 入口**）。
+
+    ⚠️ **当前 kp/ 全库尚无调用点**：本函数体内的 `mkdir(` 是 `kp/` 里唯一一次目录创建，
+       而**没有任何模块调用它** —— 这是审计（`out/audit_stale_and_dead.md` §4.1）
+       记录下来的「自述规则与实现脱节」。
+
+    ⛔ **不要因为它零调用就删掉它**：它承载的是一条**约定**，
+       删了以后「目录该在哪创建、由谁创建」就彻底没有守门人了。
+    ✅ **正确用法**：任何需要建目录的地方都改调它，别新写 `Path(...).mkdir(...)` ——
+       守门人一旦没有调用者就不再是守门人；让第一个调用点出现，本函数即名副其实。
+    """
     d = p[0] if len(p) == 1 else KP_ROOT.joinpath(*p)
     d.mkdir(parents=True, exist_ok=True)
     return d

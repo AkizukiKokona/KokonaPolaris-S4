@@ -44,7 +44,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..config import LATENT
-from .hybrid import split_channels, join_channels
+from .hybrid import join_channels
 
 EPS_SCALE = 1e-6      # 分母下限（缺陷 ① 的补丁）
 

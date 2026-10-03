@@ -6,7 +6,14 @@
 运行（必须经 bat 包装以注入 MSVC 环境）：
   cd /d/model && cmd //c "tools\\e5b_msvc_env.bat .venv\\Scripts\\python.exe tools\\e5b_retest.py"
 """
-from kp.paths import MODELS_SANA, OUT
+import sys
+from pathlib import Path
+
+# ⚠️ 入口自举：直接 `python tools/e5b_retest.py` 时 `sys.path[0]` 是 **tools/** 而非仓库根
+#    ⇒ `import kp.paths` 报 ModuleNotFoundError；照 tools/onboard.py:18，⛔ 不写死绝对路径
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from kp.paths import MODELS_SANA, OUT  # noqa: E402
 import os, sys, gc, json, time, traceback, inspect, copy, warnings, io
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
@@ -96,7 +103,6 @@ print(f"[2] modelopt_ext ok={REP.get('modelopt_cuda_ext_ok')} fp8={REP.get('mode
 dump()
 
 # ---------------------------------------------------------------- step 3: 运行时抓「无 backward 的 Function 真身」
-import torch.autograd as _ta  # noqa: E402
 SUSPECTS = []
 _orig_apply = torch.autograd.Function.apply.__func__
 

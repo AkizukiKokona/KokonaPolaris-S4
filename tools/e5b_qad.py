@@ -21,7 +21,14 @@
   source /d/model/env.sh && "$KP_PY" tools/e5b_qad.py probe
   source /d/model/env.sh && "$KP_PY" tools/e5b_qad.py qat --steps 30
 """
-from kp.paths import MODELS_SANA, OUT
+import sys
+from pathlib import Path
+
+# ⚠️ 入口自举：直接 `python tools/e5b_qad.py` 时 `sys.path[0]` 是 **tools/** 而非仓库根
+#    ⇒ `import kp.paths` 报 ModuleNotFoundError；照 tools/onboard.py:18，⛔ 不写死绝对路径
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from kp.paths import MODELS_SANA, OUT  # noqa: E402
 import os, gc, json, time, argparse
 import torch
 import torch.nn as nn

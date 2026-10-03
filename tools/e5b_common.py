@@ -9,8 +9,16 @@
   与量化器 enable/disable 无关（所以"量化器全关"也断）。
   ⇒ 只需把模块级 FP8SDPA 换成一个直接调 original SDPA 的普通函数（前向严格等价）。
 """
+import os, sys
+
+# ⚠️ 入口自举：`python tools/e5b_g1_gen.py` 时 `sys.path[0]` 是 **tools/**，
+#    不是仓库根 ⇒ `import kp.paths` 会 `ModuleNotFoundError: No module named 'kp'`。
+#    `env.sh` 并没有设 PYTHONPATH，所以这一行是必需的（照 `tools/onboard.py:18` 的做法）。
+#    ⛔ 用相对本文件的父目录，**不写死绝对路径**（`tools/portable_paths.py --verify` 须恒为 0）。
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from kp.paths import MODELS_SANA, OUT
-import os, math, time
+import math, time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

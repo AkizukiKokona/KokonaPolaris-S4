@@ -13,20 +13,24 @@
 """
 from __future__ import annotations
 
-from kp.paths import OUT
-
 import argparse
 import json
 import os
 import random
 import sys
 import time
+from pathlib import Path
 
+# ⚠️ 入口自举：直接 `python tools/typography/e6_synth.py` 时 `sys.path[0]` 是 **tools/typography/**
+#    ⇒ `import kp.paths` 报 ModuleNotFoundError；子目录比 tools/ 多退一层（parents[2]），⛔ 不写死绝对路径
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from kp.paths import OUT  # noqa: E402
 
+# 同目录的排版引擎模块不在包内，另需把本目录加进 sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import kp_engine as E
-import kp_schema as S
-import kp_compose as C
+import kp_engine as E  # noqa: E402
+import kp_schema as S  # noqa: E402
+import kp_compose as C  # noqa: E402
 
 OUT = OUT / "e6/synth"
 

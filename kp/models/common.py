@@ -8,11 +8,9 @@
 from __future__ import annotations
 
 import math
-from typing import Tuple
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 __all__ = ["RMSNorm", "sincos_1d", "sincos_2d", "TimestepEmbedding"]
 

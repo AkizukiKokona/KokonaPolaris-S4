@@ -22,6 +22,14 @@ from kp.paths import KP_ROOT, MODELS_SANA  # noqa: E402
 
 OK, WARN, BAD = "✅", "⚠️", "❌"
 
+# ⚠️ Windows 中文控制台的 GBK 陷阱：subprocess 的 text=True 会用**系统 locale 编码**
+#    解码子进程输出，而 git 的输出是 UTF-8 ⇒ 撞到非 ASCII 字节就抛
+#    `UnicodeDecodeError`，`r.stdout` 变 None ⇒ 报一句完全指不到根因的
+#    `AttributeError: 'NoneType' object has no attribute 'split'`。
+#    ⚠️ 这曾让「发布前体检」在中文 Windows 上**一直是坏的**（通用教训 #2：报错文本 ≠ 根因）。
+#    ⇒ 凡是解码 git / python 子进程输出，一律显式 encoding="utf-8"。
+_GIT = dict(capture_output=True, text=True, encoding="utf-8", errors="replace")
+
 # ---- 该被忽略的东西（若出现在受控文件里 = 事故）----
 FORBIDDEN_EXT = {".safetensors", ".ckpt", ".onnx", ".pt", ".pth", ".bin",
                  ".gguf", ".ckpt", ".h5", ".msgpack", ".pkl", ".npy", ".npz"}
@@ -40,9 +48,8 @@ HW_PROFILE = {
 
 
 def tracked() -> list[Path]:
-    r = subprocess.run(["git", "ls-files", "-z"], cwd=str(KP_ROOT),
-                       capture_output=True, text=True)
-    return [KP_ROOT / p for p in r.stdout.split("\0") if p]
+    r = subprocess.run(["git", "ls-files", "-z"], cwd=str(KP_ROOT), **_GIT)
+    return [KP_ROOT / p for p in (r.stdout or "").split("\0") if p]
 
 
 def repo_bytes() -> tuple[int, int]:
@@ -53,9 +60,8 @@ def repo_bytes() -> tuple[int, int]:
 
 
 def git_remote() -> list[str]:
-    r = subprocess.run(["git", "remote", "-v"], cwd=str(KP_ROOT),
-                       capture_output=True, text=True)
-    return [ln for ln in r.stdout.splitlines() if ln.strip()]
+    r = subprocess.run(["git", "remote", "-v"], cwd=str(KP_ROOT), **_GIT)
+    return [ln for ln in (r.stdout or "").splitlines() if ln.strip()]
 
 
 def _mb(b: int) -> str:
@@ -91,9 +97,8 @@ def audit(scan_secrets: bool = True) -> dict:
         "remotes": git_remote(),
         "models_present": MODELS_SANA.is_dir(),
         "hw": HW_PROFILE,
-        "head": subprocess.run(["git", "log", "-1", "--format=%h %s"],
-                               cwd=str(KP_ROOT), capture_output=True,
-                               text=True).stdout.strip(),
+        "head": (subprocess.run(["git", "log", "-1", "--format=%h %s"],
+                                cwd=str(KP_ROOT), **_GIT).stdout or "").strip(),
     }
 
 

@@ -22,7 +22,14 @@ QAD 目标：flow-matching MSE + λ·蒸馏(self-distill)
   source /d/model/env.sh && "$KP_PY" tools/e5b_qad2.py sgd_full --steps 30 --res 512
   source /d/model/env.sh && "$KP_PY" tools/e5b_qad2.py adapter --steps 5 --res 512 --tag smoke
 """
-from kp.paths import MODELS_SANA, OUT
+import sys
+from pathlib import Path
+
+# ⚠️ 入口自举：直接 `python tools/e5b_qad2.py` 时 `sys.path[0]` 是 **tools/** 而非仓库根
+#    ⇒ `import kp.paths` 报 ModuleNotFoundError；照 tools/onboard.py:18，⛔ 不写死绝对路径
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from kp.paths import MODELS_SANA, OUT  # noqa: E402
 import os, gc, json, time, argparse, math
 import torch
 import torch.nn as nn

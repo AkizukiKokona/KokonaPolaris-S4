@@ -6,7 +6,14 @@
 产出：D:/model/out/e4b_bf16/*.png + baseline_log.json（供 G1 复现与对照）
 运行：source /d/model/env.sh && "$KP_PY" tools/sana_bf16_baseline.py [图片数]
 """
-from kp.paths import MODELS_SANA, OUT
+import sys
+from pathlib import Path
+
+# ⚠️ 入口自举：直接 `python tools/sana_bf16_baseline.py` 时 `sys.path[0]` 是 **tools/** 而非仓库根
+#    ⇒ `import kp.paths` 报 ModuleNotFoundError；照 tools/onboard.py:18，⛔ 不写死绝对路径
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from kp.paths import MODELS_SANA, OUT  # noqa: E402
 import os, sys, json, time, torch
 from diffusers import SanaPipeline
 
