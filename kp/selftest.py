@@ -1937,6 +1937,51 @@ def main() -> int:
         return f"真图 {rgba.shape[:2]} -> {lab.shape} int16，背景占比 {float((lab<0).mean()):.2f}"
     check("解算器在真图上跑通（形状/dtype 契约）", _seg_predicts_on_real_image)
 
+    # ---------------- 30. txt2img+角色卡 端到端（主线最后一块拼图）----------------
+    section("30. txt2img+角色卡 · 端到端冒烟（⛔ 只证骨架）")
+
+    def _e2e_rolecard_chain():
+        """⭐ **主线端到端**：正/背视图 → Fitter / CharaBridge → 身份 token。
+
+        证明三件事（都是「不打架」与「秒级换角色」的核心承诺）：
+          ① Fitter **前向一次**出身份 token（秒级，不训练）
+          ③ **换角色 ⇒ token 真的变**（否则 Fitter 是常量，什么都没学）
+          ② **gate=0 ⇒ 返回 None**（不是零向量！）⇒ 身份完全不参与
+        ⛔ **不涉及**：文本塔（未蒸馏）· 主干训练（未开始）· 语义层（占位）。
+        """
+        from kp.character.e2e_smoke import run
+        r = run()
+        if "缺口" in r:
+            return f"⚠️ {r['缺口']}"
+        s1, s3, s2 = r["步骤"]["①Fitter"], r["步骤"]["③换角色"], r["步骤"]["②b关断不变量"]
+        assert s1["秒级"], f"Fitter 不够快：{s1['耗时秒']}s"
+        assert s3["真的变了"], "换角色后 token 没变 ⇒ Fitter 是常量"
+        assert s2["gate=0 两个角色都返回 None"], "gate=0 未返回 None"
+        assert s2["开门时两角色token确实不同"], "开门时两角色 token 相同 ⇒ 没学到"
+        return (f"①Fitter {s1['耗时秒']:.3f}s→{s1['身份token形状']}｜"
+                f"③换角色 Δ={s3['两角色token平均差']:.4f}｜"
+                f"②gate=0⇒None ✓ 开门⇒两角色不同 ✓")
+    check("端到端：视图→身份token（秒级/可换/可关断）", _e2e_rolecard_chain)
+
+    def _e2e_charabridge_input_contract():
+        """🔴 守住一个**已踩过**的坑：CharaBridge 吃**视图**、不是 Fitter 的 token。
+
+        ⚠️ 我第一版误以为二者串联（CharaBridge(Fitter(views))），实跑才报错才发现：
+        读源码才知 **`CharaBridge.forward(refs)` 吃 `[B,V,3,H,W]`**，
+        自己内部编码 ⇒ **Fitter 与 CharaBridge 是并列的两条身份通路**。
+        ⇒ 这条断言把这个契约钉住。
+        """
+        from kp.models.charabridge import CharaBridge
+        from kp.character.fitter import CharacterFitter
+        # ⚠️ 取【类自己的】docstring（`__doc__`），不是继承来的 `__init__` docstring
+        #    —— 我第一版用 `inspect.getdoc(__init__)` 拿到的是 torch.nn.Module 的通用说明。
+        cdoc = CharaBridge.__doc__ or ""
+        fdoc = CharacterFitter.forward.__doc__ or ""
+        assert "B, V, 3" in cdoc, f"CharaBridge 的输入约定没写在**类** docstring：{cdoc!r}"
+        assert "V, 3" in fdoc, f"Fitter 的输入约定没写在自己的 forward docstring：{fdoc!r}"
+        return "两者都吃 [B,V,3,H,W] 视图（并列，非串联）✓ 契约已钉"
+    check("🔴 CharaBridge/Fitter 输入契约（并列非串联）", _e2e_charabridge_input_contract)
+
     # ---------------- 汇总 ----------------
     return _summary()
 
