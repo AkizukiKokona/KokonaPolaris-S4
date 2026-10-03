@@ -56,9 +56,21 @@ Responder = Callable[[torch.Tensor], torch.Tensor]
 # 工具
 # ---------------------------------------------------------------------------
 def _spearman(a: torch.Tensor, b: torch.Tensor) -> float:
-    """Spearman 秩相关（无 scipy 依赖；轴值是等距采样，无并列秩）。"""
+    """Spearman 秩相关（无 scipy 依赖；轴值是等距采样，无并列秩）。
+
+    🔴 **必须守 null-response 盲点**（2026-10-03 由 G3.5 真探针发现，实测复现）：
+    当响应 `b` 恒为常数（该轴对输出**完全无作用**）时，本函数**原本返回 ρ=1.000**
+    —— 因为 `torch.argsort` 对常量张量返回的是**原序索引** `[0,1,2,…]`（不是常数），
+    排完秩后与轴值的等距秩**完全相关**。
+    ⇒ **一条彻底失效的轴会拿到「单调 1.00」并通过第 ① 测**。
+    这正是设计稿要害处（「低比特行程不可被前三测替代」）最怕的**静默假通过**。
+    修法：**任一侧无变化 ⇒ 无相关性可言，返回 0**（而不是 1）。
+    """
     n = a.numel()
     if n < 3:
+        return 0.0
+    # ---- null-response 守卫：常量输入没有"秩"，不许报 1.0 ----
+    if float(a.max() - a.min()) <= 1e-12 or float(b.max() - b.min()) <= 1e-12:
         return 0.0
 
     def _rank(x: torch.Tensor) -> torch.Tensor:
@@ -374,6 +386,32 @@ class AxisProbe:
         return keep, range_keep
 
     # ---------------- 全部 ----------------
+    # ---------------- null-response 预检（发现 ③ 的守卫） ----------------
+    def probe_inert(self, axis: int, samples: int = 3, seed: int = 0) -> Tuple[bool, float]:
+        """这条轴**到底有没有作用**？返回 `(是否 inert, 相对偏差)`。
+
+        为什么必须有这一问：第 ① 测原本对**常量响应**报 ρ=1.000（见 `_spearman` 注释），
+        ② 的零方向两两余弦为 0、③ 的分母为 0 被跳过 ⇒ **一条完全失效的轴会拿到
+        「3/4 通过」**。这正是设计稿要害处的**静默假通过**。
+
+        判据（保守，两层）：
+          · **相对层**：`dev_rel < 1e-4` —— 响应几乎不随轴值变化；
+          · **绝对层**：`dev < 1e-6`。
+        实测参考（kp/probe/real.py，CPU）：门关时 `dev ≈ 3e-8`（判 inert），
+        开门时 `dev ≈ 6e-3`，两侧余量都很大。
+        """
+        # ⚠️ `torch.linspace` **不接受 generator**（试过，TypeError）；
+        #    这里的扫描值是确定性的，本来也不需要随机源。
+        vals = torch.linspace(-1.0, 1.0, 3)
+        V = torch.zeros(samples + 3, self.n_axes)
+        V[:3, axis] = vals                                       # 只动这条轴
+        with torch.no_grad():
+            F = self._eval(V).to(torch.float32)
+        dev = float((F[:3] - F[:1]).abs().max())
+        mag = float(F.abs().mean())
+        dev_rel = dev / (mag + 1e-12)
+        return (dev_rel < 1e-4 and dev < 1e-6), dev_rel
+
     def run(self, axes: Optional[Sequence[int]] = None) -> AxisProbeReport:
         axes = list(axes) if axes is not None else list(range(self.n_axes))
         C, dirs = self.probe_orthogonality(axes)
@@ -381,7 +419,12 @@ class AxisProbe:
 
         results: List[AxisResult] = []
         for a, i in enumerate(axes):
+            inert, dev_rel = self.probe_inert(i, seed=getattr(self, "seed", 0))
             mono, d = self.probe_monotonicity(i)
+            if inert:
+                # ⭐ 无响应的轴**不许**因 ρ 的退化而通过 ①：显式判 0，
+                #    并在失败项里点名「无响应」，方便报告读者一眼看到根因。
+                mono = 0.0
             # 与其余轴的串扰：取该行除自身外的最大值
             row = C[a].clone()
             row[a] = 0.0
@@ -389,16 +432,19 @@ class AxisProbe:
             rev = self.probe_reversibility(i)
             keep, range_keep = self.probe_low_bit_travel(i, d)
             r2 = self.probe_identifiability(i)          # 辅助，不设门线
+            passed = {
+                "单调": mono >= AXIS.mono_threshold,
+                "正交": ortho <= AXIS.ortho_threshold,
+                "可逆": rev >= AXIS.rev_threshold,
+                "低比特行程": keep >= AXIS.travel_threshold,
+            }
+            if inert:
+                passed["单调"] = False                  # 显式，不依赖数值巧合
             res = AxisResult(
                 index=i, name=self.names[i], mono=mono, ortho=ortho,
                 rev=rev, travel_keep=keep,
                 ident_r2=r2, travel_range_keep=range_keep,
-                _pass={
-                    "单调": mono >= AXIS.mono_threshold,
-                    "正交": ortho <= AXIS.ortho_threshold,
-                    "可逆": rev >= AXIS.rev_threshold,
-                    "低比特行程": keep >= AXIS.travel_threshold,
-                },
+                _pass=passed,
             )
             results.append(res)
 

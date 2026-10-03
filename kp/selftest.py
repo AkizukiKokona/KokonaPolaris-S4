@@ -24,6 +24,8 @@
    17. 多视角配对：声明式单旋钮配对 / 拒绝猜测 / 缺口清单（角色卡数据线）
    18. Character Fitter 训练：配对驱动的对比目标 / 留出视角泛化 / 负对照（可证伪）
    19. ★ G2 通道分离：尺子双向校验 + 显式监督净收益（mix 对照）+ 退化输入报缺口
+   20. ★ G3.5 **真探针**：接在真主干 + 真轴注入路径（domain→domain_embed→adaLN）；
+       adaLN-Zero 不变量 / **非空性守卫**（死轴不许假通过 ①）/ ④ 真过量化器 / 负对照
 """
 from __future__ import annotations
 
@@ -974,6 +976,164 @@ def main() -> int:
         assert not torch.equal(s[:, :sc], x[:, :sc]), "打乱语义后语义块没变"
         return "shuffle_detail / shuffle_semantic / reverse 各自动对了该动的块"
     check("交叉扰动算子只动目标通道块", _g2_perturb_ops)
+
+    # ---------------- 20. G3.5 真探针（真主干 + 真轴注入路径） ----------------
+    section("20. G3.5 真探针（真主干 + 真轴注入路径 · 非空性守卫 + 真量化 ④）")
+    from kp.config import AXIS as _AXIS
+    from kp.probe import real as _RPB
+    from kp.probe.axis import _spearman as _rho
+    # ⚠️ 本节自己要用 AxisProbe 验「死轴不许假通过 ①」——
+    #    若只依赖第 16 节的 import，则**单独跑本节会 NameError**（节序侥幸能用 ≠ 正确）。
+    from kp.probe.axis import AxisProbe as _AxisProbe
+
+    # 小测试形状：纯 CPU 可跑是硬要求（不跑 1024² 全尺寸）
+    _RP = dict(dim=64, layers=4, heads=4, tokens=6, n_random=32)
+
+    def _rp_adaln_zero():
+        """⭐ 设计不变量：adaLN-Zero ⇒ **初值时域条件向量进不去输出**。
+
+        守的不是「代码现在这样」，而是设计稿写死的 adaLN-Zero 语义
+        （`dit.py`：adaLN 末层 weight 全 0、只把 attn/mlp/txt 三个 gate 的 bias 置 1；
+        身份门控第 9 段保持 0）。⇒ 推论：**未训练主干上 G3.5 根本无从谈起** ——
+        这不是「轴不成立」，而是「门还没开」。
+
+        ⚠️ 必须在**同一 batch 形状**下比对：跨 batch 会因 GEMM 分块差异产生
+           ~1e-8 的假差异（实测根因，不是猜测）。
+        """
+        m = _RPB.build_test_backbone(seed=0)
+        g = torch.Generator().manual_seed(7)
+        x = torch.randn(3, 40, 6, 6, generator=g)
+        t = torch.full((3,), 500.0)
+        with torch.no_grad():
+            a = m(x, t, domain=torch.zeros(3, 16))
+            b = m(x, t, domain=torch.randn(3, 16, generator=g))
+            c = m(x, t)
+        assert torch.equal(a, b), "adaLN-Zero 下域向量竟改变了输出"
+        assert torch.equal(a, c), "domain=None 与 domain=zeros 竟不同"
+        return "domain=0 / domain=随机 / domain=None 三者**逐位相同** ⇒ 门是死的"
+    check("adaLN-Zero：初值时域条件向量进不去输出（逐位）", _rp_adaln_zero)
+
+    def _rp_nonvacuous():
+        """⭐ 死轴**必须**判 ①不成立 —— 两道防线都要验。
+
+        ① 的语义是「轴值单调 ⇒ 输出沿该维单调变化」。一条**完全没有响应**的轴
+        必须判 ① 不成立。但秩相关对常量没有定义，**原口径实测给出 ρ=1.00**
+        （根因：`torch.argsort` 对常量张量返回原序索引 `[0,1,2,…]`，排完秩后
+        与轴值的等距秩完全相关），② 的零方向余弦 0、③ 分母为 0 被跳过
+        ⇒ **一条死轴会拿到「3/4 通过」**，即设计稿要害处的静默假通过。
+
+        现在两道防线都在（2026-10-03 补）：
+          · **装置层**：`axis._spearman` 对常量输入返回 0（不再是 1.0）；
+          · **流程层**：真探针在四测前做非空性预检（判据 = 响应是否显著高于
+            实测数值噪声底线；CPU oneDNN GEMM 行间噪声 ~1e-8）。
+        ⚠️ 本断言**故意同时钉两条**：任何一条单独被削弱，死轴都可能再次假通过。
+        """
+        c = torch.zeros(9)
+        r = _rho(torch.linspace(-1.0, 1.0, 9), c)
+        # 装置层：退化输入必须判 0（**设计承诺**：无变化 ⇒ 无相关性可言）
+        assert r == 0.0, f"装置层守卫失效：ρ(常量) 应为 0，实测 {r}"
+        # 流程层：只有装置层修好还不够，必须端到端确认死轴不通过 ①
+        dead = _AxisProbe(lambda V: torch.ones(V.shape[0], 8), n_axes=4, seed=0).run()
+        assert dead.n_pass == 0, f"死 responder 竟通过 {dead.n_pass}/4"
+        assert all(q.mono == 0.0 for q in dead.results), "死轴的 ① 必须判 0"
+
+        m = _RPB.build_test_backbone(seed=0)                 # 门关（主干初值）
+        rep = _RPB.run_real_probe(model=m, door=False, **_RP)
+        assert rep.n_inert == 16, f"门关时 16 条轴应全判 inert，实测 {rep.n_inert}"
+        assert all(q.mono == 0.0 for q in rep.probe.results), "inert 轴的 ① 必须判 0"
+        assert rep.n_pass == 0 and len(rep.l3_axes) == 16, rep.l3_axes
+        return (f"装置层 ρ(常量)={r:.2f}；流程层：门关 16/16 inert、① 全 0、全部归 L3")
+    check("非空性守卫：无响应的轴不许假通过 ①", _rp_nonvacuous)
+
+    def _rp_door_and_reproducible():
+        """开门后注入路径必须**可观测**、且必须**真的接在 domain_embed 上**。"""
+        kw = dict(door=True, door_scale=0.02, **_RP)
+        r1 = _RPB.run_real_probe(seed=0, **kw)
+        r2 = _RPB.run_real_probe(seed=0, **kw)
+        assert r1.n_inert == 0, "开门后仍判 inert ⇒ 门没开、或没接在真路径上"
+        for a, b in zip(r1.probe.results, r2.probe.results):
+            assert (a.mono, a.ortho, a.rev, a.travel_keep) == \
+                   (b.mono, b.ortho, b.rev, b.travel_keep), f"不同种子不可复现：{a.name}"
+        # 响应必须真的经过 domain_embed：清零它的权重 ⇒ 响应必须塌回噪声
+        m = _RPB.build_test_backbone(seed=0)
+        _RPB.open_domain_door(m, scale=0.02, seed=0)
+        resp = _RPB.make_responder(m, tokens=6, seed=0)
+        dev0, floor = _RPB.domain_response_dev(m, resp, [0])
+        with torch.no_grad():
+            m.domain_embed.weight.zero_()
+        dev1, _ = _RPB.domain_response_dev(m, resp, [0])
+        d0, d1 = float(dev0[0]), float(dev1[0])
+        assert d1 < max(d0 * 0.01, 10.0 * floor), (
+            f"清零 domain_embed 后响应仍有 {d1:.2e}（原 {d0:.2e}）⇒ 未接在该路径上")
+        return (f"16/16 有响应；同种子两次四测数字完全一致；"
+                f"清零 domain_embed ⇒ 响应 {d0:.2e}→{d1:.2e}（噪声底 {floor:.1e}）")
+    check("真探针确实接在 domain_embed 注入路径上（且可复现）", _rp_door_and_reproducible)
+
+    def _rp_quantizer_in_loop():
+        """⭐ ④ 必须**真的过一遍量化器**（设计稿点名「不可被前三测替代」）。
+
+        守两条不变量：
+          ⓐ 量化回路真的接进了主干 —— W4A8 下响应必须与 bf16 **不同**
+             （若逐位相同，说明量化器根本没挂上，④ 就是假的）；
+          ⓑ 「信号弱」必须由 ④ 单独抓 —— 在真路径上把一条轴压到量化台阶以下：
+             该轴 ④ 挂，而 ① 仍过 ⇒ **④ 不可被 ① 替代**（否则设计稿的要害论点不成立）。
+        """
+        m = _RPB.build_test_backbone(seed=0)
+        _RPB.open_domain_door(m, scale=0.02, seed=0)
+        rep = _RPB.run_real_probe(model=m, door=False, **_RP)
+        qerr = [rep.aux[i]["quant_relative_error"] for i in range(16)]
+        assert min(qerr) > 1e-4, f"量化后响应与 bf16 相同 ⇒ 量化器没进回路：{min(qerr)}"
+
+        m2 = _RPB.build_test_backbone(seed=0)
+        _RPB.open_domain_door(m2, scale=0.02, seed=0)
+        # ⭐ 必须是**配对对照**：选一条在参考状态下 ④ 本来**能过**的轴来压，
+        #    否则「压了之后 ④ 挂」可能只是它本来就挂（假对照）。
+        best = max(range(16), key=lambda i: rep.probe.results[i].travel_keep)
+        assert rep.probe.results[best].travel_keep >= _AXIS.travel_threshold, \
+            f"参考状态下没有一条轴能过 ④（最好 {rep.probe.results[best].travel_keep:.2f}）⇒ 对照无效"
+        _RPB.corrupt_domain_embed(m2, kind="suppressed", a=best, factor=0.02)
+        rep2 = _RPB.run_real_probe(model=m2, door=False, **_RP)
+        sup = rep2.probe.results[best]
+        ref_t = rep.probe.results[best].travel_keep
+        assert "低比特行程" in sup.failures, \
+            f"被压到量化台阶下的轴未挂 ④：行程 {ref_t:.2f}→{sup.travel_keep:.2f}" \
+            f"（失败项 {sup.failures}）"
+        assert sup.mono >= 0.9, f"① 不该抓这个（那是 ④ 的职责）：mono={sup.mono}"
+        assert not rep2.aux[best]["inert"], "应落在「弱响应」而不是「无响应」"
+        return (f"量化相对误差 ≥{min(qerr):.1e}（器真在回路里）；"
+                f"配对压下轴{best}：④ 行程 {ref_t:.2f}→{sup.travel_keep:.2f}（必挂），"
+                f"而 ① 仍 {sup.mono:.2f}")
+    check("④ 真的过量化器，且不可被 ① 替代", _rp_quantizer_in_loop)
+
+    def _rp_coupled_control():
+        """负对照（真路径可证伪）：两轴**共线注入** ⇒ ② 必须爆掉。"""
+        m = _RPB.build_test_backbone(seed=0)
+        _RPB.open_domain_door(m, scale=0.02, seed=0)
+        _RPB.corrupt_domain_embed(m, kind="coupled", a=2, b=3)
+        rep = _RPB.run_real_probe(model=m, door=False, **_RP)
+        o2 = rep.probe.results[2].ortho
+        o3 = rep.probe.results[3].ortho
+        assert o2 > 0.95 and o3 > 0.95, (o2, o3)
+        assert "正交" in rep.probe.results[2].failures
+        return f"共线轴 ② 串扰 → {o2:.3f} / {o3:.3f}（远超门线，必挂）"
+    check("负对照：真路径上的共线注入被 ② 抓住", _rp_coupled_control)
+
+    def _rp_ortho_power():
+        """⭐ ② 的**分辨力前提**：门线必须高于「随机方向基线」，否则测的是维度不是解耦。
+
+        16 个轴的方向都住在同一个读出空间里：D 维中 n 个随机方向的 max|cos| 有基线。
+        D=48（结构化读出）时基线已 **高于** 门线 0.30 ⇒ ② 在该读出下**没有分辨力**
+        （实测未训练主干上 16 条轴全在基线附近）；D=1440（全输出场）时基线远低于门线
+        ⇒ ② 才谈得上判别。这条断言把「读出维选择」钉成了 ② 结论的前置条件。
+        """
+        b48 = _RPB.orthogonality_null_baseline(16, 48, trials=100, seed=0)
+        bhi = _RPB.orthogonality_null_baseline(16, 1440, trials=100, seed=0)
+        assert b48["mean_max_cos"] > _AXIS.ortho_threshold, \
+            f"前提变了：D=48 的随机基线本应高于门线，实测 {b48}"
+        assert bhi["mean_max_cos"] < _AXIS.ortho_threshold, bhi
+        return (f"D=48 基线 {b48['mean_max_cos']:.3f} > 门线 {_AXIS.ortho_threshold}"
+                f"（无分辨力）｜D=1440 基线 {bhi['mean_max_cos']:.3f}（有分辨力）")
+    check("② 的分辨力基线：低维读出下门线不可达", _rp_ortho_power)
 
     # ---------------- 汇总 ----------------
     return _summary()

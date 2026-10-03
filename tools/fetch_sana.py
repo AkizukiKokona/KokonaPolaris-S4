@@ -27,8 +27,9 @@
 from kp.paths import MODELS_SANA
 import argparse
 import os
+import sys
 import time
-from huggingface_hub import HfApi, hf_hub_download
+from huggingface_hub import HfApi, hf_hub_url
 
 REPO = "Efficient-Large-Model/Sana_1600M_1024px_BF16_diffusers"
 DEST = str(MODELS_SANA)
@@ -56,18 +57,133 @@ PATTERNS_WAVE2 = [
     "text_encoder/config.json",
 ]
 
+# ---- 超时参数（在函数定义之前，因为用作默认值）----
+STALL_TIMEOUT = 60.0    # .part 多少秒无增长 => 判定卡死并 kill 子进程
+READ_TIMEOUT = 20.0     # 子进程单次 socket 读超时
+RETRIES = 60             # 允许很多次续传式尝试
+RETRY_WAIT = 3.0         # 重试基础等待（线性递增）
+
+# 文件名 → 期望字节数（拿到 repo 元数据后填充；用于「已完成」判定）
+size_map: dict = {}
+
+
+def _download_worker(url: str, part: str, offset: int) -> int:
+    """子进程入口：**只做一件事** —— 从 `offset` 续传，写进 `part`，然后退出。
+
+    退出码：0=正常读完；1=异常。父进程靠 `.part` 大小判断进度与死锁。
+
+    ⚠️ 必须放在**独立子进程**里做，原因是本机踩到的三件事：
+      1. `hf_hub_download` / `snapshot_download` 会**静默卡死**（TCP Established、
+         零字节、无读超时）⇒ 永远不返回，外层 try/except **根本没机会触发**。
+      2. 自写「停滞看门狗」也治不了 —— 线程 `close()` 抢不到控制权。
+      3. ⭐ `signal.SIGALRM` 在 **Windows 的 Python 里根本不存在** ⇒
+         `AttributeError: module 'signal' has no attribute 'SIGALRM'`，
+         每次尝试**瞬间失败**（实测重试 40 次全是同一个错，`.part` 原地不动）。
+         我当时只验证了"能编译"、没验证"能跑"，还把**自己代码的报错**
+         误判成了**网络劣化**。
+    ⇒ 唯一跨平台可靠解：**父进程按 `.part` 增长判断活性，卡住就 `kill` 子进程**
+      —— `kill` 是操作系统级的，不需要目标进程配合。
+    """
+    import urllib.request
+    req = urllib.request.Request(url)
+    if offset:
+        req.add_header("Range", f"bytes={offset}-")
+    with urllib.request.urlopen(req, timeout=READ_TIMEOUT) as r:
+        with open(part, "ab" if offset else "wb") as f:
+            while True:
+                b = r.read(1 << 20)
+                if not b:
+                    break
+                f.write(b)
+                f.flush()
+    return 0
+
+
+def download_one(rel_path: str, dest_root: str, *, retries: int = RETRIES,
+                 retry_wait: float = RETRY_WAIT, stall_timeout: float = STALL_TIMEOUT,
+                 chunk: int = 1 << 20) -> bool:
+    """单文件下载：**子进程拉取 + 父进程按 `.part` 增长监管 + 卡死即 kill + Range 续传**。"""
+    import subprocess
+    import urllib.request
+
+    final = os.path.join(dest_root, rel_path.replace("/", os.sep))
+    os.makedirs(os.path.dirname(final), exist_ok=True)
+    part = final + ".part"
+    url = hf_hub_url(REPO, rel_path)
+    total = size_map.get(rel_path)
+
+    for attempt in range(1, retries + 1):
+        have = os.path.getsize(part) if os.path.exists(part) else 0
+        if total and have >= total:
+            os.replace(part, final)
+            return True
+        code = (
+            "import sys;sys.path.insert(0,%r);"
+            "from tools.fetch_sana import _download_worker as w;"
+            "sys.exit(w(%r,%r,%d))"
+            % (os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+               url, part, have)
+        )
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, "-c", code],
+                env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"},
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"        {rel_path} 无法启动子进程：{e}", flush=True)
+            time.sleep(retry_wait)
+            continue
+
+        # ---- 监管：按 .part 增长判活性，卡住就 kill ----
+        last_size, last_t, killed = have, time.time(), False
+        while proc.poll() is None:
+            time.sleep(2.0)
+            cur = os.path.getsize(part) if os.path.exists(part) else 0
+            if cur > last_size:
+                last_size, last_t = cur, time.time()
+                print(f"        … {rel_path.split('/')[-1]} {cur/2**20:.0f} MB", flush=True)
+            elif time.time() - last_t > stall_timeout:
+                print(f"        ⛔ {rel_path} 停滞 {stall_timeout:.0f}s（.part 无增长）"
+                      f" ⇒ kill 子进程重连", flush=True)
+                proc.kill()
+                killed = True
+                break
+        try:
+            proc.wait(timeout=10)
+        except Exception:  # noqa: BLE001
+            pass
+
+        size = os.path.getsize(part) if os.path.exists(part) else 0
+        gained = size - have
+        if total and size >= total:
+            os.replace(part, final)
+            print(f"        ✅ {rel_path} 完成（{size/2**20:.0f} MB）", flush=True)
+            return True
+        print(f"        {rel_path} 第 {attempt} 次结束：本次 +{gained/2**20:.1f} MB"
+              f"（累计 {size/2**20:.0f}{'' if not total else f'/{total/2**20:.0f}'} MB）"
+              f"{'，被 kill' if killed else ''}", flush=True)
+        if attempt < retries:
+            time.sleep(retry_wait)
+    return False
+
+
 ap = argparse.ArgumentParser(description="下载 G1 靶子 Sana 1.6B")
 ap.add_argument("--wave", choices=["1", "2", "both"], default="both",
                 help="1=主干+VAE+tokenizer（5.4GB）；2=text_encoder gemma-2-2b（4.9GB，出图必需）；both=依次")
-ap.add_argument("--retries", type=int, default=4, help="单文件最大重试次数")
-ap.add_argument("--retry-wait", type=float, default=20.0, help="重试基础等待秒数（线性递增）")
+ap.add_argument("--retries", type=int, default=6, help="单文件最大重试次数")
+ap.add_argument("--retry-wait", type=float, default=15.0, help="重试基础等待秒数（线性递增）")
+ap.add_argument("--stall-timeout", type=float, default=STALL_TIMEOUT, help=".part 多少秒无增长即 kill 子进程")
 a = ap.parse_args()
 RETRIES, RETRY_WAIT = a.retries, a.retry_wait
+STALL_TIMEOUT = a.stall_timeout
 WAVES = {"1": PATTERNS, "2": PATTERNS_WAVE2}
 ORDER = ["1", "2"] if a.wave == "both" else [a.wave]
 
 api = HfApi(endpoint=os.environ.get("HF_ENDPOINT", "https://hf-mirror.com"))
 info = api.model_info(REPO, files_metadata=True)
+# 填充 size_map（download_one 用它判断「是否已下完」）
+size_map.update({f.rfilename: (f.size or 0) for f in info.siblings})
 
 def size_of(pats):
     tot = 0
@@ -89,33 +205,37 @@ for w in ORDER:
     files = [f.rfilename for f in info.siblings
              if any(f.rfilename == p or (p.endswith("*") and f.rfilename.startswith(p[:-1]))
                     for p in WAVES[w])]
-    print(f"    本波 {len(files)} 个文件", flush=True)
+    # ⭐ 按**文件大小降序**下：大文件先下（长连接失败率随持续时间上升，
+    #    把大件放在连接最"新鲜"的时候；小文件最后，失败也容易重来）
+    size_of_file = {f.rfilename: (f.size or 0) for f in info.siblings}
+    files = sorted(files, key=lambda f: -size_of_file.get(f, 0))
+    print(f"    本波 {len(files)} 个文件（按大小降序）", flush=True)
     failed = []
-    for i, fn in enumerate(sorted(files), 1):
-        size_mb = next((f.size for f in info.siblings if f.rfilename == fn), 0) or 0
-        ok = False
-        for attempt in range(1, RETRIES + 1):
-            try:
-                hf_hub_download(repo_id=REPO, filename=fn, local_dir=DEST)
-                ok = True
-                break
-            except Exception as e:  # noqa: BLE001
-                wait = RETRY_WAIT * attempt
-                print(f"    [{i}/{len(files)}] {fn} 第 {attempt} 次失败："
-                      f"{type(e).__name__}: {str(e)[:110]}", flush=True)
-                if attempt < RETRIES:
-                    print(f"        {wait}s 后重试（已下载分片会续传）...", flush=True)
-                    time.sleep(wait)
+    for i, fn in enumerate(files, 1):
+        size_mb = size_of_file.get(fn, 0)
+        final_p = os.path.join(DEST, fn.replace("/", os.sep))
+        # ⭐ 已完成则跳过 —— 否则 `--wave both` 重跑会把已下好的大件再下一遍
+        #    （旧版就踩过：5.4GB 第一波下完后重跑，白等了 5 分钟）
+        if os.path.exists(final_p) and os.path.getsize(final_p) == size_mb:
+            print(f"    [{i}/{len(files)}] ⏭  {fn}  ({size_mb/2**20:.0f} MB) 已完整，跳过",
+                  flush=True)
+            continue
+        t0 = time.time()
+        ok = download_one(fn, DEST, retries=RETRIES, retry_wait=RETRY_WAIT,
+                          stall_timeout=STALL_TIMEOUT)
+        dt = time.time() - t0
         if ok:
-            print(f"    [{i}/{len(files)}] ✅ {fn}  ({size_mb/2**20:.0f} MB)", flush=True)
+            spd = (size_mb / 2 ** 20) / dt if dt > 0 else 0
+            print(f"    [{i}/{len(files)}] ✅ {fn}  ({size_mb/2**20:.0f} MB, "
+                  f"{dt:.0f}s, {spd:.2f} MB/s)", flush=True)
         else:
             failed.append(fn)
             print(f"    [{i}/{len(files)}] ❌ {fn} —— {RETRIES} 次均失败，跳过", flush=True)
     if failed:
-        print(f"\n⚠️ 第 {w} 波有 {len(failed)} 个文件失败（**重跑本脚本即可续传**）：")
+        print(f"\n⚠️ 第 {w} 波有 {len(failed)} 个文件失败（**重跑本脚本即可从 .part 续传**）：")
         for f in failed:
             print(f"      {f}")
-        print("   提示：失败多为长连接被中断（IncompleteRead），重跑会从分片续传。")
+        print("   提示：失败多为长连接被中断或静默死连接，重跑会从 .part 续传。")
     else:
         print(f"✅ 第 {w} 波全部完成", flush=True)
 

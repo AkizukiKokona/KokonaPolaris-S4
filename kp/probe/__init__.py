@@ -1,9 +1,13 @@
 """kp.probe —— 验证门的**测量装置**（不是模型，是尺子）。
 
-现在只有一件：`AxisProbe` —— G3.5「L1 条件轴真实性」的四测。
-
-配套 `kp.probe.synthetic` 提供**对照样本**：测量装置必须先能在已知答案的
-样本上给出正确答案，否则它在真模型上给出的数字没有意义。
+三件：
+  · `AxisProbe`（`kp/probe/axis.py`）—— G3.5「L1 条件轴真实性」的四测装置；
+  · `Synthetic`（`kp/probe/synthetic.py`）—— **已知答案的对照样本**：
+    测量装置必须先能在已知答案的样本上给出正确答案，否则它在真模型上
+    给出的数字没有意义；
+  · `RealAxisProbe`（`kp/probe/real.py`）—— **真探针**：responder 接在
+    **真主干 + 真轴注入路径**（`domain → domain_embed → adaLN → blocks`）上，
+    ④ 低比特行程走**真量化回路**（`kp/quant/nvfp4.py` 挂在主干 `GatedLinear` 上）。
 """
 from .axis import (  # noqa: F401
     AxisResult,
@@ -12,6 +16,28 @@ from .axis import (  # noqa: F401
     axis_report_text,
 )
 from .synthetic import Synthetic  # noqa: F401
+from .real import (  # noqa: F401
+    DOMAIN_AXES,
+    DOMAIN_AXIS_NAMES,
+    RealAxisProbe,
+    RealProbeReport,
+    BackboneDomainResponder,
+    build_test_backbone,
+    corrupt_domain_embed,
+    domain_response_dev,
+    gate_ranges,
+    latent_readout,
+    noise_floor,
+    open_domain_door,
+    quantized_backbone,
+    real_axis_report_text,
+    run_real_probe,
+)
 
 __all__ = ["AxisResult", "AxisProbeReport", "AxisProbe", "axis_report_text",
-           "Synthetic"]
+           "Synthetic",
+           "DOMAIN_AXES", "DOMAIN_AXIS_NAMES", "RealAxisProbe", "RealProbeReport",
+           "BackboneDomainResponder", "build_test_backbone", "corrupt_domain_embed",
+           "domain_response_dev", "gate_ranges", "latent_readout", "noise_floor",
+           "open_domain_door", "quantized_backbone", "real_axis_report_text",
+           "run_real_probe"]
