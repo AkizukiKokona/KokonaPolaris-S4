@@ -23,6 +23,7 @@
    16. Axis Probe：G3.5 四测（单调/正交/可逆/低比特行程）—— 装置本身先过对照样本
    17. 多视角配对：声明式单旋钮配对 / 拒绝猜测 / 缺口清单（角色卡数据线）
    18. Character Fitter 训练：配对驱动的对比目标 / 留出视角泛化 / 负对照（可证伪）
+   19. ★ G2 通道分离：尺子双向校验 + 显式监督净收益（mix 对照）+ 退化输入报缺口
 """
 from __future__ import annotations
 
@@ -293,12 +294,22 @@ def main() -> int:
             meta={"source": "selftest"},
         )
         warn = card.validate()
-        import tempfile, os
-        p = os.path.join(tempfile.gettempdir(), "_kp_card_selftest.pt")
+        # ⚠️ 不要用 tempfile.gettempdir()：本机实测它返回**工作区根目录**
+        #    （受沙箱限制时 Python 会静默退化成 cwd），于是自检会在仓库根丢一个
+        #    `_kp_card_selftest.pt`，混进 `git status`。临时产物一律落 KP_OUT 并清理。
+        import os
+        from kp.paths import OUT
+        p = str(OUT / "_kp_card_selftest.pt")
         card.save(p)
-        back = CharacterCard.load(p)
-        assert back.name == card.name and back.num_tokens == card.num_tokens
-        assert torch.equal(back.identity_token, card.identity_token)
+        try:
+            back = CharacterCard.load(p)
+            assert back.name == card.name and back.num_tokens == card.num_tokens
+            assert torch.equal(back.identity_token, card.identity_token)
+        finally:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
         return f"往返一致，{card.size_bytes()/1024:.0f}KB，警告 {len(warn)} 条"
     check("角色卡 保存/加载 往返", _card)
 
@@ -873,6 +884,97 @@ def main() -> int:
                 f"inv {res.inv_end:.4f}{note}")
     check("真实批次冒烟（kokona）", _real_batch_smoke)
 
+    # ---------------- 19. G2 通道分离（结构性门） ----------------
+    section("19. G2 通道分离（交叉扰动 + 尺子双向校验）")
+    from kp.latent.separation import (
+        synthetic_batch, train_separation, evaluate, _Oracle, _Leaky,
+        cross_perturb, shuffle_within_batch,
+    )
+    from kp.latent.hybrid import channel_mi_penalty as _mi
+    from kp.latent.hybrid import split_channels as _split
+
+    def _g2_ruler():
+        """⭐ 尺子必须先自证：oracle 必须 PASS、leaky 必须 FAIL。
+
+        没有这一条，G2 后面所有数字都不可信 —— 装置本身坏掉时会**静默给出
+        看起来合理的结论**（本项目第一版就踩过：oracle 报 nan、leaky 报 1.000）。
+        """
+        x, _ = synthetic_batch(n=16, side=32, seed=0)
+        r_or = evaluate(_Oracle(), x)
+        r_lk = evaluate(_Leaky(), x)
+        assert r_or.overall, f"oracle（构造上完全分离）竟未通过：{r_or.to_dict()}"
+        assert not r_lk.overall, f"leaky（语义分支读细节块）竟通过：{r_lk.to_dict()}"
+        dep_or = max(max(r["dep_semantic"], r["dep_detail"]) for r in r_or.rows)
+        dep_lk = max(max(r["dep_semantic"], r["dep_detail"]) for r in r_lk.rows)
+        return f"oracle 依赖 {dep_or:.4f}（PASS）/ leaky 依赖 {dep_lk:.4f}（FAIL）→ 尺子有分辨力"
+    check("尺子双向校验：oracle 必过 + leaky 必挂", _g2_ruler)
+
+    def _g2_supervision_matters():
+        """⭐ G2 的核心断言：**显式监督买到了分离**，而且必须用 mix 来证明。
+
+        `mix=0` 时分离是白送的 ⇒ 负对照也该过（证明装置**不误报**）；
+        `mix>0` 时存在「语义分支顺手读细节块」的捷径 ⇒ 负对照 FAIL、
+        有监督 PASS。**只测一个 mix 会得出错误结论**（第一版就栽在这里：
+        只跑 mix=0，于是 w_inv=0 也 PASS，看起来「监督没用」）。
+        """
+        x0, t0 = synthetic_batch(n=16, side=32, seed=0, mix=0.0)
+        neg0 = evaluate(train_separation(x0, t0, steps=250, w_inv=0.0, seed=0), x0)
+        assert neg0.overall, f"mix=0 时负对照本应也通过（分离白送）：{neg0.to_dict()}"
+
+        x1, t1 = synthetic_batch(n=16, side=32, seed=0, mix=0.6)
+        sup = evaluate(train_separation(x1, t1, steps=250, w_inv=1.0, seed=0), x1)
+        neg = evaluate(train_separation(x1, t1, steps=250, w_inv=0.0, seed=0), x1)
+        assert sup.overall, f"有监督未通过：{sup.to_dict()}"
+        assert not neg.overall, f"mix=0.6 时负对照本应走捷径而失败：{neg.to_dict()}"
+        w = lambda r: max(max(q["dep_semantic"], q["dep_detail"]) for q in r.rows)
+        return (f"mix=0 负对照也过（无假阴性）；mix=0.6 负对照 {w(neg):.4f} FAIL "
+                f"vs 监督 {w(sup):.4f} PASS（{w(neg)/max(w(sup),1e-9):.1f}×）")
+    check("显式监督确有净收益（mix 对照，非单点）", _g2_supervision_matters)
+
+    def _g2_degenerate():
+        """退化输入必须显式报缺口 —— 不许静默返回「全过」的假报告。"""
+        x1, _ = synthetic_batch(n=1, side=32, seed=0)
+        try:
+            shuffle_within_batch(x1)
+        except ValueError as e:
+            assert "batch ≥ 2" in str(e)
+        else:
+            raise AssertionError("batch=1 时打乱竟未报错（会静默给出假结论）")
+        try:
+            evaluate(_Oracle(), x1)
+        except ValueError as e:
+            assert "batch ≥ 2" in str(e)
+        else:
+            raise AssertionError("batch=1 时验收竟未报错")
+        return "batch=1 → 明确报缺口（不静默放假通过）"
+    check("退化输入（batch=1）显式报缺口", _g2_degenerate)
+
+    def _g2_mi_penalty():
+        """MI 惩罚：独立通道应低于耦合通道（可微，训练侧可直接用）。"""
+        torch.manual_seed(0)
+        s = torch.randn(64, LATENT.semantic_ch, 8, 8)
+        d_ind = torch.randn(64, LATENT.detail_ch, 8, 8)
+        d_coupled = torch.randn(64, LATENT.detail_ch, 8, 8) + \
+            s.repeat(1, LATENT.detail_ch // LATENT.semantic_ch, 1, 1)
+        m_ind = float(_mi(*_split(torch.cat([s, d_ind], 1)), n_samples=512))
+        m_cou = float(_mi(*_split(torch.cat([s, d_coupled], 1)), n_samples=512))
+        assert m_cou > m_ind * 1.5, (m_ind, m_cou)
+        return f"独立 {m_ind:.5f} < 耦合 {m_cou:.5f}（惩罚能分辨）"
+    check("通道互信息惩罚能分辨独立/耦合", _g2_mi_penalty)
+
+    def _g2_perturb_ops():
+        """三种扰动算子的语义：只动指定通道块，其它块逐位不变。"""
+        x, _ = synthetic_batch(n=8, side=32, seed=0)
+        sc = LATENT.semantic_ch
+        d = cross_perturb(x, "shuffle_detail")
+        assert torch.equal(d[:, :sc], x[:, :sc]), "打乱细节竟动了语义块"
+        assert not torch.equal(d[:, sc:], x[:, sc:]), "打乱细节后细节块没变"
+        s = cross_perturb(x, "shuffle_semantic")
+        assert torch.equal(s[:, sc:], x[:, sc:]), "打乱语义竟动了细节块"
+        assert not torch.equal(s[:, :sc], x[:, :sc]), "打乱语义后语义块没变"
+        return "shuffle_detail / shuffle_semantic / reverse 各自动对了该动的块"
+    check("交叉扰动算子只动目标通道块", _g2_perturb_ops)
+
     # ---------------- 汇总 ----------------
     return _summary()
 
@@ -894,6 +996,16 @@ def _summary() -> int:
 
 
 if __name__ == "__main__":
+    # ⚠️ Windows 中文控制台默认 GBK ⇒ 打印 emoji（✅/❌）会抛
+    #    `UnicodeEncodeError: 'gbk' codec can't encode character '\u2705'`，
+    #    表现为「自检直接 exit 1、报告只打了一半」——**看起来像自检挂了，其实是编码**。
+    #    交接文档 §8 的命令原样贴进 PowerShell 就会命中这个假故障，故在此兜住。
+    for _s in (sys.stdout, sys.stderr):
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):  # pragma: no cover
+            pass
+
     # ⚠️ 某一节的 import / 语法错误不应让整份报告消失 —— 兜底也要打出汇总
     try:
         code = main()

@@ -106,6 +106,42 @@
 - ⚠️ `tools/e5b_msvc_env.bat` 里 `TORCH_EXTENSIONS_DIR` 也写死了 `D:/model/.cache/torch_ext`（`env.sh` 已提供正确值）。
 - ⚠️ `env.sh` 已改为**自定位**（不再写死 `D:/model`）；未写注册表级持久变量（`kp.paths` 本就自动探测，写死反而多副本误伤）。
 
+## G2 通道分离线（2026-10-03 建成 · 结构性门）
+- ⭐ **装置**：`kp/latent/separation.py`（监督件 + 验收）+ `tools/g2_channel_ablation.py`（CLI，出 JSON）。
+  自检第 19 节 5 项。**判据 = 交叉扰动下的「分支依赖度」**（不是误差比值，见下）。
+- 🔴 **三个踩过的坑（都是口径问题，不是代码问题）**：
+  1. **相对降幅不能拿「模型自己的误差」当分母** —— 完美分离时 base≈0 ⇒ 除法放大成假失败
+     （历史实测 495%）。**加 eps 不算修好**：本模块第一版加了 `1e-6`，结果
+     **oracle（构造上完全分离）算出 `nan`（0/0）**，而 **leaky 算出 `1.000`（看起来完美）**。
+  2. **扰动是在批维上做的 ⇒ 必然打散配对**，所以**不能**比「扰动后输出 vs 原配对目标」——
+     那样连 oracle 都会被判必错（实测报出 0.97 / 0.73 的假误差）。
+     ⇒ 正解是**不变性口径**：`依赖度 = ‖branch(x') − branch(x)‖ / ‖branch(x) − branch(0)‖`
+     （分母非零且能抓住「把通道彻底无视」的退化解）。
+  3. ⭐ **合成数据必须给出「白送 vs 有捷径」两档对照**：`mix=0`（语义块只含结构）时分离是**白送**的，
+     **负对照 w_inv=0 也会 PASS** ⇒ 只看这一档会得出「显式监督没用」的错误结论。
+     引入 `mix=0.6`（细节块里掺结构 = 捷径）之后判据才有分辨力。
+- ✅ **实测（合成，纯 CPU，~78s）**：尺子 oracle 依赖 **0.0000 PASS** / leaky **0.592 FAIL**；
+  `mix=0` 负对照也 PASS（**证明装置无假阴性**）；`mix=0.6` 负对照 **0.5340 FAIL**
+  vs 有监督 **0.0654 PASS** ⇒ **显式监督净收益 8.17×**。
+- ⚠️ **仍是合成数据**：它证明的是「装置正确 + 监督有效」，**不等于真图能分离**；真图版需接真实 VAE 编码器。
+
+## 🔴 本机环境新事实（2026-10-03 白天补测）
+- 🔴 **HF 直连不可用（不是网的问题，是本机 TLS 凭证栈）**：
+  `curl` → `schannel: AcquireCredentialsHandle failed: SEC_E_NO_CREDENTIALS (0x8009030e)`；
+  PowerShell `Invoke-WebRequest` → `The SSL connection could not be established`（0.1s 即失败）。
+  **只有 Python/certifi 栈 + 代理 7897 能通**（测速 1.4 MB/s；实际拉模型约 **0.6 MB/s**）。
+  ⇒ **下 HF 必须 `kp_hf` / 走代理** —— 本机上「直连更快」是假的。
+- ⚠️ **`hf_xet` 未装** → 每个文件都刷 `Xet Storage is enabled ... Falling back to regular HTTP download`。
+  HF 官方称 xet 对大文件显著更快 ⇒ **建议先装 `hf_xet` 再拉大模型**（**待实测，先别当结论**）。
+- 🔴 **`TRITON_CACHE_DIR` 未设** → Triton 缓存落到 `C:\Users\TX\.triton`，权限/沙箱下报
+  `PermissionError: [WinError 5]` ⇒ **ModelOpt NVFP4 端到端量化（`bench_115w.py` Phase D）跑不完**。
+  修法：`env.sh` 增加 `export TRITON_CACHE_DIR="$KP_ROOT/.cache/triton"`。
+- 🔴 **`tempfile.gettempdir()` 实测返回「工作区根目录」** ⇒ 临时产物会掉进仓库根、污染 `git status`
+  （本机曾出现 `_kp_card_selftest.json`）。**规则：临时文件一律落 `KP_OUT` 并清理**，
+  禁止用 `tempfile.gettempdir()`（已改掉 `selftest` 第 7 节那处）。
+- ⚠️ **中文控制台下 `python -m kp.selftest` 会因 emoji 报 GBK `UnicodeEncodeError` 而 exit 1**
+  （看起来像自检挂了）。已在 `selftest.py` 入口 `reconfigure(encoding="utf-8")` 兜住。
+
 ### 已有、可直接复用
 - ✅ **MSVC 14.44.35207**（`C:\Program Files\Microsoft Visual Studio\2022\Community\...`）+ **Windows SDK 10.0.26100.0**。
   ⚠️ `tools/e5b_msvc_env.bat` 默认路径找的是 `2022\BuildTools\...` 与 `D:\vc2022` / `D:\vs` ⇒ **本机三处都不匹配**，需设 `MSVC_ROOT` 指向 Community 版。
