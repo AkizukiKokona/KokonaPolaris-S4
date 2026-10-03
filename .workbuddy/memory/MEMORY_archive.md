@@ -7,6 +7,31 @@
 > ⚠️ **已作废（仅作历史快照）**：本节数字全部测于 RTX 5050 Laptop。
 > **2026-10-03 当前工作副本所在机 = `D:\kokonapolaris-s4` / RTX 5070 Laptop / sm_120 / 驱动 591.91 / CUDA UMD 13.1，环境全裸未装运行时** → 见 `MEMORY_ops.md`。新机跑 GPU 任务前必须 `tools/gpu_probe.py` 重测。
 
+## ⭐ 当前机实测基线：RTX 5070 Laptop（2026-10-03 实测）
+| 项 | 实测值 |
+|---|---|
+| GPU / 显存 | RTX 5070 Laptop GPU / 8151 MiB（7.96 GiB） |
+| **SM 数** | **36**（×128 = 4608 CUDA core） |
+| compute_cap / L2 | **sm_120** / **32 MB** |
+| 驱动 / CUDA UMD | 591.91 / 13.1 |
+| 功耗上限 | **Current & Requested 115 W**（Default 55 W / Min 5 W） |
+| **bf16 算力** | **47.4 TFLOPS**（4096³ ×300，CUDA event 纯计时） |
+| 满载工况 | **114.8 W 峰值 / 中位 114.4 W**、SM **2722 MHz**、占用 **100%**、**76°C** |
+| P-state / 降频 | **P0**；SW Power Cap / HW Slowdown / SW Thermal **全 Not Active** |
+| 每瓦算力 | 0.41 TFLOPS/W（5050 为 0.32） |
+
+**对照 5050（已迁出）**：20 SM / bf16 25.8 TFLOPS @80W（静音 20.9 @45.7W）/ FP4 120.5 @113W。
+⇒ **5070 的 bf16 是 5050 满血档的 1.84×，SM 数 1.8×**，**且功耗上限同为 115W、架构同为 sm_120、显存同为 8GB**
+⇒ **`kp/config.py` 架构常量一个都不用改**，只是算力更宽裕。
+
+🔴 **测量方法论（踩过两次，务必照做）**：
+1. **绝对不要把 `nvidia-smi` 子进程放进 CUDA event 的计时区间** —— 每次调用 ~150ms，会把
+   GPU 时间虚高成「4.6 TFLOPS / 21W」这种假数字（实测虚低 **10×**）。
+2. **算力与功耗分两阶段测**：阶段 A 纯 matmul + event 计时；阶段 B 另开线程采样
+   `nvidia-smi`，只看功耗不看时间。
+3. **预热必须充分**：4096³ 冷启动单发只有 7.7 TFLOPS，预热 30–40 次后才是 47 TFLOPS。
+4. 采样要读 `clocks_event_reasons.active`（本机恒 `0x0` ⇒ 无任何降频）。
+
 **迁出机**：RTX 5050 Laptop / 8151 MiB / compute_cap 12.0（sm_120 ✓）/ 20 SM / 驱动 610.74（CUDA UMD 13.3）。
 - 功耗标称 5/55/**115W(max)**。实测峰值 **113.8W 可达（=上限 98.1%）**，82°C，`clocks_event_reasons.active` 恒 `0x0`。
 - 五形态实测：D2D 拷贝 68.4 W / fp32 elementwise 66.9 W / bf16 tensor 79.7 W / 三流并发 79.8 W / **FP4 tensor 113.0 W（峰 113.8）**。
