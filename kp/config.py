@@ -47,6 +47,13 @@ class DiTCfg:
     matryoshka_tokens: tuple = (256, 1024)
     # 注入点必须在量化器之外
     quantize_injection_point: bool = False
+    # 🔴 M3 修法②（2026-10-03）：`patch_embed` 拆成「语义 8ch 走一路 + 细节 32ch 走一路」，
+    #    两路**权重不共享** ⇒ 结构上阻断跨块线性重建（M3「专属区」的结构保证）。
+    #    ⭐ 参数量恒等：(8+32)·d ≡ 40·d，与单路 40→d **完全相同** ⇒ 零代价。
+    #    ⛔ **默认关闭**：它改变架构行为，需在 P2 换主干时显式拍板；此处先让能力可测。
+    #       依据：`kp/probe/m3_fix.py` §修法②（构造级 0.9666→0.0017）、
+    #             `kp/probe/m3_fix_real.py`（真图 0.2632→0.0054，重建 L1 未测）。
+    split_patch_embed: bool = False
 
     @property
     def head_dim(self) -> int:

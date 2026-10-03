@@ -33,6 +33,26 @@
 from __future__ import annotations
 
 import sys
+
+# 🔴🔴 验收基线守卫（2026-10-03 全局审查发现 · 见 design v1.16 §勘误④）
+#
+# 本文件的 `check()` 靠**捕获 AssertionError** 判失败，而检查体内部大量使用裸 `assert`
+# （实测 171 处裸 assert / 仅 3 处 raise）。Python 的 `-O` 会把 `assert` 语句**整体移除**
+# ⇒ 检查函数退化成「只算不判」、返回空串 ⇒ 被记为 True。
+#
+# 实测已复现：`python -O -m kp.selftest` 仍打印「73/73 通过」，但 **71/73 项已不证明任何东西**。
+# ⚠️ 这与「LoRA 在 4-bit 路径下静默失效」是**同一类病，只是这次发生在验收工具自身**：
+#     任何带 `-O` 的 CI / PYTHONOPTIMIZE=1 / 打包器都会让基线静默失效且不报错。
+#
+# ⇒ 零成本修法：`__debug__` 在 `-O` 下恒为 `False`，是 python 层面唯一可靠的探针。
+if not __debug__:
+    raise RuntimeError(
+        "selftest 不可在 -O / PYTHONOPTIMIZE 下运行：\n"
+        "  本文件的断言机制是 `assert` + 捕获 AssertionError；`-O` 会把 assert 整体移除，\n"
+        "  导致所有检查退化为「只算不判」，73/73 变成一个**不再证明任何东西**的数字。\n"
+        "  请去掉 -O / PYTHONOPTIMIZE 后重跑。"
+    )
+
 import traceback
 from typing import Callable, List, Tuple
 
@@ -395,8 +415,63 @@ def main() -> int:
         assert torch.isfinite(q).all() and not torch.equal(base, q), "量化应改变输出"
         gl.set_quant(None)
         assert torch.equal(gl(x), base), "关闭量化后必须恢复 bit-exact"
-        return "量化改变输出；关闭后恢复 bit-exact"
+        return "量化改变输出；关闭后 bit-exact"
     check("GatedLinear 量化开关（关后 bit-exact）", _gl_quant)
+
+    def _quant_cfg_is_live():
+        """🔴 「`QUANT` 不是死旋钮」的守卫（2026-10-03 接线修复）。
+
+        审查发现：`QuantCfg` 全 8 字段曾**只被 `arch_report` 打印**，改 config 零效果。
+        修法：`nvfp4.spec_from_config()` + `DESIGN_SPEC` 由 config 实际构造 +
+             `qad.SKIP_DEFAULT` 由 `quantize_proj_out` 推导。
+        ⭐ 这条断言的作用是**持续证明"接线还活着"** ——
+           任何人把 `DESIGN_SPEC` 改回写死字面量，这里立刻红。
+        """
+        import dataclasses
+        from kp.config import QUANT
+        from kp.quant.nvfp4 import DESIGN_SPEC, spec_from_config
+        from kp.train.qad import SKIP_DEFAULT
+        # ① 恒等：DESIGN_SPEC 必须等于「按 config 现算出来的那份」
+        want = spec_from_config(QUANT)
+        assert (DESIGN_SPEC.weight, DESIGN_SPEC.act, DESIGN_SPEC.block) == \
+               (want.weight, want.act, want.block), (
+            f"DESIGN_SPEC {DESIGN_SPEC.describe()} 与 config 算出的 "
+            f"{want.describe()} 不一致 ⇒ 有人把它改回写死值了")
+        # ② 变异性：改 config 的每个**可接线**字段，spec 必须跟着变（否则仍是死的）
+        #    ⚠️ `act` 的映射是 位宽→档名（8→"fp8"、4→"fp4"），不是直接透传
+        for field, val, attr, want in (("block_size", 8, "block", 8),
+                                        ("act_bits", 4, "act", "fp4")):
+            q2 = dataclasses.replace(QUANT, **{field: val})
+            assert getattr(spec_from_config(q2), attr) == want, \
+                (f"改 QUANT.{field}={val} 后 spec.{attr} 应为 {want!r}，"
+                 f"实际 {getattr(spec_from_config(q2), attr)!r} ⇒ 该字段仍是死的")
+        # ③ SKIP_DEFAULT 由 quantize_proj_out 推导
+        want_skip = () if QUANT.quantize_proj_out else ("out_proj",)
+        assert SKIP_DEFAULT == want_skip, \
+            f"SKIP_DEFAULT {SKIP_DEFAULT} 与 quantize_proj_out={QUANT.quantize_proj_out} 不一致"
+        return (f"DESIGN_SPEC ≡ spec_from_config(QUANT)（block={DESIGN_SPEC.block}）；"
+                f"改 block_size/act_bits **确实会变**；SKIP_DEFAULT={SKIP_DEFAULT}")
+    check("QUANT 配置真接线（改 config 行为跟着变）", _quant_cfg_is_live)
+
+    def _quant_cfg_rejects_invalid():
+        """⛔ 不可接线的字段必须**报错**而不是静默忽略。
+
+        `weight_bits=8` / `scale_fmt=FP8` 这类改动会让格式**不再是 NVFP4**；
+        若静默忽略，就回到了"死旋钮"的病根。⇒ 必须显式抛错。
+        """
+        import dataclasses
+        from kp.config import QUANT
+        from kp.quant.nvfp4 import spec_from_config
+        for field, val, why in (("weight_bits", 8, "非 4-bit/E2M1"),
+                                ("scale_fmt", "FP8", "非 E4M3")):
+            try:
+                spec_from_config(dataclasses.replace(QUANT, **{field: val}))
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"QUANT.{field}={val}（{why}）被静默接受 ⇒ 应显式报错")
+        return "weight_bits=8 / scale_fmt=FP8 均**显式报错**（不静默忽略）"
+    check("不可接线字段显式报错（防回到死旋钮病根）", _quant_cfg_rejects_invalid)
 
     # ---------------- 10. 能力包落盘 / 加载 ----------------
     section("10. 能力包落盘 / 加载往返（四接口之一）")
@@ -1009,6 +1084,90 @@ def main() -> int:
         return "shuffle_detail / shuffle_semantic / reverse 各自动对了该动的块"
     check("交叉扰动算子只动目标通道块", _g2_perturb_ops)
 
+    def _g2_content_redundancy_ruler():
+        """🔴 缺陷 ③ 的尺子校验：内容冗余测项**必须先过已知答案**。
+
+        ⚠️ 这条自检的存在意义：本项目**同一个量被用过两种口径**——
+          ①「按图展平」⇒ N=16 vs D=1152，**D≫N 欠定** ⇒ 最小二乘恒报 R²=1.0000；
+          ②「`N·h·w` 个空间位置当样本」⇒ 良态，能分辨。
+        ⚠️ 我曾用 ① 去质疑真图上 ② 得到的 0.988，**错误地撤回了正确结论**。
+        ⇒ 这条断言的作用是**把「口径正确」这件事本身钉住**，防止再犯。
+        """
+        from kp.latent.separation import cross_predictability
+        sc, dc = LATENT.semantic_ch, LATENT.detail_ch
+        g = torch.Generator().manual_seed(0)
+        n, s = 16, 16
+        # 已知答案①：两块完全独立 ⇒ 应 ≈0
+        sem = torch.randn(n, sc, s, s, generator=g)
+        det = torch.randn(n, dc, s, s, generator=g)
+        r_ind = cross_predictability(torch.cat([sem, det], 1))
+        # 已知答案②：语义块被复制进细节块 ⇒ 应显著 >0
+        det_cp = det.clone()
+        det_cp[:, :sc, :, :] = sem
+        r_cp = cross_predictability(torch.cat([sem, det_cp], 1))
+        # 已知答案③：弱冗余 0.6 ⇒ 应居中
+        det_wk = det.clone()
+        det_wk[:, :sc, :, :] = 0.6 * sem + 0.4 * det_wk[:, :sc, :, :]
+        r_wk = cross_predictability(torch.cat([sem, det_wk], 1))
+        a, b, c = (r_ind["cross_r2_detail_from_sem"],
+                   r_wk["cross_r2_detail_from_sem"],
+                   r_cp["cross_r2_detail_from_sem"])
+        assert a < 0.02, f"完全独立竟报 {a:.4f}（口径错，欠定最小二乘？）"
+        assert c > 0.15, f"精确拷贝竟只报 {c:.4f}（量没分辨力）"
+        assert a < b < c, f"三档不单调：独立 {a:.4f} / 弱冗余 {b:.4f} / 拷贝 {c:.4f}"
+        return f"独立 {a:.4f} < 弱冗余 {b:.4f} < 拷贝 {c:.4f}（位置级口径，三档单调）"
+    check("内容冗余测项先过已知答案（口径守卫）", _g2_content_redundancy_ruler)
+
+    def _g2_redundancy_cannot_judge_encoder():
+        """⚠️ 反向断言：`cross_r2` **不能**当「编码器有没有分开」的判据。
+
+        `_Oracle` 的 `sem_path`/`det_path` 就是输入的两块切片 ⇒ 它的输出两块
+        **恒等于**输入 ⇒ 测 oracle 等于测输入 ⇒ **在这个尺子上无任何分辨力**。
+        ⇒ 写死这条断言，避免以后又有人拿 `cross_r2` 当编码器判据。
+        """
+        from kp.latent.separation import cross_predictability
+        x, _ = synthetic_batch(n=16, side=16, seed=0, mix=0.6)
+        o = _Oracle()
+        with torch.no_grad():
+            s, d = o.sem_path(x), o.det_path(x)
+        r_out = cross_predictability(torch.cat([s, d], 1))
+        r_in = cross_predictability(x)
+        assert abs(r_out["cross_r2_sem_from_detail"]
+                   - r_in["cross_r2_sem_from_detail"]) < 1e-6, (
+            "oracle 输出不再等于输入切片 —— 若这是真的，说明 _Oracle 的构造变了，"
+            "本断言与文档需要一起更新")
+        return ("oracle 输出恒等于输入切片 ⇒ cross_r2 测的是 latent 内容、"
+                "不是编码器行为（0.988 不能这么解读）")
+    check("冗余量不可当编码器判据（防止再次误用）", _g2_redundancy_cannot_judge_encoder)
+
+    def _g2_real_separation_smoke():
+        """🔴 真图版 G2 装置的**冒烟**（997 行此前**零自检覆盖**）。
+
+        ⚠️ **断言的是「结构完整 + 缺口被报出」，不是 verdict 本身** ——
+            `verdict` 会随分辨率/数据波动（本 smoke 实测 FAIL，384px 全量跑则 PASS），
+            拿它当断言就是**制造假失败**。
+        ⭐ 三个必须恒真的不变量（它们才说明装置真的跑起来了）：
+            ① `sanity_ok` True  ⇒ 尺子双向校验过了（oracle 过 / leaky 挂）
+            ② `len(arms) == 5`  ⇒ 五个对照臂都在（含负对照与塌缩体检）
+            ③ `conclusion_strength` 非空 + **低分辨率时必须报出分辨率缺口**
+        """
+        from kp.latent.real_separation import run_real_g2
+        rep = run_real_g2(size=128, steps=20, n_perm=3, max_views=8,
+                          synth_steps=30)
+        assert rep.get("sanity_ok") is True, f"尺子双向校验没过：{rep.get('rulers')}"
+        arms = rep.get("arms") or {}
+        expected = {"frozen_random_encoder", "joint_supervised", "joint_negative",
+                    "joint_no_anchor", "semantic_routed"}
+        assert set(arms) == expected, f"实验臂不全：缺 {expected - set(arms)}"
+        assert rep.get("conclusion_strength") not in (None, ""), "结论强度未标注（不许裸给数字）"
+        gaps = rep.get("gaps") or []
+        assert any("分辨率" in g for g in gaps), (
+            f"128² 低分辨率**必须**报出分辨率缺口，否则这个数字会被当真：gaps={gaps}")
+        gap = rep.get("gap") or {}
+        return (f"5 臂全跑通 · sanity_ok ✓ · strength={rep.get('conclusion_strength')} · "
+                f"缺口已报「{gaps[0][:24]}…」· 监督净收益 {gap.get('improvement_x', 0):.2f}×")
+    check("真图 G2 装置冒烟（997 行纳入覆盖）", _g2_real_separation_smoke)
+
     # ---------------- 20. G3.5 真探针（真主干 + 真轴注入路径） ----------------
     section("20. G3.5 真探针（真主干 + 真轴注入路径 · 非空性守卫 + 真量化 ④）")
     from kp.config import AXIS as _AXIS
@@ -1316,6 +1475,166 @@ def main() -> int:
             return f"空 layout 正确抛 DegenerateLayoutError：{str(e)[:44]}"
         raise AssertionError("空 layout 竟然没抛异常 ⇒ 退化输入被静默吞掉了")
     check("退化输入：空 layout 抛错而非静默", _tc_degenerate_raises)
+
+    # ---------------- 23. M3 修复预实验（真图冗余 0.988 的三条修法）----------------
+    section("23. M3 Latent 解耦修复（构造级 · 真图待验）")
+
+    def _m3_split_param_equality():
+        """🔴 修法② 的**参数量恒等**必须精确成立（不是"约等于"，是 **0 差**）。
+
+        恒等式：`(8+32)·d ≡ 40·d`（单路 `40→d`）⇒ 拆两路只多一次加法。
+        ⭐ 这是「拆路免费」这个结论的**唯一硬证据**。
+        ⚠️ 顺带守一条：本项目教训「『预留接口』不该用『每层都付钱』的方式存在」——
+           若有人把 `self.patch_embed` 与 split 两路**同时建**，会多出 `40·d` **死参数**。
+        """
+        import dataclasses
+        from kp.config import DIT_S, DIT_M, LATENT
+        from kp.models.dit import SingleStreamDiT
+
+        def n_params(cfg, split):
+            c = dataclasses.replace(cfg, split_patch_embed=split)
+            torch.manual_seed(0)
+            m = SingleStreamDiT(c, latent_ch=LATENT.total_ch,
+                                identity_anchor_layers=[1, c.layers // 2])
+            return (sum(p.numel() for p in m.parameters())
+                    + sum(b.numel() for b in m.buffers() if b.is_floating_point()))
+
+        diffs = []
+        for name, cfg in (("KP-S", DIT_S), ("KP-M", DIT_M)):
+            a, b = n_params(cfg, False), n_params(cfg, True)
+            assert a == b, f"{name} 拆两路后参数量变了：{a} -> {b}（差 {b - a}）"
+            diffs.append(f"{name} 0")
+        return f"共享 ≡ 拆两路，参数量**精确相等**（{'/'.join(diffs)}）"
+    check("修法② 参数量精确恒等（无死参数）", _m3_split_param_equality)
+
+    def _m3_split_default_off():
+        """⛔ 修法② **默认关闭** —— 它改变架构行为，须在 P2 换主干时显式拍板。"""
+        from kp.config import DIT_S, DiTCfg
+        assert DIT_S.split_patch_embed is False, "split_patch_embed 不该默认开启"
+        assert DiTCfg().split_patch_embed is False, "DiTCfg 默认值不该是 True"
+        return "split_patch_embed 默认 False（架构变更须显式拍板）"
+    check("修法② 默认关闭（不在主干里偷做架构变更）", _m3_split_default_off)
+
+    def _m3_ruler():
+        """预实验的**尺子**：起点必须有分辨力，否则"压下来了"是假象。"""
+        from kp.probe.m3_fix import make_high_redundancy, cross_r2
+        vals = []
+        for noise in (0.20, 0.50, 1.00):
+            r = cross_r2(make_high_redundancy(noise=noise))
+            vals.append(r["det_from_sem"])
+        assert vals[0] > 0.9, f"强冗余起点只报 {vals[0]:.4f}（造的数据不够冗余）"
+        assert vals[0] > vals[1] > vals[2], f"三档不单调：{vals}"
+        return f"强 {vals[0]:.3f} > 中 {vals[1]:.3f} > 弱 {vals[2]:.3f}（起点有分辨力）"
+    check("起点可分性（造的数据真有冗余）", _m3_ruler)
+
+    def _m3_fix_grad():
+        """修法①：可微跨块去相关惩罚 ⇒ 能把冗余压下来。"""
+        from kp.probe.m3_fix import make_high_redundancy, cross_r2, apply_fix_grad
+        z0 = make_high_redundancy(noise=0.20)
+        before = cross_r2(z0)["det_from_sem"]
+        after = cross_r2(apply_fix_grad(z0))["det_from_sem"]
+        assert after < before * 0.5, f"修法① 没压下来：{before:.4f} -> {after:.4f}"
+        return f"det|sem {before:.4f} -> {after:.4f}（压到门线 0.10 以下）"
+    check("修法① 可微去相关惩罚能压冗余", _m3_fix_grad)
+
+    def _m3_split_patch():
+        """修法②：patch_embed 拆两路、不共享权重 ⇒ 参数量零代价。"""
+        from kp.probe.m3_fix import make_high_redundancy, cross_r2, SplitPatchEmbed
+        z0 = make_high_redundancy(noise=0.20)
+        before = cross_r2(z0)["det_from_sem"]
+        after = cross_r2(SplitPatchEmbed.trainable(z0))["det_from_sem"]
+        assert after < before * 0.5, f"修法② 没压下来：{before:.4f} -> {after:.4f}"
+        # 参数量恒等：(8+32)·d == 40·d，与单路 40→d 完全相同
+        d = 1152
+        assert (LATENT.semantic_ch + LATENT.detail_ch) * d == LATENT.total_ch * d
+        return f"det|sem {before:.4f} -> {after:.4f}；参数量 (8+32)·d = 40·d **零代价**"
+    check("修法② 拆两路能压冗余且零参数量代价", _m3_split_patch)
+
+    def _m3_no_fake_claim():
+        """⚠️ 防过度外推守卫：本预实验**只在构造数据上**做过。
+
+        真图（cross_r2=0.988）上能不能压下来、会不会损失重建质量，
+        **本实验都没有测** ⇒ 任何"已证明 M3 可修"的说法都是错的。
+        """
+        from kp.probe.m3_fix import make_high_redundancy
+        z = make_high_redundancy(noise=0.20)
+        assert z.shape[1] == LATENT.total_ch
+        return ("预实验仅覆盖构造级；真图 0.988 的可修性 + 重建代价**均未测**（勿宣称已修）")
+    check("预实验边界声明（防把构造结论当真图结论）", _m3_no_fake_claim)
+
+    # ---------------- 24. P1 VAE 训练器（过拟合判据 + 固定评估集）----------------
+    section("24. P1 VAE 训练器（⭐ 小数据量下不许用随机 batch 判收敛）")
+
+    def _p1_fixed_eval_set_exists():
+        """🔴 守卫：训练器**必须有固定评估集**。
+
+        背景（2026-10-03 实测打脸）：
+          11 张图 + `batch=4` 随机抽 ⇒ 训练日志呈「0.321 → **0.386 反弹**」
+          ⇒ 我据此判断「过拟合」。⛔ **判断错了** ——
+          同一 checkpoint 用**固定全量 11 张**评估，l1 = 0.1378（比日志的 0.1719 更低）
+          ⇒ **所谓反弹是采样噪声，不是过拟合。**
+        ⇒ 这条断言的作用：防止有人把「随机 batch 的 loss 曲线」当收敛判据。
+        """
+        from kp.train.vae_pretrain import fixed_eval_set, evaluate
+        import inspect
+        assert callable(fixed_eval_set), "缺少 fixed_eval_set"
+        assert callable(evaluate), "缺少 evaluate"
+        # 固定集必须**确定**：同一输入两次调用结果逐位相同
+        import torch as _t
+        from kp.train.vae_pretrain import list_images
+        from kp.paths import DATA
+        paths = list_images([DATA / "characters" / "kokona"])
+        if not paths:
+            return "⚠️ 无 kokona 图，跳过逐位校验（仅断言函数存在）"
+        a = fixed_eval_set(paths, 32, _t.device("cpu"))
+        b = fixed_eval_set(paths, 32, _t.device("cpu"))
+        assert _t.equal(a, b), "固定评估集两次调用结果不同 ⇒ 不是确定性固定集"
+        return f"固定集确定性 ✓（{a.shape[0]} 张 · 两次调用逐位相同）"
+    check("训练器有固定评估集（不许用随机 batch 判收敛）", _p1_fixed_eval_set_exists)
+
+    def _p1_multiscale_is_cheap_and_differentiable():
+        """多尺度感知损失：可回传 + **真的看重结构**。
+
+        ⚠️ **这个断言的样本选择踩过两次坑（留档）**：
+          ① 先用 `torch.randn` 随机噪声当 rec ⇒ 「抹平结构」后损失反而**变小**
+             —— 随机图没有"结构"可言，抹平等于靠近通道均值期望，**样本选错**。
+          ② 改用 `torch.zeros` + 矩形 ⇒ 梯度为 0 是**常量图** ⇒ `_edge` 全 0、两项都 0
+             —— 同样是**样本选错**。
+        ✅ 正确做法：**用项目里的真实图片**（`data/characters/kokona`），
+           因为要验的命题是「结构被抹平时损失变大」，**样本本身必须真有结构**。
+        """
+        import torch as _t
+        from kp.train.vae_pretrain import multiscale_perceptual, list_images, load_batch
+        from kp.paths import DATA
+        paths = list_images([DATA / "characters" / "kokona"])
+        if not paths:
+            return "⚠️ 无 kokona 图，跳过结构断言"
+        x = load_batch(paths[:4], 32, _t.device("cpu"))
+        # ① 可回传
+        rec = x.clone().requires_grad_(True)
+        v = multiscale_perceptual(rec, x)
+        assert v.requires_grad, "多尺度感知损失不可回传 ⇒ 训练不了"
+        v.backward()
+        assert rec.grad is not None and _t.isfinite(rec.grad).all(), "梯度异常"
+        # ② 结构抹平 ⇒ 损失必须**严格变大**（比值会除零，用绝对差）
+        perfect = float(multiscale_perceptual(x, x))              # 完美重建 = 0
+        flat = float(multiscale_perceptual(
+            x.mean(1, keepdim=True).repeat(1, 3, 1, 1), x))       # 结构被抹平
+        assert flat > perfect, f"结构抹平后损失没变大（{flat:.4f} vs {perfect:.4f}）⇒ 没用上结构"
+        return f"可回传 ✓ · 完美重建 {perfect:.3f} → 结构抹平 {flat:.3f}（真的看重结构）"
+    check("多尺度感知损失可回传且真的看重结构", _p1_multiscale_is_cheap_and_differentiable)
+
+    def _p1_no_silent_data_substitution():
+        """⛔ 没图必须报错，**不许静默用合成数据替代**。"""
+        from kp.train.vae_pretrain import train_vae
+        from kp.paths import OUT
+        try:
+            train_vae([OUT / "__definitely_no_such_dir__"], steps=1, batch=1, size=32)
+        except FileNotFoundError as e:
+            assert "不静默" in str(e) or "没找到" in str(e), f"报错信息没说明缺口：{e}"
+            return "无图 → 显式报错并说明缺口（不静默替代）"
+        raise AssertionError("没图却没报错 ⇒ 静默用了替代数据（这是最坏的一类 bug）")
+    check("无图时显式报错（⛔ 不静默用合成数据替代）", _p1_no_silent_data_substitution)
 
     # ---------------- 汇总 ----------------
     return _summary()

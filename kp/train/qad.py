@@ -25,7 +25,18 @@ from ..capability.bus import GatedLinear
 from ..capability.delta_pack import DeltaPack
 from ..quant.nvfp4 import QuantSpec, DESIGN_SPEC
 
-SKIP_DEFAULT: Tuple[str, ...] = ("out_proj",)   # 输出投影不量化、也不挂包
+# 🔴 `quantize_proj_out` 的执行点（2026-10-03 接线）
+# 审查发现：`config.QUANT.quantize_proj_out` 此前**零执行点**（只被 `arch_report` 打印），
+#   真实行为由下面这个**写死的** `("out_proj",)` 决定 ⇒ 改 config 只会改一行打印。
+# ✅ 现在由 config 驱动：`quantize_proj_out=False` ⇒ 跳过 `out_proj`（官方 NVFP4_DEFAULT_CFG 的默认）。
+# ⚠️ 匹配方式是**子串匹配**（`s in name`）⇒ **重命名该属性会静默改变量化范围**，
+#    这是已知耦合，`dit.py` 里有对应注释提醒。
+def _default_skip() -> Tuple[str, ...]:
+    from ..config import QUANT
+    return () if QUANT.quantize_proj_out else ("out_proj",)
+
+
+SKIP_DEFAULT: Tuple[str, ...] = _default_skip()   # 输出投影不量化、也不挂包
 
 
 def iter_gated(model, skip: Sequence[str] = SKIP_DEFAULT) -> Iterator[Tuple[str, GatedLinear]]:

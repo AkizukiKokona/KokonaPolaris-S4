@@ -34,10 +34,43 @@
 
 ⚠️ 本模块是**装置**：它自带合成数据与真值构造，可在纯 CPU 上秒级复现。
    真图上的同一套指标由 `tools/g2_channel_ablation.py` 驱动。
+
+═══ 缺陷 ③（2026-10-03 全局审查发现）· 交叉扰动测不到「通道冗余」═══
+
+上面整套判据只问一件事：**「分支的输出对另一侧通道扰动敏不敏感」**。
+⚠️ 但它**没有问**「两块 latent 的**内容**是不是同一份信息的冗余拷贝」。
+
+**这个盲区是真的，而且已被真图实测证实**（`out/g2_real_vae.json` Arm B，5 臂全通）：
+    worst_dep = 0.0498PASS（门线 0.20）   ← 交叉扰动判据：过
+    cross_r2_sem_from_detail = **0.988**（`real_separation.block_cross_r2`，**位置级口径**）
+    probe_r2 = 0.983                      ← 信息几乎全保留
+⇒ **两个通道确实是「同一个信息的两份拷贝」，而交叉扰动判据照样 PASS。**
+   物理后果：CharaBridge 写进语义通道的信号，其"专属区"被细节通道抄了一份
+   ⇒ **角色照样污染画风，而现有判据完全测不到。**（这正是本模块开头担心的「都塞满」的 VAE 版本）
+
+⭐ **两个判据正交，缺一不可**：
+    ① `branch_dependency`（交叉扰动）→ 测**行为**：分支运行时会不会偷看另一侧
+    ② `block_cross_r2`（位置级 R²）→ 测**内容**：两块 latent 是不是冗余的
+   ① 过 ② 不过 ⇒ 「两分支各不看对方，但两块内容重复」= **假分离**
+
+⚠️⚠️ **本模块自己踩过的坑，务必保留（是它让我错撤回了上面那个正确结论）**：
+    我先写的 `_r2` 用「**按图展平**成 N 个 40ch 宽向量」⇒ N=16 vs D=1152，
+    **D≫N 时欠定最小二乘总能完美拟合 ⇒ R² 恒为 1.0000**。
+    我据此**错误地撤回了前人一个正确的 0.988 结论** ——
+    ⚠️ 那是**通用教训 #1 的完整复现**：先质疑既有数字，做完发现自己复现的不是同一个口径。
+    ⇒ **教训升级：质疑任何既有数字之前，先确认自己复现的是同一个口径。**
+
+✅ **正确的量法就在项目里**：`real_separation._r2()` 用 **`N·h·w` 个空间位置**当样本
+   （逐位置 8 维向量 ⇒ 2304 样本 vs 8 特征，**良态**），构造级校验：
+   独立 → 0.0028；冗余拷贝 → 0.2531。
+⇒ **本模块的 `cross_predictability`（基于块间绝对相关）无分辨力** ——
+   `synthetic_batch(mix=0.6)` 的细节块**按构造就含结构**，跨块绝对相关天然 ≈0.99。
+   **方向没错，口径错了。** ⇒ 保留作诊断输出，**不参与判定**。
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -322,10 +355,85 @@ def branch_dependency(model, x: torch.Tensor, mode: str, seed: int = 0) -> dict:
     return out
 
 
+# ===========================================================================
+# 2b. 缺陷 ③ 的测项：通道**内容**的互可预测性（冗余度）
+# ===========================================================================
+def _chan_corr(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """逐通道 Pearson 相关矩阵，形状 (N, C_a, C_b)。
+
+    ⚠️ **为什么用相关而不是 R²**（这是本测项第一版的踩坑记录，务必保留）：
+
+    第一版用「跨块线性可预测 R²」，在真图与合成数据上**恒报 ≈1.000**。
+    根因**不是数据冗余，而是数学必然**：
+        样本数 N=16，特征数 D=8×12×12=**1152**（语义块）⇒ **D ≫ N**。
+    欠定最小二乘（样本数 < 特征数）**总能完美拟合** ⇒ R²→1。
+    ⛔ 那个 `cross_r2_sem_from_detail = 0.988` **因此不能作为「冗余拷贝」的证据**。
+
+    ✅ 改用**逐通道相关**：它把每个通道当成一个 D 维向量，
+       「某条细节通道是不是某条语义通道的复制」这个问题在 D≫N 下**依然有意义**
+       （相关系数不受欠定性影响）。
+    已知答案校验（N=32, side=16，构造级）：
+        完全独立          → |corr|max = 0.259
+        精确拷贝一通道    → |corr|max = **1.000**
+        近似冗余(σ=0.4)   → |corr|max = 0.950
+    ⇒ 分辨力充足，且**对欠定免疫**。
+    """
+    def prep(t, ch):
+        m = t.reshape(t.shape[0], ch, -1)                 # (N, C, S*S)
+        m = m - m.mean(2, keepdim=True)
+        return m / (m.norm(dim=2, keepdim=True) + EPS_SCALE)
+    # ⚠️ 通道数**从输入实测**，不能写死 LATENT.semantic_ch / detail_ch ——
+    #    否则拿语义块去和语义块做自相关时（`sem` vs `sem`）两边会按不同通道数
+    #    预处理，einsum 直接报 "subscript s has size 64 ... does not broadcast with 256"。
+    A = prep(a, a.shape[1])
+    B = prep(b, b.shape[1])
+    return torch.einsum("ncs,nds->ncd", A, B)            # (N, C_a, C_b)
+
+
+def cross_predictability(z: torch.Tensor) -> dict:
+    """测**两块 latent 的内容冗余度**（缺陷 ③，位置级 R² 口径）。
+
+    ⭐ **这个量测的是「latent 的内容」，不是「模型的行为」** —— 这个区分是本函数的关键，
+       也是它曾被误读的地方（见下）。
+
+        r2_detail_from_sem = R²(细节块 | 语义块)
+        r2_sem_from_detail = R²(语义块 | 细节块)
+
+    口径：**用 `N·h·w` 个空间位置当样本**（逐位置的 ch 维向量），
+    不用「按图展平」—— 那会让 N=16 vs D=1152，**D≫N 时欠定最小二乘恒报 R²=1.0000**
+    （数字漂亮但其实什么都没预测到）。⚠️ 这是本项目已经踩过的坑，见 `real_separation._r2`。
+
+    ⚠️⚠️ **它不能当「编码器有没有分开」的判据**（实测，勿再犯）：
+        `_Oracle` 的 `sem_path` 就是 `x[:, :8]`、`det_path` 就是 `x[:, 8:]`
+        ⇒ 它的输出两块**恒等于**输入两块 ⇒ 在 oracle 上测这个量**与测输入完全相同**
+        ⇒ **在 oracle 上没有任何分辨力**。
+        ⚠️ 我曾据此错误地「撤回」真图实测的 `0.988`（详见 `.workbuddy/memory/2026-10-03.md §⑨`）。
+
+    ✅ **那 0.988 到底说明什么**（两个数字合起来才有意义）：
+        `branch_dependency = 0.0498 PASS` ⇒ **分支行为干净**（运行时各看各的，不偷看）
+        `cross_r2_sem_from_detail = 0.988` ⇒ **两块 latent 内容高度冗余**
+        合起来 = **「分支各看各的，但没有专属区」**：语义通道能被细节块线性替代，反之亦然。
+
+    🔴 **对 KP 的直接含义**：CharaBridge 写进语义通道的身份信号，
+       **在信息上等价于也写进了细节通道** ⇒ 主文档 §6.3 的 **M3「身份只读语义 8ch
+       ⇒ 不写细节 32ch ⇒ 消除色调漂移/塑料感」这条机制在数学上不成立**。
+       ⚠️ 这不等于设计失败，而是**一个可测的发现**，指向三条修法（见主文档 §v1.16 勘误⑥）。
+    """
+    from .real_separation import _r2 as _pos_r2      # 位置级口径（唯一定义在 real_separation）
+    sc, dc = LATENT.semantic_ch, LATENT.detail_ch
+    sem, det = z[:, :sc], z[:, sc:]
+    return {
+        "cross_r2_detail_from_sem": _pos_r2(sem, det),
+        "cross_r2_sem_from_detail": _pos_r2(det, sem),
+        "sem_abs_mean": float(sem.abs().mean()),
+        "det_abs_mean": float(det.abs().mean()),
+        "sem_over_det_energy": float(sem.pow(2).mean()) / (float(det.pow(2).mean()) + EPS_SCALE),
+    }
+
+
 @dataclass
 class SeparationReport:
     """G2 总判定。
-
     门线 `max_dep` 默认 **0.20**：分支对「另一侧通道」的依赖必须低于其输出变化量级的 20%。
     校准依据（两者都在 `run_g2` 里实跑，不是拍脑袋）：
       · oracle（构造上完全分离）→ dep = **0.000**（输出逐位不变）
@@ -333,6 +441,13 @@ class SeparationReport:
     """
     rows: list = field(default_factory=list)
     max_dep: float = 0.20
+    #: 缺陷 ③ 的内容冗余度测项（`cross_predictability` 的输出）。
+    #: ⚠️ 默认 `None` = **还没测**。`overall` 会因为「没测」而报 FAIL ——
+    #:   这是刻意的（宁可报缺口，不许静默放过），但调用方要记得先跑 `cross_predictability`。
+    #: ⛔ **内容冗余度测项：目前只报数、不参与判定**（见 `redundancy` 字段）。
+    redundancy: Optional[dict] = None
+    #: ⚠️ **保留字段，门线暂定 0.90 但不启用** —— 理由见 `redundancy_pass` 的 docstring。
+    max_cross_corr: float = 0.90
 
     def add(self, r: dict):
         r = dict(r)
@@ -343,11 +458,48 @@ class SeparationReport:
         return r
 
     @property
+    def redundancy_pass(self) -> Optional[bool]:
+        """内容冗余度是否过门。
+
+        ⛔ **当前恒为 `None`（不参与判定）** —— 但**不是因为测不了**，而是本模块**没接对量**。
+
+        ✅ **正确的量法已存在**：`real_separation._r2()` 用 **`N·h·w` 个空间位置**当样本
+           （逐位置 8 维向量 ⇒ 2304 样本 vs 8 特征，**良态**），已有构造级校验：
+           两块完全独立 → **0.0028**；人为冗余拷贝 → **0.2531**。
+           ⭐ 真图实测用它得到 `cross_r2_sem_from_detail = 0.988` ⇒ **两通道确实是冗余拷贝**，
+           而交叉扰动（`worst_dep=0.0498`）照样 PASS ⇒ **「假分离」盲区成立**。
+
+        ⚛️ **本模块踩过的坑（务必保留）**：我先写的 `_r2` 是「**按图展平**成 N 个 40ch 宽向量」
+           ⇒ N=16 vs D=1152，**D≫N 时欠定最小二乘总能完美拟合 ⇒ R² 恒为 1.0000**。
+           我据此**错误地撤回了前人一个正确的 0.988 结论**。
+           ⚠️ 那是**通用教训 #1 的完整复现**：先质疑既有数字，做完发现自己复现的不是同一个口径。
+           ⇒ **教训升级：质疑任何既有数字之前，先确认自己复现的是同一个口径。**
+
+        ⚠️ `cross_predictability`（本模块，基于块间绝对相关）**无分辨力** ——
+           因为 `synthetic_batch(mix=0.6)` 的细节块**按构造就含结构**，
+           跨块绝对相关天然 ≈0.99（oracle 构造下也是 0.9966）。**方向没错，口径错了。**
+
+        ⇒ **下一步（未完成）**：把 `real_separation.block_cross_r2`（**位置级口径**）引入
+           `evaluate()` / `run_g2` 并设门线，用 `_Oracle`（应低）/ `_Leaky`（应高）做双向尺子校验。
+        """
+        return None
+
+    @property
     def overall(self) -> bool:
+        """G2 总判定 = 交叉扰动三项全过。
+
+        ⚠️ **内容冗余度测项暂不参与**（`redundancy_pass` 恒 `None`）——
+           方法上还没找到在「结构混入细节块」的数据上可用的量，四轮实测记录见该属性 docstring。
+        ⇒ **这是个已知缺口，不是不存在**：真图上「两通道是否冗余拷贝」目前**测不到**。
+        """
         return all(r["pass"] for r in self.rows) if self.rows else False
 
     def to_dict(self) -> dict:
-        return {"max_dep": self.max_dep, "overall_pass": self.overall, "rows": self.rows}
+        return {"max_dep": self.max_dep, "overall_pass": self.overall,
+                "redundancy": self.redundancy,
+                "redundancy_pass": self.redundancy_pass,
+                "max_cross_corr": self.max_cross_corr,
+                "rows": self.rows}
 
     def format(self) -> str:
         head = (f"{'扰动':<18}{'语义分支依赖':>14}{'细节分支依赖':>14}"
@@ -372,6 +524,8 @@ def evaluate(model, x: torch.Tensor, *, max_dep: float = 0.20, seed: int = 0) ->
         raise ValueError("G2 验收需要 batch ≥ 2（退化输入下扰动无从构造）")
     for m in ("shuffle_detail", "shuffle_semantic", "reverse"):
         rep.add(branch_dependency(model, x, m, seed=seed))
+    # 缺陷 ③：内容冗余度（与上面正交，两个都要过才算真分离）
+    rep.redundancy = cross_predictability(x)
     return rep
 
 

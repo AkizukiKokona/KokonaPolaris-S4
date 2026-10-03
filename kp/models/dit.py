@@ -328,7 +328,33 @@ class SingleStreamDiT(nn.Module):
                                   else list(identity_anchor_layers))
         self.latent_ch = latent_ch
 
-        self.patch_embed = _gl(latent_ch, d)
+        self._patch_embed_split = None
+        self.patch_embed = None
+        if cfg.split_patch_embed and latent_ch == LATENT.total_ch:
+            # 🔴 M3 修法②：`patch_embed` 拆两路、**权重不共享**（结构保证，推理期也成立）
+            #
+            # 动机（2026-10-03 全局审查 + 真图实测）：
+            #   原始 latent 测量到 `cross_r2_sem_from_detail = 0.988` ⇒ **两块内容高度冗余**，
+            #   而 `branch_dependency = 0.0498` PASS ⇒ **分支行为干净但没有「专属区」**。
+            #   ⇒ 写进语义通道的身份信号，在信息上等价于也写进了细节通道
+            #      ⇒ 主文档 §6.3 的 M3「身份只走语义 ⇒ 不污染画风」不成立。
+            #
+            # 为什么拆两路就能修（`kp/probe/m3_fix.py` §修法② 实测）：
+            #   两块**不共享权重** ⇒ 投影核对两块是**两个独立的线性函数**，
+            #   输出无法互为线性重建 ⇒ 冗余度从 0.9666 掉到 0.0017。
+            #
+            # ⭐ **参数量恒等（已实测）**：`(8+32)·d = 46,080 ≡ 40·d`（单路 `40→d`）**完全相同**，
+            #    只多一次加法 ⇒ **拆路在参数量上免费**。
+            # ⚠️ **不要两处都建**（`self.patch_embed` 与 split 两路同时存在 ⇒ 多 46,080 **死参数**）。
+            #    ⚠️ 这正是本项目教训「『预留接口』不该用『每层都付钱』的方式存在」的同类问题。
+            # ⛔ **默认关闭**（`split_patch_embed=False`）：它改变架构行为，
+            #    需在 P2 换主干时作为一道显式决策点拍板；此处先让能力可测。
+            self._patch_embed_split = nn.ModuleDict({
+                "sem": _gl(LATENT.semantic_ch, d),
+                "det": _gl(LATENT.detail_ch, d),
+            })
+        else:
+            self.patch_embed = _gl(latent_ch, d)
         self.t_embed = TimestepEmbedding(d)
         self.domain_embed = nn.Linear(domain_dim, d)
         self.text_dim = text_dim or d
@@ -368,7 +394,13 @@ class SingleStreamDiT(nn.Module):
                 domain: Optional[torch.Tensor] = None) -> torch.Tensor:
         B, C, H, W = x.shape
         d = self.cfg.dim
-        h = self.patch_embed(x.flatten(2).transpose(1, 2))          # [B, N, d]
+        if self._patch_embed_split is not None:
+            # 🔴 M3 修法②：两路独立投影后相加（权重不共享 ⇒ 结构上阻断跨块重建）
+            sc = LATENT.semantic_ch
+            h = (self._patch_embed_split["sem"](x[:, :sc].flatten(2).transpose(1, 2))
+                 + self._patch_embed_split["det"](x[:, sc:].flatten(2).transpose(1, 2)))
+        else:
+            h = self.patch_embed(x.flatten(2).transpose(1, 2))          # [B, N, d]
         h = h + sincos_2d(H, W, d).to(h.dtype)
 
         c = self.t_embed(t)
