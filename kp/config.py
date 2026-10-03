@@ -46,7 +46,14 @@ class DiTCfg:
     # 分辨率 Matryoshka：早期步在低 token 上跑
     matryoshka_tokens: tuple = (256, 1024)
     # 注入点必须在量化器之外
-    quantize_injection_point: bool = False
+    # ⚠️ **同样是架构不变量，不该可配**（2026-10-03 标注）：
+    #    `True` 意味着让能力包**进量化器** —— 设计稿 §4.7 明确禁止，
+    #    因为量化器会把包的扰动**吃掉** ⇒ 这正是「4-bit 下 LoRA 静默失效」的成因
+    #    （社区 FLUX 4-bit 路径的真实问题：不出错、风格完全没变）。
+    #    ✅ 行为已由 `capability/bus.py` 的前向结构保证：
+    #       `y = F.linear(q(x), q(W)) + Σ pack(x)` —— 包拿到的是**未量化**的 x。
+    #    ⇒ 保留字段仅为向后兼容与打印；**真接线它会引入 bug**。
+    quantize_injection_point: bool = False   # ⛔ 架构不变量，见上
     # 🔴 M3 修法②（2026-10-03）：`patch_embed` 拆成「语义 8ch 走一路 + 细节 32ch 走一路」，
     #    两路**权重不共享** ⇒ 结构上阻断跨块线性重建（M3「专属区」的结构保证）。
     #    ⭐ 参数量恒等：(8+32)·d ≡ 40·d，与单路 40→d **完全相同** ⇒ 零代价。
@@ -114,7 +121,12 @@ class CapabilityCfg:
     gate_dtype: str = "float32"              # 门控全程 fp32（不参与量化）
     identity_tokens: int = 256               # 身份 token 预算（走 cross-attention）
     identity_token_dim: int = 1024
-    identity_via_cross_attention: bool = True   # 禁止拼主序列
+    # ⚠️ **这个旋钮不该可配**（2026-10-03 标注）：它是**架构不变量**，不是调参。
+    #    `False` 意味着把身份 token **拼进主序列** —— 设计稿 §4.5 明确禁止：
+    #    1024² 只有 1024 个图像 token，拼接 256 个身份 token 会让注意力成本 ×~1.25
+    #    且**破坏「关断时 bit-exact」**（拼接进主序列后无法干净地拿掉）。
+    #    ⇒ 保留字段只为**向后兼容 + 让 arch_report 能打印**；**真接线它会破坏设计**。
+    identity_via_cross_attention: bool = True   # ⛔ 架构不变量，见上
     delta_pack_bytes: int = 27 * 1024 * 1024    # 27MB
     # 谱检查：与 W0 全奇异向量 cos < 阈值 的高排名分量判不合格
     spectral_cos_threshold: float = 0.1
