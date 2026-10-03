@@ -1839,6 +1839,45 @@ def main() -> int:
                 f"⇒ latent 装得下身份结构 ✓（S1 前提成立）")
     check("S1 前提：latent 保留身份/结构信息（单图路线的基础）", _s1_latent_keeps_identity)
 
+    # ---------------- 28. 数据分级过滤（⛔ 语料不需要额外准备）----------------
+    section("28. 数据分级过滤（safe / sensitive / explicit）")
+
+    def _rating_classify():
+        """分级判定必须**三级来源可靠**，且判不出时**不默认放行**。
+
+        ⭐ 背景：用户问「敏感内容怎么办，要不要我额外准备语料」。
+        答：**不需要** —— Danbooru 系数据集**自带** `rating` / `is_explicit` /
+        `tag_string` 里的 `rating:*` 元标签 ⇒ **过滤在读取时做，不是下载时**。
+        """
+        from kp.data.rating import classify_rating
+        cases = [
+            ({"rating": "safe"}, "safe"),
+            ({"rating": "explicit"}, "explicit"),
+            ({"rating": "sensitive"}, "sensitive"),
+            ({"is_explicit": True}, "explicit"),
+            ({"is_explicit": False}, "safe"),
+            ({"tag_string": "1girl, rating:sensitive, long_hair"}, "sensitive"),
+            ({"tag_string": "1boy, rating:explicit"}, "explicit"),
+            ({"tag_string": "cat, rating:safe"}, "safe"),
+            ({}, "unknown"),
+        ]
+        wrong = [(r, classify_rating(r), w) for r, w in cases if classify_rating(r) != w]
+        assert not wrong, f"分级判定错误：{wrong}"
+        return f"9/9 通过（含 unknown ⇒ 不默认放行）"
+    check("分级判定三级来源可靠（判不出不放行）", _rating_classify)
+
+    def _rating_policy_default_strict():
+        """🔴 默认必须是**最严**（`strict` = 只留 safe）。"""
+        from kp.data.rating import POLICIES
+        assert POLICIES["strict"] == {"safe"}, f"默认档不是 strict：{POLICIES['strict']}"
+        assert "explicit" not in POLICIES["strict"], "strict 档竟含 explicit"
+        # 更严的档必须包含更严的（集合包含关系）
+        assert POLICIES["sensitive_ok"] > POLICIES["strict"], "档位包含关系反了"
+        assert POLICIES["explicit_ok"] >= POLICIES["sensitive_ok"], "档位包含关系反了"
+        return (f"默认 strict={sorted(POLICIES['strict'])}；"
+                f"三档包含关系正确（strict ⊂ sensitive_ok ⊂ explicit_ok）")
+    check("默认最严（strict 只留 safe）+ 档位包含关系正确", _rating_policy_default_strict)
+
     # ---------------- 汇总 ----------------
     return _summary()
 
