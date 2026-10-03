@@ -297,13 +297,89 @@ def stage_pair(entries: List[Entry], norm_dir: str,
     return out
 
 
+def _pairs_from_entries(entries: List[Entry], norm_dir: str, size: int):
+    """entries → 声明式配对 + 已加载的图（供 Fitter 训练）。"""
+    from .pairing import AXES, PairSpec, Record, build_pairs
+    from .dataset import FitPair, load_image
+
+    records = [Record(key=e.file, identity=e.attrs.get("character") or e.tag,
+                      attrs={a: e.attrs.get(a, "") for a in ("character",) + AXES})
+               for e in entries]
+    rep = build_pairs(records, PairSpec(vary=("view",), match=(), identity="character"))
+    cache: Dict[str, torch.Tensor] = {}
+
+    def img(key: str) -> torch.Tensor:
+        if key not in cache:
+            cache[key] = load_image(os.path.join(norm_dir, key), size)
+        return cache[key]
+
+    pairs = [FitPair(identity=p.identity, anchor_key=p.anchor, positive_key=p.positive,
+                     varied=dict(p.varied), anchor=img(p.anchor), positive=img(p.positive))
+             for p in rep.pairs]
+    return pairs, rep, cache
+
+
+def stage_fit(entries: List[Entry], norm_dir: str, out_dir: str, *,
+              size: int = 256, steps: int = 60, lr: float = 3e-3, seed: int = 0,
+              dim: int = 1024, n_tokens: int = 256) -> dict:
+    """在批次的**声明式配对**上训练 Character Fitter，产出每个 tag 的身份 token。
+
+    ⭐ 这一步把角色卡线闭环：没有它，角色卡里的身份 token 只是零向量占位。
+    ⚠️ 但要诚实：**1 个身份 / 1 条配对**时，训练只能测到「视角不变性」，
+       身份的**可区分性无法验证**（需要第 2 个角色或更多视图）。
+       报告里会显式标注这个覆盖缺口 —— 它不算通过。
+    """
+    from ..train.fitter import train_fitter
+    from .fitter import CharacterFitter
+    from .dataset import PairViewLoader, load_image
+
+    os.makedirs(out_dir, exist_ok=True)
+    pairs, rep, cache = _pairs_from_entries(entries, norm_dir, size)
+    for e in entries:                      # 补齐未进配对的视图（单视图角色也要能出 token）
+        if e.file not in cache:
+            cache[e.file] = load_image(os.path.join(norm_dir, e.file), size)
+    if not pairs:
+        return {"fitter_path": None, "tokens": {}, "n_pairs": 0, "budget": {},
+                "inv_end": None, "has_negatives": False,
+                "note": "0 条配对 → 无法训练 Fitter（需同身份 ≥2 视图且 view 已声明）",
+                "gaps": list(rep.gaps)}
+
+    loader = PairViewLoader(pairs, source=f"batch-fit({len(pairs)} 对)")
+    fitter = CharacterFitter(dim=dim, n_tokens=n_tokens, view_dim=256, heads=8)
+    res = train_fitter(loader, fitter, steps=steps, lr=lr, seed=seed)
+    fitter.eval()
+
+    by_tag: Dict[str, List[Entry]] = {}
+    for e in entries:
+        by_tag.setdefault(e.tag, []).append(e)
+    tokens: Dict[str, "np.ndarray"] = {}
+    for tag, es in by_tag.items():
+        views = torch.stack([cache[e.file] for e in es])       # (V, 3, H, W)
+        with torch.no_grad():
+            tok = fitter(views.unsqueeze(0))[0]                # (T, dim)
+        tokens[tag] = tok.cpu().numpy()
+
+    fpath = os.path.join(out_dir, "fitter.pt")
+    torch.save({"state_dict": fitter.state_dict(), "dim": dim, "n_tokens": n_tokens,
+                "size": size, "steps": steps, "n_pairs": len(pairs),
+                "has_negatives": res.has_negatives}, fpath)
+    note = ("已训得可用身份 token" if res.has_negatives else
+            "⚠️ 只有 1 个身份 ⇒ 身份的**可区分性未经验证**（缺第 2 个角色 / 更多视图）")
+    return {"fitter_path": fpath, "tokens": tokens, "n_pairs": len(pairs),
+            "budget": res.budget, "inv_end": res.inv_end,
+            "has_negatives": res.has_negatives, "note": note, "gaps": list(rep.gaps)}
+
+
 def stage_pack(entries: List[Entry], norm_dir: str, layer_info: Dict[str, dict],
                pair_info: dict, out_dir: str,
-               identity_token: Optional[np.ndarray] = None) -> Dict[str, str]:
+               identity_tokens: Optional[Dict[str, "np.ndarray"]] = None) -> Dict[str, str]:
     """打包成 CharacterCard（每 tag 一张）。
 
-    ⚠️ 身份 token 目前是**占位**（无 Fitter 权重时用零向量），
-       因为 Fitter 需要训练（路线图 P2.6 / G5）。此处先把**格式**定下来。
+    `identity_tokens` : 由 `stage_fit` 训练后按 tag 给出的身份 token；
+                        缺省时退回**零向量占位**并在 meta 里注明（不静默假装可用）。
+
+    ⚠️ 这里**不再从文件名挑正视图**：视图由 manifest 的 `view` 列**声明**，
+       没有声明就用第一条 —— 绝不靠 `"front" in filename` 这种猜。
     """
     Image = _require_pil()
     os.makedirs(out_dir, exist_ok=True)
@@ -312,24 +388,33 @@ def stage_pack(entries: List[Entry], norm_dir: str, layer_info: Dict[str, dict],
     for e in entries:
         by_tag.setdefault(e.tag, []).append(e)
     for tag, es in by_tag.items():
-        front = next((e for e in es if "front" in e.file.lower()), es[0])
+        declared_front = next((e for e in es
+                               if (e.attrs.get("view") or "").lower() in ("front", "正视图", "正", "f")),
+                              None)
+        front = declared_front or es[0]          # 声明优先；否则取第一条（不猜）
         img = np.array(Image.open(os.path.join(norm_dir, front.file)).convert("RGBA"))
         # 唯一「真实掩码」的层：本体 alpha（语义层掩码待 See-through 自举）
         layers: Dict[str, np.ndarray] = {"body_base": img[..., 3]}
-        tokens = (np.zeros((256, 1024), dtype=np.float32) if identity_token is None
-                  else identity_token.astype(np.float32))
+        tok = identity_tokens.get(tag) if identity_tokens else None
+        if tok is None:
+            tokens = np.zeros((256, 1024), dtype=np.float32)
+            tok_src = "PLACEHOLDER(zeros) —— 需 Character Fitter（跑管线时加 --fit）"
+        else:
+            tokens = np.asarray(tok, dtype=np.float32)
+            tok_src = "trained(Character Fitter, stage_fit)"
         card = CharacterCard(
             name=tag,
             identity_token=torch.from_numpy(tokens),
             layers=layers,
             meta={"views": [e.file for e in es],
+                  "front_ref": front.file,
                   "view_masks": {e.file: f"norm/{e.file}" for e in es},
                   "caption": es[0].caption,
                   "source": es[0].source,
                   "pair": pair_info.get(tag, {}),
                   "palette": {e.file: layer_info[e.file]["palette"] for e in es},
                   "bands": {e.file: layer_info[e.file]["bands"] for e in es},
-                  "identity_token": "PLACEHOLDER(zeros) —— 需 Character Fitter（P2.6 / G5）",
+                  "identity_token": tok_src,
                   "semantic_layers": "仅 body_base 为真实掩码；19 类语义层待 See-through 自举"},
         )
         p = os.path.join(out_dir, f"{tag}.card")
@@ -339,7 +424,8 @@ def stage_pack(entries: List[Entry], norm_dir: str, layer_info: Dict[str, dict],
 
 
 def stage_report(batch: str, counts: dict, norm_stats: dict, layer_info: dict,
-                 pair_info: dict, cards: Dict[str, str], out_dir: str) -> str:
+                 pair_info: dict, cards: Dict[str, str], out_dir: str,
+                 fit_info: Optional[dict] = None) -> str:
     lines = [f"# 角色卡管线报告 · 批次 `{batch}`", ""]
     lines.append(f"- 条目数：{counts.get('entries', 0)}")
     lines.append(f"- 归一化：画布 {CANVAS}²，本体高度 = {BODY_RATIO:.0%} 画布")
@@ -383,7 +469,25 @@ def stage_report(batch: str, counts: dict, norm_stats: dict, layer_info: dict,
     for tag, p in cards.items():
         lines.append(f"- `{tag}` → `{p}`")
     lines.append("")
-    lines.append("> ⚠️ 身份 token 为**占位（零向量）**；19 类语义层掩码待 **See-through 自举**模型。")
+    lines.append("## Character Fitter（身份 token 来源）")
+    if fit_info and fit_info.get("n_pairs"):
+        b = fit_info.get("budget", {})
+        lines.append(f"- 配对 **{fit_info['n_pairs']}** 对 → 训练 Fitter；"
+                     f"不变性终值 {fit_info.get('inv_end'):.4f}")
+        lines.append(f"- 负样本：{'有（可验证身份可区分性）' if fit_info.get('has_negatives') else '**无**'}"
+                     f"—— {fit_info.get('note', '')}")
+        if b:
+            lines.append(f"- 参数 {int(b.get('total', 0)):,}｜"
+                         f"AdamW 状态 ≈ {b.get('adamw_state_gb', 0):.4f} GB")
+        lines.append(f"- 权重：`{fit_info.get('fitter_path')}`")
+        for g in fit_info.get("gaps", []):
+            lines.append(f"- ⚠️ {g}")
+    elif fit_info is not None:
+        lines.append(f"- ⚠️ 未训练：{fit_info.get('note', '无配对')}")
+    else:
+        lines.append("- 未训练（管线未加 `--fit`）→ 身份 token 为**零向量占位**")
+    lines.append("")
+    lines.append("> ⚠️ 19 类语义层掩码待 **See-through 自举**模型。")
     lines.append("> 本管线的作用是**先定格式、先打通**（路线图 P2.6 / 验证门 G5）。")
     lines.append("> 归一化保证**单一投影尺度**：本体高度恒为画布 88%，正/背一致。")
     txt = "\n".join(lines) + "\n"
@@ -394,26 +498,41 @@ def stage_report(batch: str, counts: dict, norm_stats: dict, layer_info: dict,
 
 
 def run_batch(batch: str = "kokona", data_root: str = "data/characters",
-              out_root: str = "out/characters") -> dict:
+              out_root: str = "out/characters", *, fit: bool = False,
+              fit_steps: int = 60, fit_size: int = 256) -> dict:
     batch_dir = os.path.join(data_root, batch)
     out_dir = os.path.join(out_root, batch)
     os.makedirs(out_dir, exist_ok=True)
+    norm_dir = os.path.join(out_dir, "norm")
     entries = load_manifest(batch_dir)
-    norm = stage_normalize(entries, os.path.join(out_dir, "norm"))
-    layers = stage_layers(entries, os.path.join(out_dir, "norm"),
-                          os.path.join(out_dir, "layers"))
-    pair = stage_pair(entries, os.path.join(out_dir, "norm"))
-    cards = stage_pack(entries, os.path.join(out_dir, "norm"), layers, pair,
-                       os.path.join(out_dir, "cards"))
-    rep = stage_report(batch, {"entries": len(entries)}, norm, layers, pair, cards, out_dir)
+    norm = stage_normalize(entries, norm_dir)
+    layers = stage_layers(entries, norm_dir, os.path.join(out_dir, "layers"))
+    pair = stage_pair(entries, norm_dir)
+
+    fit_info = None
+    tokens = None
+    if fit:
+        fit_info = stage_fit(entries, norm_dir, os.path.join(out_dir, "fitter"),
+                             size=fit_size, steps=fit_steps)
+        tokens = fit_info["tokens"] or None
+
+    cards = stage_pack(entries, norm_dir, layers, pair,
+                       os.path.join(out_dir, "cards"), identity_tokens=tokens)
+    rep = stage_report(batch, {"entries": len(entries)}, norm, layers, pair, cards,
+                       out_dir, fit_info)
     bad = [t for t, v in pair.items()
            if not t.startswith("_") and not v["ok_min_views"]]
+    warns = [] if not bad else \
+        [f"{len(bad)} 个角色的视图未声明或不足"
+         f"（角色卡最少需要 正 + 背 两视图，且 view 要**声明**而非从文件名猜）"]
+    if fit_info is not None and fit_info.get("n_pairs") and not fit_info.get("has_negatives"):
+        warns.append("Fitter 只有一个身份 ⇒ **可区分性未经验证**（覆盖缺口，非通过）")
     summary = {"batch": batch, "entries": len(entries), "cards": cards,
                "report": rep, "pair": pair,
                "n_pairs": pair.get("_report", {}).get("n_pairs", 0),
-               "warnings": [] if not bad else
-               [f"{len(bad)} 个角色的视图未声明或不足"
-                f"（角色卡最少需要 正 + 背 两视图，且 view 要**声明**而非从文件名猜）"]}
+               "fit": None if fit_info is None else {
+                   k: v for k, v in fit_info.items() if k != "tokens"},
+               "warnings": warns}
     with open(os.path.join(out_dir, "pipeline.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     return summary
@@ -428,6 +547,10 @@ def main(argv=None) -> int:
                     help="额外打印多视角配对报告（含「该补拍什么」的缺口清单）")
     ap.add_argument("--target-views", default=None,
                     help="逗号分隔，用于报缺口，例如 front,back,left,right")
+    ap.add_argument("--fit", action="store_true",
+                    help="训练 Character Fitter 并把身份 token 写回角色卡")
+    ap.add_argument("--fit-steps", type=int, default=60)
+    ap.add_argument("--fit-size", type=int, default=256)
     a = ap.parse_args(argv)
 
     tv = tuple(x.strip() for x in a.target_views.split(",")) if a.target_views else None
@@ -438,11 +561,15 @@ def main(argv=None) -> int:
         return 0 if all(v["ok_min_views"] for k, v in pair.items()
                         if not k.startswith("_")) else 1
 
-    s = run_batch(a.batch, a.data_root, a.out_root)
+    s = run_batch(a.batch, a.data_root, a.out_root, fit=a.fit,
+                  fit_steps=a.fit_steps, fit_size=a.fit_size)
     print(f"✅ 批次 {s['batch']}：{s['entries']} 条 → {len(s['cards'])} 张角色卡")
     print(f"   报告：{s['report']}")
     if s.get("n_pairs"):
         print(f"   多视角配对：{s['n_pairs']} 对")
+    if s.get("fit"):
+        fi = s["fit"]
+        print(f"   Fitter：{fi['n_pairs']} 对 → inv {fi.get('inv_end')}｜{fi.get('note')}")
     for w in s["warnings"]:
         print(f"   ⚠️ {w}")
     return 0

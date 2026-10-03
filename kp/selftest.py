@@ -22,6 +22,7 @@
    15. caption 语料审计：语言配比 / 标签串检测 / 汉字覆盖（P1.8）
    16. Axis Probe：G3.5 四测（单调/正交/可逆/低比特行程）—— 装置本身先过对照样本
    17. 多视角配对：声明式单旋钮配对 / 拒绝猜测 / 缺口清单（角色卡数据线）
+   18. Character Fitter 训练：配对驱动的对比目标 / 留出视角泛化 / 负对照（可证伪）
 """
 from __future__ import annotations
 
@@ -786,6 +787,91 @@ def main() -> int:
         assert "该补拍什么" in txt
         return "缺 back/left/right 被明确列出（用户据此补拍）"
     check("缺口清单（该补拍什么）", _pair_gap_report)
+
+    # ---------------- 18. Character Fitter 训练（配对驱动） ----------------
+    section("18. Character Fitter 训练（配对驱动 · 留出视角 + 负对照）")
+    from kp.character.dataset import PairViewLoader, load_image
+    from kp.train.fitter import (train_fitter, run_closed_loop, fitter_loss,
+                                 holdout_invariance, shuffle_positives)
+
+    def _loader_synthetic():
+        """合成加载器：n 身份 × C(v,2) 对，张量形状/轴标注都对得上。"""
+        ld = PairViewLoader.synthetic(n_identities=4, n_views=3, size=24, seed=0)
+        assert ld.n_pairs == 12, ld.n_pairs                 # 4 × C(3,2)
+        assert len(ld.identities()) == 4
+        assert all(tuple(p.anchor.shape) == (3, 24, 24) for p in ld.pairs)
+        assert ld.pairs[0].varied_axis == "view"
+        assert len(ld.group_by_identity()) == 4
+        return f"4 身份 × 3 视角 → {ld.n_pairs} 对（组合式扩增）"
+    check("合成配对加载器（身份 × 视角）", _loader_synthetic)
+
+    def _loader_split_leakage():
+        """⭐ 留出视角**绝不能**出现在训练对里 —— 否则"泛化"是假的。"""
+        ld, holdout, refs = PairViewLoader.synthetic_split(
+            n_identities=3, n_train_views=3, n_holdout=1, size=24, seed=0)
+        train_keys = {p.anchor_key for p in ld.pairs} | {p.positive_key for p in ld.pairs}
+        ho_keys = {f"{ident}_v{v}" for ident in holdout
+                   for v in range(3, 4)}
+        assert not (train_keys & ho_keys), train_keys & ho_keys
+        assert set(holdout) == set(refs) == set(ld.identities())
+        assert all(len(v) == 1 for v in holdout.values()), holdout
+        return (f"训练 {len(train_keys)} 视图 vs 留出 {len(ho_keys)} 视图，**无交集**")
+    check("留出视角不泄漏进训练集", _loader_split_leakage)
+
+    def _loss_semantics():
+        """单身份 ⇒ **无**负样本：has_negatives=False、gap 记 0（未知 ≠ 好）。"""
+        torch.manual_seed(0)
+        ta = torch.randn(2, 4, 8)
+        tb = ta + 0.01 * torch.randn(2, 4, 8)
+        _, inv, gap, has_neg = fitter_loss(ta, tb, ["a", "a"])
+        assert has_neg is False, "单身份不该有负样本"
+        assert float(gap) == 0.0, gap
+        assert float(inv) < 0.05, inv
+        _, _, gap2, has_neg2 = fitter_loss(ta, -tb, ["a", "b"])
+        assert has_neg2 is True, "双身份必须启用负样本"
+        # ⚠️ gap 可以为负（正对相似度低于负对）—— 它只是**诊断量**，不是"必须为正"
+        assert float(gap2) < 0.0, "这里正对是反相的 ⇒ gap 应为负，正好证明它不作弊"
+        return (f"单身份 has_neg=False/gap=0；双身份 has_neg=True/gap={float(gap2):+.3f}"
+                f"（可为负 ⇒ 是诊断量而非损失项）")
+    check("损失语义：无负样本必须显式标记", _loss_semantics)
+
+    def _shuffle_control_breaks_pairs():
+        ld = PairViewLoader.synthetic(n_identities=4, n_views=3, size=24, seed=0)
+        bad = shuffle_positives(ld, seed=0)
+        assert bad.n_pairs == ld.n_pairs
+        same = sum(1 for a, b in zip(ld.pairs, bad.pairs)
+                   if a.identity == b.identity and a.positive_key == b.positive_key)
+        assert same < bad.n_pairs, "打乱后不应与原始配对完全相同"
+        return f"{bad.n_pairs} 对中 {same} 对未变（其余 positive 已换成别身份）"
+    check("负对照：打乱配对确实破坏了配对", _shuffle_control_breaks_pairs)
+
+    def _closed_loop():
+        """⭐ 四判据：不变性 / 分离性 / **留出泛化** / **负对照**。"""
+        r = run_closed_loop(n_identities=6, n_train_views=3, n_holdout=1,
+                            size=32, steps=100, seed=0)
+        assert r.ok_invariance, f"不变性未过：inv_end={r.fit.inv_end:.4f}"
+        assert r.ok_separation, f"分离未过：gap_end={r.fit.gap_end:.4f}"
+        assert r.ok_generalization, f"留出泛化未过：ho={r.holdout_inv:.4f}"
+        assert r.ok_control, f"负对照未过：ctrl_ho={r.control_holdout_inv:.4f}"
+        return (f"不变性 {r.fit.inv_start:.3f}→{r.fit.inv_end:.3f}｜"
+                f"间隔 {r.fit.gap_start:+.3f}→{r.fit.gap_end:+.3f}｜"
+                f"留出 {r.holdout_inv:.4f} vs 负对照 {r.control_holdout_inv:.4f}")
+    check("闭式自检四判据（留出泛化 + 负对照）", _closed_loop)
+
+    def _real_batch_smoke():
+        """真实批次 kokona：能加载成对、能训（无负样本必须明说，不算通过）。"""
+        try:
+            ld = PairViewLoader.from_batch("kokona", size=32)
+        except FileNotFoundError:
+            return "跳过（无 data/characters/kokona）—— 非失败"
+        if ld.n_pairs == 0:
+            return "批次存在但 0 对（需 ≥2 视图 + 声明的 view）—— 非失败"
+        res = train_fitter(ld, steps=10, seed=0, batch_size=min(4, ld.n_pairs))
+        assert res.inv_end <= res.inv_start + 1e-6
+        note = "" if res.has_negatives else "｜**无负样本**（覆盖缺口，非通过）"
+        return (f"kokona {ld.n_pairs} 对 / {res.n_identities} 身份，训 10 步 "
+                f"inv {res.inv_end:.4f}{note}")
+    check("真实批次冒烟（kokona）", _real_batch_smoke)
 
     # ---------------- 汇总 ----------------
     return _summary()
