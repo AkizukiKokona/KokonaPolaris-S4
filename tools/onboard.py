@@ -72,7 +72,7 @@ def main() -> int:
         print(f"  可选缺失：{', '.join(miss_opt)}")
 
     print()
-    print("③ 骨架自检（52 项 · 纯 CPU）")
+    print("③ 骨架自检（63 项 · 纯 CPU）")
     r = subprocess.run([sys.executable, "-m", "kp.selftest"],
                        cwd=str(KP_ROOT), capture_output=True, text=True)
     tail = [ln for ln in (r.stdout or "").splitlines() if "通过" in ln or "❌" in ln]
@@ -105,7 +105,7 @@ def main() -> int:
         else:
             print(f"\n⚠️ 找不到 {lock}")
 
-    print("\n提示：⚠️ items 里标「可选」的都不是必需 —— 骨架自检 52 项全靠纯 CPU，")
+    print("\n提示：⚠️ items 里标「可选」的都不是必需 —— 骨架自检 63 项全靠纯 CPU，")
     print("      装好 torch/numpy/pillow 就能跑设计验证，不需要先下 4.6GB 靶子。")
     return 0 if not miss_req and r.returncode == 0 else 1
 

@@ -5,26 +5,35 @@
    cross-attention）+ `kp/config.py` + `kp/selftest.py` / `kp/arch_report.py`
    / `kp/train/qad.py` 的实际调用面。
 
-## 参数量结构（用来核对 arch_report 的 0.6B / 1.8B）
-每个 block 恰好 **18·d²**：
+## 参数量结构（用来核对 arch_report 的参数量）
+每个 block 恰好 **17·d²**：
 
     attention  qkv(3d²) + out(d²)              =  4·d²   （GatedLinear → buffer）
     mlp        fc1(d·2.5d) + fc2(2.5d·d)       =  5·d²   （GatedLinear → buffer）
-    adaLN      Linear(d → 9d)                  =  9·d²   （nn.Linear → 真参数）
+    adaLN      Linear(d → 8d)                  =  8·d²   （nn.Linear → 真参数）
 
-⇒ KP-S (d=1152, L=24)：18·1152²·24 ≈ 573M（+t-embed/文本路由 ⇒ ~0.58–0.60B ✅）
-⇒ KP-M (d=1792, L=32)：18·1792²·32 ≈ 1.85B（≈ 设计稿实测 1.806B，偏差 +2.4%）
+⇒ KP-S (d=1152, L=24)：17·1152²·24 ≈ 541M（+t-embed/文本路由/身份锚点 ⇒ 实测 ~0.58B）
+⇒ KP-M (d=1792, L=32)：17·1792²·32 ≈ 1.75B（+其余 ⇒ 实测 1.875B，vs 标称 1.5B +25.0%）
 
-## adaLN 的 9 段（⚠️ selftest 依赖第 9 段 = 身份门控）
+## adaLN 的 8 段（⚠️ selftest 依赖第 8 段 = 身份门控）
     0:1:2 → attn  (shift, scale, gate)
     3:4:5 → mlp   (shift, scale, gate)
     6     → g_txt  文本流残差门控
-    7     → g_geo  几何分支门控（预留）
-    8     → g_id   **身份 cross-attention 门控** ← `adaLN[-1].bias[8d:9d]`
+    7     → g_id   **身份 cross-attention 门控** ← `adaLN[-1].bias[7d:8d]`
 
 ⚠️ adaLN 末层 **weight 全 0**（adaLN-Zero），但把 attn/mlp/txt 三个 gate 的
    **bias 初始化为 1.0** —— 否则整个 block 在初值是恒等映射，网络退化。
-   身份门控（第 9 段）保持 0，满足「adaLN-Zero ⇒ 初始化时注入身份 token 不改输出」。
+   身份门控（第 8 段）保持 0，满足「adaLN-Zero ⇒ 初始化时注入身份 token 不改输出」。
+
+⭐ **为什么是 8 段不是 9 段（2026-10-03 瘦身）**
+   原设计在 g_txt 与 g_id 之间留了一段 `g_geo`「几何分支门控（预留）」，但全代码库
+   **从未有任何一处读取该段**（前向只消费段 6 与段 8）⇒ 它是**纯死参数**：
+   每 block 白占 `d²`（KP-M 全模型 102.8M ≈ 5.2%）。
+   ⚠️ FLOPs 两个分母别搞混：adaLN **自身** FLOPs `2·d·9d → 2·d·8d` = **−11.1%**；
+   **全模型** FLOPs `18d² → 17d²` = **−5.6%**。两个都是真的，但别混着引。
+   「预留接口」不该用「每层都付钱」的方式存在 —— 故删除，等几何分支真要用时再按需加回。
+   ⚠️ 加回时注意：**几何分支走 CharaBridge 自己的门控**（`geo_kv` 在 K/V 内部融合 +
+   `set_gate`），**从来不经过 adaLN** —— 段 7 从来就不是「几何分支的门」，只是个没接线的占位。
 """
 from __future__ import annotations
 
@@ -231,8 +240,8 @@ class DiTBlock(nn.Module):
         d = cfg.dim
         self.dim, self.kind, self.double_stream = d, kind, double_stream
         self.norm1 = RMSNorm(d)
-        # ⚠️ 9 段 adaLN —— 第 9 段（下标 8）是身份门控，selftest 直接写它的 bias
-        self.adaLN = nn.Sequential(nn.SiLU(), nn.Linear(d, 9 * d))
+        # ⚠️ 8 段 adaLN —— 第 8 段（下标 7）是身份门控，selftest 直接写它的 bias
+        self.adaLN = nn.Sequential(nn.SiLU(), nn.Linear(d, 8 * d))
         self.attn = Attention(d, cfg.heads, kind, cfg.qk_norm)
         # 双流：文本流有**自己的一套 QKV/out**（共享 K/V 做联合注意力）
         self.txt_qkv = _gl(d, 3 * d) if double_stream else None
@@ -252,7 +261,7 @@ class DiTBlock(nn.Module):
         with torch.no_grad():
             for seg in (2, 5, 6):                 # attn gate / mlp gate / g_txt
                 last.bias[seg * d:(seg + 1) * d].fill_(1.0)
-            # 段 8（身份门控）保持 0 ⇒ adaLN-Zero 保护
+            # 段 7（身份门控）保持 0 ⇒ adaLN-Zero 保护
         self.register_buffer("_adaLN_zero", torch.tensor(True), persistent=False)
 
     def _txt_attn(self, txt: torch.Tensor, img: torch.Tensor) -> torch.Tensor:
@@ -272,11 +281,11 @@ class DiTBlock(nn.Module):
                 c: torch.Tensor, identity_ctx: Optional[torch.Tensor]
                 ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         d = self.dim
-        mod = self.adaLN(c)                                  # [B, 9d]
+        mod = self.adaLN(c)                                  # [B, 8d]
         sa, ba, ga = mod[:, 0 * d:1 * d], mod[:, 1 * d:2 * d], mod[:, 2 * d:3 * d]
         sm, bm, gm = mod[:, 3 * d:4 * d], mod[:, 4 * d:5 * d], mod[:, 5 * d:6 * d]
         g_txt = mod[:, 6 * d:7 * d]
-        g_id = mod[:, 8 * d:9 * d]
+        g_id = mod[:, 7 * d:8 * d]
 
         h = self.norm1(img) * (1.0 + sa.unsqueeze(1)) + ba.unsqueeze(1)
         if txt is None:

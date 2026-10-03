@@ -562,12 +562,19 @@ def main() -> int:
         with torch.no_grad():
             assert torch.equal(v_off, m(x, t, identity_ctx=tok)), \
                 "adaLN-Zero 下身份门控为 0，注入 token 不应改变输出"
-        # ② 显式打开身份门（adaLN 输出的第 9 段 g3）后，注入才生效
+        # ② 显式打开身份门（adaLN 输出的第 8 段 g_id）后，注入才生效
         d = m.cfg.dim
         with torch.no_grad():
             for blk in m.blocks:
                 if blk.identity_cross is not None:
-                    blk.adaLN[-1].bias[8 * d:9 * d].fill_(0.5)
+                    # ⚠️ 切片必须非空：adaLN bias 长度 = 8d，若段数与本行不一致会得到
+                    #    **空切片**，`.fill_()` 静默 no-op **不抛异常** ⇒ 门根本没开，
+                    #    却要晚一步炸在下面那句断言上，报一句完全指不到根因的错。
+                    #    这里显式拦住（通用教训 #2：报错文本 ≠ 根因）。
+                    _sl = blk.adaLN[-1].bias[7 * d:8 * d]
+                    assert _sl.numel() == d, \
+                        f"adaLN 段数与 selftest 不符：得到空切片 {tuple(_sl.shape)}"
+                    _sl.fill_(0.5)
             v_off2 = m(x, t, identity_ctx=None)
             v_on = m(x, t, identity_ctx=tok)
         assert torch.equal(v_off2, v_off), "仅开门、不给身份 token ⇒ 仍逐位不变"
@@ -994,7 +1001,7 @@ def main() -> int:
 
         守的不是「代码现在这样」，而是设计稿写死的 adaLN-Zero 语义
         （`dit.py`：adaLN 末层 weight 全 0、只把 attn/mlp/txt 三个 gate 的 bias 置 1；
-        身份门控第 9 段保持 0）。⇒ 推论：**未训练主干上 G3.5 根本无从谈起** ——
+        身份门控第 8 段保持 0）。⇒ 推论：**未训练主干上 G3.5 根本无从谈起** ——
         这不是「轴不成立」，而是「门还没开」。
 
         ⚠️ 必须在**同一 batch 形状**下比对：跨 batch 会因 GEMM 分块差异产生

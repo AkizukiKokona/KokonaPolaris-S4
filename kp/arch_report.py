@@ -110,8 +110,15 @@ def main() -> int:
     print("\n【待办（需与设计稿核对）】")
     print(f"  · KP-S：实测 {_fmt(rows['KP-S'])} ≈ 0.6B ✅ 无需改动")
     print(f"  · KP-M：实测 {_fmt(rows['KP-M'])} 比标称 1.5B 大 "
-          f"{(rows['KP-M']/1.5e9-1)*100:.0f}% → 建议把 dim 1792/L32 下调")
-    print("    （候选：dim≈1664/L32 或 dim≈1792/L26；参数量 ∝ dim²·layers）")
+          f"{(rows['KP-M']/1.5e9-1)*100:.0f}%")
+    print("    · ✅ 已做：删掉 adaLN 段 7「g_geo」——它全代码库无人读取，")
+    print("      是纯死参数（每 block d²，KP-M 省 102.8M ≈ 5.2%；adaLN 自身 FLOPs −11.1%）")
+    print("    · ⏳ 待拍板：剩下的标称差是「改结构」还是「改标称」")
+    print("      （结构侧候选：dim≈1664/L32；参数量 ∝ dim²·layers）")
+    print("    · ⚠️ 判据提示：本项目**不靠 LoRA 堆能力**——LoRA(L3) 仅 3.89M/0.22%，")
+    print("      不是承载能力的主力。adaLN 虽占参数一半，但 QAD 期被 freeze_backbone 全冻")
+    print("      （只在**预训练期**可训，那正是 L1 内生轴的载体）⇒ 砍参数量的杠杆在")
+    print("      **adaLN 段数与 dim**，不在挂点数/层数。")
     print("  · 其余见 MEMORY.md §就绪度与验证门")
 
     print("\n" + "=" * 74)
@@ -119,4 +126,12 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # ⚠️ 与 kp/selftest.py 同款兜底：Windows 中文控制台默认 GBK，打印 `1024²`
+    #    会抛 `UnicodeEncodeError: 'gbk' codec can't encode character '\xb2'`，
+    #    表现为「arch_report 直接 exit 1、报告只打了一半」——看起来像工具挂了，其实是编码。
+    for _s in (sys.stdout, sys.stderr):
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):  # pragma: no cover
+            pass
     sys.exit(main())

@@ -8,7 +8,9 @@
 
    本版按 `design/` 主文档 + 补充01/04 + `kp/config.py` +
    `selftest.py` / `arch_report.py` / `train/qad.py` 的**实际调用面**重写，
-   并保持与原版一致的参数量结构（18·d²/block，见 `dit.py` 顶部推导）。
+   并保持与原版一致的参数量结构（**17·d²/block**，见 `dit.py` 顶部推导；
+   ⚠️ 2026-10-03 由 18·d² 改为 17·d² —— 删掉 adaLN 里全代码库无人读取的
+   段 7「g_geo」死参数，详见 `dit.py` 顶部「为什么是 8 段不是 9 段」）。
 
 分层：
     kp.models.dit         单流 DiT 主干（3:1 混合注意力 / QK-Norm / Matryoshka）

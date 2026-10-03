@@ -2,7 +2,7 @@
 
 回答四个问题：
     ① 会推上去什么？多大？      ② 有没有不该进去的东西（权重/密钥/大文件）？
-    ③ 换机后能不能跑起来？      ④ 5070/5060 硬件差异是否需要改配置？
+    ③ 换机后能不能跑起来？      ④ kokona/viim 硬件差异是否需要改配置？
 
 用法：
     python tools/publish_check.py            # 体检 + 摘要
@@ -30,10 +30,12 @@ FORBIDDEN_DIR = {"models", ".venv", ".cache", ".pipcache", "repos", "__pycache__
 SECRET_PAT = re.compile(r"(api[_-]?key|secret[_-]?key|access[_-]?token|"
                         r"password|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY)", re.I)
 
-# ---- 硬件档案：新机换卡后对照 ----
+# ---- 硬件档案：换机后对照（⚠️ 分名禁止混记，见 MEMORY_archive.md）----
+# ⚠️ 库里曾记的「5060 Laptop / 26 SM」是**幻影机**：只来自口头换机意向，
+#    全库无任何 26 SM 实测记录。出现过的 SM 数只有 20（5050）与 36（5070）。
 HW_PROFILE = {
-    "本机（本轮迁出）": "RTX 5050 Laptop · 8GB · 20 SM · TGP 45–100W · sm_120",
-    "新机（迁入）": "RTX 5060 Laptop · 8GB · 26 SM · TGP 45–115W · sm_120",
+    "kokona（本工作副本所在机）": "RTX 5050 Laptop · 8GB · 20 SM · TGP 45–100W · sm_120",
+    "viim（当前基线机）": "RTX 5070 Laptop · 8GB · 36 SM · TGP 45–115W · sm_120",
 }
 
 
@@ -130,9 +132,10 @@ def main() -> int:
     for k, v in r["hw"].items():
         print(f"   {k:<18}{v}")
     print()
-    print("   ⭐ 5060 vs 5050：**显存同为 8GB（硬约束不变）、sm_120（架构不变）、")
-    print("      SM 20→26（算力 +30%）、TGP 上限 100→115W**。")
+    print("   ⭐ viim(5070) vs kokona(5050)：**显存同为 8GB（硬约束不变）、sm_120（架构不变）、")
+    print("      SM 20→36（算力 +80%）、TGP 上限 100→115W**。")
     print("      ⇒ **kp/config.py 的架构常量一个都不用改**；只有算力预算类结论会变宽松。")
+    print("      ⛔ 但**实测 TFLOPS / 功耗 / SM 数绑定具体机器**，跨机结论一律作废。")
 
     return 0 if not r["problems"] else 1
 

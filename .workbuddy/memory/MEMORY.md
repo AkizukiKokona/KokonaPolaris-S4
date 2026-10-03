@@ -60,8 +60,11 @@
 | Δ-Pack 谱检查 / 擦除可逆性 | — | 无正交高排名分量 / `E⁻¹∘E` 后 KL < 阈值 |
 
 ## 开发机（**结论；完整数字见 `MEMORY_archive.md`，操作铁律见 `MEMORY_ops.md`**）
-- ⚠️ **机器已换过，不再唯一**：真正绑死的只有 **sm_120 + 8GB 显存 + 384GB/s 带宽**（5050/5060/5070 Laptop 三代全同）⇒ `kp/config.py` 架构常量**零改动**。
-- ⛔ **所有「实测 TFLOPS / 功耗 / SM 数」都绑定具体机器，换机即作废**；跑 GPU 任务前先 `tools/gpu_probe.py` 重测再回写。
+- ⚠️ **机器已换过，不再唯一**：真正绑死的只有 **sm_120 + 8GB 显存 + 384GB/s 带宽** ⇒ `kp/config.py` 架构常量**零改动**。
+  两台机**分名、禁止混记**（`MEMORY_archive.md` §基线）：**kokona** = RTX 5050 Laptop(20 SM，**本会话所在机**，`D:\model`) ｜ **viim** = RTX 5070 Laptop(36 SM，当前基线机)。
+  ⚠️ 库里的「5060 Laptop(26SM)」是**幻影机**——只出现在用户口头的换机意向里，全库无任何 26 SM 实测记录，已从文档清除。
+- ⛔ **所有「实测 TFLOPS / 功耗 / SM 数」都绑定具体机器，换机即作废**；跑 GPU 任务前先 `tools/gpu_probe.py` 重测再回写，**记数字必须带机器名**。
+  ⚠️ 在 kokona 上跑出的 GPU 数字属「绑定旧机」，**不可回写 viim 基线**（纯 CPU 判据不受此限）。
 - 🔴 **真·硬约束仍是显存 8GB**（实测空闲 3.2–6.3GB → 「推理 ~2.5GB」是刚好不是宽松）。
 - 🔴 **路径一律走 `kp.paths`**（`KP_ROOT` 环境变量 > `__file__` 向上 > CWD 向上）。⛔ **禁止写死 `D:/model`**；`tools/portable_paths.py --verify` 应恒为 0。
 - 💾 **不要动 C 盘**。🧹 **清理/删除类操作前必须先问**（只做只读扫描 + 报告）。🖥️ **夜间禁压测**（安静模式 GPU → ~40W ⇒ 只做 IO/CPU/文档/代码）。⛔ **单卡独占**（派 GPU 任务前先清 python 孤儿）。**长任务要实时监控 + 支持断点续跑**。
@@ -76,11 +79,25 @@
 ## 参考实现骨架（`kp/`，2026-10-03 落地）
 纯 CPU 可跑、夜间安全。`python -m kp.selftest` = **52/52 通过**；`python -m kp.arch_report` = 架构速览与真实参数量核对。
 🔴→✅ **`kp/models/` 曾整体丢失并已重建（2026-10-03）**：`.gitignore` 里 `models/` **没加前导斜杠** ⇒ 连带忽略了源码包 `kp/models/`（DiT / HybridVAE / TextTower / CharaBridge）⇒ **从未入库、全历史不存在**，换机后自检第 6 节 `No module named 'kp.models'` 中断。`.gitignore` 已修为锚定 `/models/`；**源码已按设计稿 + `config.py` + `selftest`/`arch_report`/`train/qad` 调用面重写并入库**。
-⭐ **参数量反推（确认结构正确的依据）**：每 block 恰 **18·d²** = attention 4d²(qkv+out) + MLP 5d² + **adaLN 9d²（→9 段，第 8 段 = 身份门控）**。⇒ 重建后 KP-S **626.7M**（+4.5% ✅）/ KP-M **1.978B**（+31.8% ⚠️，比旧版 565.9M/1.806B 多 ~64M，差异来自 double-stream 独立文本投影；**KP-M 尺寸本就待拍板，未擅改 config**）。
+⭐ **参数量反推（确认结构正确的依据）**：每 block 恰 **17·d²** = attention 4d²(qkv+out) + MLP 5d² + **adaLN 8d²（→8 段，第 8 段 = 身份门控）**。
+  ⭐ **2026-10-03 瘦身**：原第 7 段 `g_geo`「几何分支门控（预留）」**全代码库无人读取** ⇒ 纯死参数（每 block `d²`），已删。
+  省下的正好是预测值：KP-S **626.7M → 594.8M**（−31.9M）／KP-M **1.978B → 1.875B**（−102.8M ≈ 5.2%）。
+  ⚠️ **FLOPs 两个分母别混**：adaLN **自身** −11.1%（`2·d·9d→2·d·8d`）／**全模型** −5.6%（`18d²→17d²`）。
+  ⇒ 现值：KP-S **594.8M**（vs 标称 0.6B = **−0.9% ✅ 更吻合**）／KP-M **1.875B**（+25.0%，仍待拍板）。
+  ⚠️ 教训：**「预留接口」不该用「每层都付钱」的方式存在** —— 留接口前先问「谁读它」。
+  ✅ 对抗性审计已独立复核：段 7 确为死参数；**几何分支走 CharaBridge 自己的 `geo_kv`+`set_gate`，从不经过 adaLN**；
+  `design/` **零处**规定段数（只有 "adaLN-Single"）⇒ 删段不与任何设计决策矛盾；无 DiT checkpoint 落盘 ⇒ 无形状兼容风险；初值前向逐位不变。
 🔧 **adaLN-Zero 的正确做法**：末层 **weight 清零，但 attn/mlp/txt 三个 gate 的 bias 置 1** —— 若 bias 全清 0，整个 block 初值是恒等映射（网络退化）。身份门控（第 8 段）保持 0。
 分层：`latent`（40ch 混合 latent + 打包纯函数 + 通道监督件）/ `capability`（bus / delta_pack / svd_pack / parallel_pack / erase）/ `models`（dit / vae / text_tower / **charabridge**）/ `character`（card / fitter / pipeline）/ `quant`（nvfp4，与 `tools/e5b_qad.py` 逐位对拍）/ `train`（qad）/ `typography`（**layout / typography_pack**）/ `probe` / `sample`。
 ⭐ **adapter 预算投影**（`kp.train.budget_projection`）：KP-S 可训 **1.89M/0.33%**、AdamW ≈0.02GB；KP-M 3.89M/0.22% —— 与 **E5b 在 Sana 1.6B 实测（5.99M/0.37%）同量级**，**独立复现「必须 adapter 式 QAD」**。
-⚠️ **待用户拍板**：**KP-M 主干实测 1.806B，比标称 1.5B 大 +20.4%**（KP-S 565.9M ≈ 0.6B ✅）→ 建议下调 dim/layers；**未擅自改配置**。
+⚠️ **待拍板（已给足利弊分析，用户尚未定）**：**KP-M 主干实测 1.875B，比标称 1.5B 大 +25.0%**。删死段（−5.2%）已落地，剩下的要选**「改结构」还是「改标称」**。
+   ⭐ **判据要点：KP 不靠 LoRA 堆能力** —— LoRA(L3) 全程仅 **3.89M / 0.22%**（差 238 倍于 adaLN 的一半），不是承载能力的主力。
+   ⚠️ **口径澄清（2026-10-03 审计修正，别再说错）**：`arch_report` 的「可训练/冻结W0」两栏是 **nn.Parameter vs buffer** 的**账面分类**，
+   **不是训练期可训性**。真实情况分两阶段：**预训练期**（P2 换主干）adaLN/domain_embed 要训，那正是 **L1 内生轴的载体**；
+   **QAD 期** `freeze_backbone` 把所有真参数（含 adaLN）**全冻** ⇒ 彼时 adaLN 是「假可训」，省它省的是**权重体积与前向**，不是 AdamW 状态。
+   ⇒ 「砍参数量的杠杆在 adaLN 段数与 dim，不在层数/挂点数」这个结论**不受影响**（两种阶段都成立）。
+   ⇒ 结构侧候选 `dim≈1664/L32`（≈1.52B）。另：轴几何余量 ∝ √(2·ln120/d)，1792→1664 只恶化 **+3.8%**，**不构成否决理由**。
+   倾向**改结构而非改标称**（KP-L 3B 仅 teacher 不发布 ⇒ KP-M 是发布最高档，体积直接决定发布包与最低显存门槛）。
 
 ## 就绪度与验证门
 **判决：设计层收敛（~90%）／假设层未就绪（~15%）／实现层骨架已落地。**

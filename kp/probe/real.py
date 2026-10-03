@@ -319,7 +319,7 @@ def open_domain_door(model: SingleStreamDiT, *, scale: float = 0.02,
     """显式开门：把每个 block `adaLN[-1].weight`（初值**恒为 0**）换成固定种子噪声。
 
     ⚠️ 这是**唯一**的改动：
-      · 不动 `bias`（attn/mlp/txt 三个 gate 的 1.0 保留、身份门控第 9 段仍为 0）；
+      · 不动 `bias`（attn/mlp/txt 三个 gate 的 1.0 保留、身份门控第 8 段仍为 0）；
       · 不动结构、不动任何 `GatedLinear` 权重、不动 `domain_embed`。
     语义 = 「训练走完第一步之后，门就不再是死的」—— 让**注入路径**可被观测。
 

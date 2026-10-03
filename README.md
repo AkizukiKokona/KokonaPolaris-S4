@@ -3,7 +3,7 @@
 > **自研文生图架构**（非 SDXL / Flux 修补）。主打二次元 / 日系，写实是**主干内生的 domain 旋钮**。
 > **无底模，一个权重都不继承。**
 
-⚠️ **本仓库是「设计 + 参考实现骨架」，不是成品模型。** 骨架自检 **52/52** 通过（纯 CPU）。
+⚠️ **本仓库是「设计 + 参考实现骨架」，不是成品模型。** 骨架自检 **63/63** 通过（纯 CPU）。
 
 ---
 
@@ -79,11 +79,11 @@ cd KokonaPolaris-S4
 python tools/onboard.py
 ```
 
-**只需要 `torch` / `numpy` / `pillow` 就能跑全部 52 项自检**（纯 CPU，无需下载模型）。
+**只需要 `torch` / `numpy` / `pillow` 就能跑全部 63 项自检**（纯 CPU，无需下载模型）。
 
 | 常用命令 | 作用 |
 |---|---|
-| `python -m kp.selftest` | **52 项不变量自检**（纯 CPU，夜间安全） |
+| `python -m kp.selftest` | **63 项不变量自检**（纯 CPU，夜间安全） |
 | `python -m kp.arch_report` | 架构速览 + 真实参数量核对 |
 | `python -m kp.character.pipeline` | 角色卡数据管线 |
 | `python -m kp.train.fitter` | Character Fitter 训练闭环 |
@@ -114,7 +114,7 @@ python tools/onboard.py
 
 **G0 环境 🟢 → G1 ✅ 初步通过（W4A8）→ G2 通道分离 → G3 Sigmoid 注意力 → 🔴 G3.5 L1 条件轴真实性 → G4 Matryoshka → G5 角色卡 → G6 Micro-budget（需租云）→ G7 少步蒸馏**
 
-当前：**设计层收敛（~90%）/ 假设层未就绪 / 实现层骨架已落地（52/52）**。
+当前：**设计层收敛（~90%）/ 假设层未就绪 / 实现层骨架已落地（63/63）**。
 唯一遗留：**G1 正式 FID（≥50 张/臂，需白天解锁功耗）**。
 
 ---
@@ -123,7 +123,7 @@ python tools/onboard.py
 
 ```
 design/     设计稿（主文档 v1.14 + 补充 01–11 + 迁移手册）★ 项目的真相
-kp/         参考实现骨架（18 模块，全部纯 CPU 可跑）
+kp/         参考实现骨架（41 个 Python 文件，全部纯 CPU 可跑）
   config.py     全部可调旋钮（QUANT / CAP / CAPTION / AXIS / LATENT / DIT）
   paths.py      路径唯一真源（三级探测，跨机可移植）
   latent/       40ch 混合 latent + 打包纯函数
@@ -156,10 +156,18 @@ source env.sh && "$KP_PY" tools/fetch_sana.py
 
 ## 开发环境
 
-RTX 5060 Laptop / 8GB / **sm_120** / 26 SM · torch 2.8.0+cu128 · Python 3.12
+两台机**分名禁止混记**（`MEMORY_archive.md` §基线）——⚠️ 库里曾记的「5060 / 26 SM」是**幻影机**，已清除：
+
+| 代号 | GPU | 显存 | SM | 路径 |
+|---|---|---|---|---|
+| **kokona** | RTX 5050 Laptop | 8GB | 20 | `D:\model`（本工作副本所在机） |
+| **viim** | RTX 5070 Laptop | 8GB | 36 | `D:\kokonapolaris-s4`（当前基线机） |
+
+**绑死的只有 sm_120 + 8GB + 384GB/s** ⇒ `kp/config.py` 架构常量零改动。
 **环境入口** `source env.sh` → 用 `"$KP_PY"` 调解释器（缓存全落项目根，不写 C 盘）
 
 ⚠️ **夜间禁压测**：整机切安静模式时 GPU 被压到约 40W ⇒ 夜间只做 CPU / IO / 文档 / 代码。
+⛔ **实测 TFLOPS / 功耗 / SM 数绑定具体机器**，换机即作废；跑 GPU 前先 `tools/gpu_probe.py` 重测，**记数字必须带机器名**。
 
 ---
 
