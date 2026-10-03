@@ -54,6 +54,12 @@ out/*.log
 /.pipcache/
 /repos/
 
+# ---- 本地专用：交接文档（**明确不同步到仓库**）----
+# 给下一个接手 Agent 的本地说明，用户要求不入库。
+# 锚定写法，避免以后再犯「无前导斜杠 = 匹配任意层级」的老错。
+/HANDOFF_FOR_NEXT_AGENT.md
+/*.local.md
+
 # ---------- 权重 / 大二进制 ----------
 *.safetensors
 *.ckpt
