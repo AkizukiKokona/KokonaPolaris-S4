@@ -73,11 +73,17 @@
 | 系统 Python | 3.13.14（`.../Microsoft/WindowsApps`）+ 3.14.6；另有 uv 托管 **3.12.15** |
 | 磁盘 | C: 剩 142GB / D: 剩 196GB |
 
-### 环境缺口（**全裸，必须先装**）
-- ❌ **没有任何 DL 运行时**：三个解释器里 `torch / numpy / PIL` 全无（**D:/model 不存在**，旧 venv 与 4.6GB 靶子都没跟过来）。
-- ❌ **CUDA Toolkit 未安装**（无 `nvcc`；迁出机是 nvcc 13.2，三套并存）。⚠️ `nvidia-smi` 报的 "CUDA 13.1" 只是**驱动支持的 UMD 版本，不等于装了工具链**。
-- ❌ git **全局身份未配置**（`user.name/email` 皆空）→ 已在本仓库**局部**配置为 `AkizukiKokona <AkizukiKokona@users.noreply.github.com>`（与历史提交一致，**未动全局**）。
-- ⚠️ `env.sh` 仍**硬编码** `KP_ROOT="D:/model"` + `KP_VENV="$KP_ROOT/.venv"` ⇒ 在本机**直接 use 会指向不存在的路径**。（`kp/paths.py` 不受影响，自动探测到 `D:\kokonapolaris-s4`。）
+### 环境（2026-10-03 已装齐 ✅）
+- ✅ **`.venv` = `D:\kokonapolaris-s4\.venv`**，**Python 3.12.15**（uv 托管，MSC v.1944 → 对上本机 MSVC 14.44）。**自包含**（不再依赖什么系统 site-packages）。
+- ✅ torch **2.8.0+cu128** / torchvision 0.23.0+cu128；sm_120 实算 **bf16 GEMM 2048³×50 = 39.4 TFLOPS**（cap=(12,0)）。
+- ✅ ModelOpt **0.46.0**，NVFP4 配方 **20 个**（⚠️ 旧记忆写 23，差异待核）。
+- ✅ 全量清单见重写后的 **`requirements.lock.txt` v2**（含两步安装顺序 + 版本钉子）。装法：`pip install -r requirements.lock.txt -i 清华`，但 **torch 必须先单独走 `--index-url https://download.pytorch.org/whl/cu128`（需代理）**。
+- ⚠️ **`rembg` 必须装 `rembg[cpu]` 或 `[gpu]`** —— 只装 `rembg` 会 import 即打印提示并退出（缺 onnxruntime）。
+- ⚠️ modelopt 会对 transformers 4.55.4 打「not tested」警告 —— **故意的钉子**（5.x 会打坏插件），不是问题。
+- ✅ git 身份：**全局 + 本仓库**均已设为 `AkizukiKokona <139216879+AkizukiKokona@users.noreply.github.com>`（用户明确指定；**所有 commit 都用它**，且**禁止 PR、直接推**）。
+- ❌ **CUDA Toolkit 仍未装**（winget 有 `Nvidia.CUDA 13.4`，需管理员）。**当前阶段不阻塞**：ModelOpt 走 Python 侧 fake-quant，Triton 只需 MSVC，都不需要 nvcc。要编译自定义 CUDA 扩展时才需要。
+- ⚠️ `tools/e5b_msvc_env.bat` 里 `TORCH_EXTENSIONS_DIR` 也写死了 `D:/model/.cache/torch_ext`（`env.sh` 已提供正确值）。
+- ⚠️ `env.sh` 已改为**自定位**（不再写死 `D:/model`）；未写注册表级持久变量（`kp.paths` 本就自动探测，写死反而多副本误伤）。
 
 ### 已有、可直接复用
 - ✅ **MSVC 14.44.35207**（`C:\Program Files\Microsoft Visual Studio\2022\Community\...`）+ **Windows SDK 10.0.26100.0**。

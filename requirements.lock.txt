@@ -1,18 +1,63 @@
 # ============================================================
-# KokonaPolaris-S4 环境定格 v1  （2026-10-02 定格）
+# KokonaPolaris-S4 环境定格 v2  （2026-10-03 重写）
 # ============================================================
-# 基础   : Python 3.12.10  @  D:/model/.venv
-# 方式   : venv --system-site-packages（复用系统 torch 2.8.0+cu128，
-#          该 torch 已验证 sm_120 可用，重装要 3GB 下载，故复用）
-# 隔离   : 下列为 venv 覆盖层（pip freeze --local）。
-#          系统环境（transformers 5.10.1 / hub 1.26.1 / tokenizers 0.22.2 /
-#          diffusers 0.34.0）"一根毫毛未动"，仅被 venv 版本遮蔽。
-# 网络   : PyPI 走清华/阿里镜像，HF 走 hf-mirror.com（不占代理）
-# 缓存   : 全部重定向至 D:/model/.cache（不写 C 盘）
-# 复现   : source /d/model/env.sh  &&  "$KP_PY" tools/smoke_env.py
+# ⚠️ v1 的问题：它只记录了旧机 venv 的**覆盖层**（diffusers/hf_hub/
+#    tokenizers/transformers 四行），基础件（torch/numpy/PIL/...）全靠
+#    旧机「系统 Python 3.12.10 的 site-packages」——**换机后照它装不够**。
+#
+# v2 改为**自包含全量清单**：任何一台干净机器照下面两步就能复现。
+#
+# ---- 安装（两步，顺序不能反）----
+#   ① torch 走官方 cu128 源（sm_120 必需；PyPI 默认源不一定带 cu128）：
+#        # 需代理（实测 download.pytorch.org 直连慢）
+#        export https_proxy=http://127.0.0.1:7897
+#        pip install torch==2.8.0 torchvision==0.23.0 \
+#            --index-url https://download.pytorch.org/whl/cu128
+#   ② 其余全部走国内镜像：
+#        pip install -r requirements.lock.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+#
+# ---- 本机验证基线（2026-10-03，RTX 5070 Laptop / 8GB / sm_120）----
+#   Python 3.12.15 · torch 2.8.0+cu128 · CUDA cap=(12,0)
+#   `tools/smoke_env.py` → 导入链全绿 · bf16 GEMM 2048³×50 = 39.4 TFLOPS
+#   `tools/onboard.py`   → 9/9 依赖 ✅
+#
+# ---- 版本钉子（**别乱升**，都是踩过坑的）----
+#   transformers==4.55.4  ← 5.10.1 会 HybridCache ImportError 打坏 modelopt 插件
+#   nvidia-modelopt==0.46.0 ← 设计推导的 NVFP4 配方基本是它的现成配置项
 # ============================================================
 
+# ---- 核心（必需）----
+torch==2.8.0            # +cu128，见上面第 ① 步
+torchvision==0.23.0     # +cu128
+numpy==2.5.2
+pillow==12.3.0
+
+# ---- 文本塔 / diffusers / G1 靶子 ----
+transformers==4.55.4
 diffusers==0.35.2
 huggingface_hub==0.36.2
 tokenizers==0.21.4
-transformers==4.55.4
+safetensors==0.8.0
+accelerate==1.15.0
+peft==0.21.2
+einops==0.8.2
+
+# ---- 量化（G1）----
+nvidia-modelopt==0.46.0
+
+# ---- 统计 / FID ----
+scipy==1.18.1
+scikit-image==0.26.0
+pytorch-fid==0.3.0
+
+# ---- 排版（T0 / TypographyPack）----
+fonttools==4.66.1
+uharfbuzz==0.56.2
+freetype-py==2.5.1
+
+# ---- 角色卡去底 ----
+rembg==2.0.85           # ⚠️ 光装 rembg 不够，必须带后端：
+onnxruntime==1.30.0     #      pip install "rembg[cpu]"  （或 [gpu]）
+
+# ---- 自定义 kernel（可选，注意力实验才需要）----
+triton-windows==3.8.0.post29

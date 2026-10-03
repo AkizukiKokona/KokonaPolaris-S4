@@ -1,18 +1,36 @@
 #!/usr/bin/env bash
 # ============================================================
 # KokonaPolaris-S4 / 心夏北极星 —— 项目环境入口
-# 用法：  source /d/model/env.sh
+# 用法：  source <仓库根>/env.sh
 # 之后：  "$KP_PY" your_script.py
 # ============================================================
-# 目的有二：
-#   ① 统一 python 解释器（D:\model\.venv，独立于系统环境的版本冲突）
-#   ② 把所有缓存写向 D 盘 —— 约定「不碰 C 盘」
+# 目的有三：
+#   ① **自动定位仓库根**（不再写死路径 —— 换机/多副本都能直接用）
+#   ② 统一 python 解释器（仓库内 .venv，独立于系统环境的版本冲突）
+#   ③ 把所有缓存写向项目所在盘 —— 约定「不碰 C 盘」
+#
+# ⚠️ 2026-10-03 修正：原版写死 `KP_ROOT="D:/model"`，换到
+#    `D:\kokonapolaris-s4` 后 source 会指向不存在的路径。
+#    现改为「按本脚本所在目录自定位」，并允许外部预先设 KP_ROOT 覆盖。
 
-export KP_ROOT="D:/model"
+# ---- ① 仓库根自定位（Windows 混合路径形式 D:/xxx，便于交给原生程序）----
+if [ -z "${KP_ROOT:-}" ]; then
+  _KP_SELF="${BASH_SOURCE[0]:-$0}"
+  _KP_DIR="$(cd "$(dirname "$_KP_SELF")" && pwd)"
+  if command -v cygpath >/dev/null 2>&1; then
+    KP_ROOT="$(cygpath -m "$_KP_DIR")"       # /d/x  →  D:/x
+  else
+    KP_ROOT="$_KP_DIR"
+  fi
+  unset _KP_SELF _KP_DIR
+fi
+export KP_ROOT
+
+# ---- ② 解释器 ----
 export KP_VENV="$KP_ROOT/.venv"
 export KP_PY="$KP_VENV/Scripts/python.exe"
 
-# ---- 缓存全面重定向到 D 盘（含 HuggingFace，否则模型会下到 C:\Users\...\.cache）----
+# ---- 缓存全面重定向到项目盘（含 HuggingFace，否则模型会下到 C:\Users\...\.cache）----
 export PIP_CACHE_DIR="$KP_ROOT/.pipcache"
 export XDG_CACHE_HOME="$KP_ROOT/.cache"
 export HF_HOME="$KP_ROOT/.cache/huggingface"
@@ -21,9 +39,10 @@ export HUGGINGFACE_HUB_CACHE="$KP_ROOT/.cache/huggingface/hub"
 # 注意：不要设 TRANSFORMERS_CACHE（transformers>=4.55 已废弃，会报 FutureWarning），HF_HOME 已覆盖
 export DIFFUSERS_CACHE="$KP_ROOT/.cache/huggingface/diffusers"
 export TORCH_HOME="$KP_ROOT/.cache/torch"
+export TORCH_EXTENSIONS_DIR="$KP_ROOT/.cache/torch_ext"
 export MODELSCOPE_CACHE="$KP_ROOT/.cache/modelscope"
 
-# ---- 模型/数据/输出统一落盘位置（全部 D 盘）----
+# ---- 模型/数据/输出统一落盘位置（全部在项目盘）----
 export KP_MODELS="$KP_ROOT/models"
 export KP_DATA="$KP_ROOT/data"
 export KP_OUT="$KP_ROOT/out"
@@ -57,6 +76,12 @@ export PYTHONUNBUFFERED=1
 
 mkdir -p "$PIP_CACHE_DIR" "$HF_HUB_CACHE" "$TORCH_HOME" "$KP_MODELS" "$KP_DATA" "$KP_OUT" 2>/dev/null
 
+echo "[KP] root   : $KP_ROOT"
 echo "[KP] venv   : $KP_VENV"
-echo "[KP] python : $("$KP_PY" -c 'import sys;print(sys.version.split()[0])' 2>/dev/null)"
+if [ -x "$KP_PY" ]; then
+  echo "[KP] python : $("$KP_PY" -c 'import sys;print(sys.version.split()[0])' 2>/dev/null)"
+else
+  echo "[KP] python : ⚠️ 未找到 $KP_PY —— 先建 venv："
+  echo "               python -m venv \"$KP_VENV\" && \"$KP_PY\" -m pip install -r \"$KP_ROOT/requirements.lock.txt\""
+fi
 echo "[KP] cache  : $KP_ROOT/.cache  (已隔离 C 盘)"

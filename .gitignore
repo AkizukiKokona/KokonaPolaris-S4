@@ -7,6 +7,13 @@
 # ============================================================
 
 # ---------- 大体积：绝不入库 ----------
+# ⚠️⚠️ 这里踩过一次**严重**的坑（2026-10-03 发现）：
+#   原写法 `models/` **不带前导斜杠** ⇒ git 的规则是「任意层级同名目录」
+#   ⇒ 把**源码包 `kp/models/`**（DiT / HybridVAE / TextTower / CharaBridge）
+#     一起忽略了，导致该包**从未入库、全历史都不存在**，
+#     换机后 `python -m kp.selftest` 直接在第 6 节 `No module named 'kp.models'` 崩。
+#   ⇒ **必须写成 `/models/`（锚定仓库根）**。同理 `repos/`→`/repos/`、`.venv/`→`/.venv/`。
+#
 # ⚠️ `out/` 的处理很讲究：G1/G5 的实测 json 是**原始证据**，换机后无法复现
 #（要 GPU + 靶子），体积只 ~75KB；而 .pt/.png/embeds 是可再生的中间产物。
 #
@@ -40,11 +47,12 @@ out/e6/
 out/kp/
 out/*.log
 
-models/
-.venv/
-.cache/
-.pipcache/
-repos/
+# ⚠️ 必须锚定根目录（见文件顶部说明）
+/models/
+/.venv/
+/.cache/
+/.pipcache/
+/repos/
 
 # ---------- 权重 / 大二进制 ----------
 *.safetensors

@@ -74,7 +74,8 @@
 - 🔴 **永久规范**：① 逐像素 PSNR/SSIM 只用于同轨迹复现性，**不可判画质** → G1 主判据须分布级；② PTQ 是模拟量化，其峰值显存**不能论证 NVFP4 显存收益**。
 
 ## 参考实现骨架（`kp/`，2026-10-03 落地）
-纯 CPU 可跑、夜间安全。`python -m kp.selftest` = **52 项通过**；`python -m kp.arch_report` = 架构速览与真实参数量核对。
+纯 CPU 可跑、夜间安全。`python -m kp.arch_report` = 架构速览与真实参数量核对。
+🔴 **`kp/models/` 源码包曾整体丢失（2026-10-03 发现，换机后暴露）**：`.gitignore` 里 `models/` **没加前导斜杠** ⇒ 连带忽略了源码包 `kp/models/`（DiT / HybridVAE / TextTower / CharaBridge）⇒ **从未入库、全历史不存在**。后果：`python -m kp.selftest` **跑到第 6 节就 `No module named 'kp.models'` 中断**（1–5 节 10/10 通过），`kp.arch_report` 不可用，所谓「自检 52/52」**在仓库副本上复现不出来**。`.gitignore` 已修为 `/models/`；**源码本身本机找不到，需从旧机回捞或重写**。⚠️ **这个包必须重新入库**。
 分层：`latent`（40ch 混合 latent + 打包纯函数 + 通道监督件）/ `capability`（bus / delta_pack / svd_pack / parallel_pack / erase）/ `models`（dit / vae / text_tower / **charabridge**）/ `character`（card / fitter / pipeline）/ `quant`（nvfp4，与 `tools/e5b_qad.py` 逐位对拍）/ `train`（qad）/ `typography`（**layout / typography_pack**）/ `probe` / `sample`。
 ⭐ **adapter 预算投影**（`kp.train.budget_projection`）：KP-S 可训 **1.89M/0.33%**、AdamW ≈0.02GB；KP-M 3.89M/0.22% —— 与 **E5b 在 Sana 1.6B 实测（5.99M/0.37%）同量级**，**独立复现「必须 adapter 式 QAD」**。
 ⚠️ **待用户拍板**：**KP-M 主干实测 1.806B，比标称 1.5B 大 +20.4%**（KP-S 565.9M ≈ 0.6B ✅）→ 建议下调 dim/layers；**未擅自改配置**。
@@ -101,6 +102,7 @@ NOVA-Human（10.2k VRM，512²，Fitter 完美配对；⚠️ 仅研究用）；
 - ⚠️ **推之前先自检**：没跑通的自检不提交。只版本化设计稿/源码/配置/小数据/记忆库；`models/`、`out/` 中间产物、`.venv/`、`.cache/` 不入库。
 - ⭐ **新环境第一条命令 = `python tools/onboard.py`**（路径体检 + 依赖 + 自检 + 缺口清单）。
 - ⚠️ **`.gitattributes` 声明 `* text=auto eol=lf`，历史上有 CRLF 入库造成的「整文件全改」假差异**（2026-10-03 已用 `git add --renormalize .` 修掉）。新机克隆后若 status 不干净，先查 `git ls-files --eol`。
+- 🔴 **`.gitignore` 里凡是「只写目录名不带前导 `/`」的模式都会匹配任意层级的同名目录** ⇒ 已经因此**丢掉过 `kp/models/` 整个源码包**。规则：仓库根级别的忽略一律写 `/models/` `/repos/` `/.venv/` `/.cache/` 这种**锚定形式**。**新增忽略项前先 `git check-ignore -v <拟忽略路径>` 反向验证一次**。
 
 ## 沟通约定
 - 用户自称「小白」，但**技术直觉准确、判断力强**。必须把原理讲到能听懂，多用结构化/层次化解释。
