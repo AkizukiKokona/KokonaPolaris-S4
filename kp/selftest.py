@@ -1789,6 +1789,56 @@ def main() -> int:
         return (f"默认 None（运行时读 config）✓ ｜ config 值 {tuple(DIT_S.matryoshka_tokens)}")
     check("matryoshka_tokens 真读 config（默认 None 不写死）", _matryoshka_reads_config)
 
+    # ---------------- 27. S1 单图自重建前提（InstantCharacter 路线）----------------
+    section("27. S1 单图路线前提（⭐ 不依赖多视角）")
+
+    def _s1_latent_keeps_identity():
+        """🔴 **InstantCharacter S1 路线的前提**：latent 必须装得下身份信息。
+
+        背景（v1.17）：用户明确**多视角图绝对补齐不了**。而联网核实 arXiv 2504.12395 §3.2 原文：
+            "To achieve **character consistency**, we first train with **unpaired data**,
+             where the character image is incorporated as **reference guidance to reconstruct
+             itself**"
+        ⇒ **身份一致性由「单图自重建」建立，不需要多视角。**
+
+        ⭐ 但这条路线有个**前提**：**VAE 的 latent 必须真的保留身份/结构信息**。
+        若 latent 装不下身份，单图路线根本不成立（后面 S2/S3 都不用谈）。
+        ⇒ 这条断言守的就是这个前提。
+        """
+        from kp.models.vae import HybridVAE
+        from kp.train.vae_pretrain import list_images, load_batch, _edge
+        from kp.paths import DATA, OUT
+        paths = list_images([DATA / "characters" / "kokona"])
+        if not paths:
+            return "⚠️ 无 kokona 图，跳过"
+        x = load_batch(paths, 64, torch.device("cpu"))
+        # 随机初始化的对照（同一形状）
+        torch.manual_seed(0)
+        v0 = HybridVAE(base=16)
+        v0.eval()
+        with torch.no_grad():
+            l1_0 = float((torch.tanh(v0.decode(v0.encode_latent(x))) - x).abs().mean())
+        # 已训练的 checkpoint（若不存在则只报随机基线，并明确说明没验成）
+        ck = OUT / "vae" / "final.pt"
+        if not ck.exists():
+            return (f"⚠️ 无训练后 ckpt（{ck.name}），只测了随机基线 L1={l1_0:.4f} "
+                    f"⇒ **前提未验证**，需先训 VAE")
+        d = torch.load(ck, weights_only=False)
+        v = HybridVAE(base=d["base"])
+        v.load_state_dict(d["state_dict"])
+        v.eval()
+        with torch.no_grad():
+            z = v.encode_latent(x)
+            rec = torch.tanh(v.decode(z))
+            l1 = float((rec - x).abs().mean())
+            # 边缘保留：结构信息是否留在 latent 里（比 L1 更直接对应"身份骨架"）
+            ec = float((_edge(rec) * _edge(x)).sum() / (_edge(x).abs().sum() + 1e-9))
+        assert l1 < l1_0, f"训练后 L1({l1:.4f}) 不比随机({l1_0:.4f}) 好 ⇒ 白训了"
+        assert ec > 0.5, f"边缘保留仅 {ec:.3f} ⇒ latent 没保住结构，单图路线前提不成立"
+        return (f"随机 L1 {l1_0:.4f} → 训练后 {l1:.4f}；**边缘保留 {ec:.4f}** "
+                f"⇒ latent 装得下身份结构 ✓（S1 前提成立）")
+    check("S1 前提：latent 保留身份/结构信息（单图路线的基础）", _s1_latent_keeps_identity)
+
     # ---------------- 汇总 ----------------
     return _summary()
 
