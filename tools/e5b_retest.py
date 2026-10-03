@@ -6,10 +6,11 @@
 运行（必须经 bat 包装以注入 MSVC 环境）：
   cd /d/model && cmd //c "tools\\e5b_msvc_env.bat .venv\\Scripts\\python.exe tools\\e5b_retest.py"
 """
+from kp.paths import MODELS_SANA, OUT
 import os, sys, gc, json, time, traceback, inspect, copy, warnings, io
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
-OUT = "D:/model/out/e5b"
+OUT = OUT / "e5b"
 os.makedirs(OUT, exist_ok=True)
 
 REP = {
@@ -122,12 +123,12 @@ import torch.nn.functional as F  # noqa: E402
 import modelopt.torch.quantization as mtq  # noqa: E402
 from diffusers import SanaTransformer2DModel  # noqa: E402
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
+MODEL = str(MODELS_SANA)
 DEV = "cuda"
 RES = 512
 TOK = 16
 
-store = torch.load("D:/model/out/e5/embeds.pt", map_location="cpu")
+store = torch.load(OUT / "e5/embeds.pt", map_location="cpu")
 POS = store["01_en_scene"]["pos"].to(DEV).to(torch.bfloat16)
 MASK = store["01_en_scene"]["pos_mask"].to(DEV)
 

@@ -2,10 +2,11 @@
 只加载 transformer 与 vae（CPU, bf16），不占显存。
 运行：source /d/model/env.sh && "$KP_PY" tools/verify_sana.py
 """
+from kp.paths import MODELS_SANA, OUT
 import os, json, torch
 from diffusers import SanaTransformer2DModel, AutoencoderDC
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
+MODEL = str(MODELS_SANA)
 
 print("=" * 70)
 print("model_index.json")

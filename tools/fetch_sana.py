@@ -7,11 +7,12 @@
 运行：source /d/model/env.sh && "$KP_PY" tools/fetch_sana.py
 特性：可重复运行（增量补齐，断点续传）。
 """
+from kp.paths import MODELS_SANA, OUT
 import os
 from huggingface_hub import snapshot_download, HfApi
 
 REPO = "Efficient-Large-Model/Sana_1600M_1024px_BF16_diffusers"
-DEST = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
+DEST = str(MODELS_SANA)
 
 # 只要真正需要的：bf16 主干 + bf16 VAE + 官方 int4 参照 + 全部配置/分词器
 # 不下：transformer fp32 分片(6.1GB)、text_encoder fp32/bf16(5.0GB)、vae fp32(1.2GB)

@@ -11,6 +11,7 @@
 
 用法：source /d/model/env.sh && "$KP_PY" tools/e5b_g1_fid.py
 """
+from kp.paths import MODELS_SANA, OUT
 import os, sys, json, glob, argparse
 import numpy as np
 import torch
@@ -20,7 +21,7 @@ from scipy import linalg
 from pytorch_fid.inception import InceptionV3
 from pytorch_fid.fid_score import get_activations, calculate_frechet_distance
 
-OUT = "D:/model/out/e5b"
+OUT = OUT / "e5b"
 IMG_ROOT = os.path.join(OUT, "g1_images")
 DIMS = 2048
 

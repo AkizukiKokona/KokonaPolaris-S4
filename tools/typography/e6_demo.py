@@ -10,6 +10,8 @@
 """
 from __future__ import annotations
 
+from kp.paths import MODELS_SANA, OUT
+
 import json
 import os
 import sys
@@ -23,8 +25,8 @@ import kp_engine as E
 import kp_schema as S
 import kp_compose as C
 
-OUT = "D:/model/out/e6"
-BASE_DIR = "D:/model/out/e4b_bf16"
+OUT = OUT / "e6"
+BASE_DIR = OUT / "e4b_bf16"
 os.makedirs(OUT, exist_ok=True)
 
 

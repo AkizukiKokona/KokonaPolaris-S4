@@ -16,12 +16,13 @@
   mode=confirm : 验证 patch 后 W4A8 全参 backward 通不通（512²，gc）
   mode=lora    : 在 ModelOpt 量化模型上挂 LoRA 旁路，跑 5 步（测显存/耗时/参数量）
 """
+from kp.paths import MODELS_SANA, OUT
 import os, sys, gc, json, time, math, argparse, traceback
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-OUT = "D:/model/out/e5b"
+OUT = OUT / "e5b"
 os.makedirs(OUT, exist_ok=True)
 REP = {"mode": None}
 
@@ -64,9 +65,9 @@ def disable_modelopt_cuda_ext():
 import modelopt.torch.quantization as mtq  # noqa: E402
 from diffusers import SanaTransformer2DModel  # noqa: E402
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
+MODEL = str(MODELS_SANA)
 DEV = "cuda"
-store = torch.load("D:/model/out/e5/embeds.pt", map_location="cpu")
+store = torch.load(OUT / "e5/embeds.pt", map_location="cpu")
 POS = store["01_en_scene"]["pos"].to(DEV).to(torch.bfloat16)
 MASK = store["01_en_scene"]["pos_mask"].to(DEV)
 

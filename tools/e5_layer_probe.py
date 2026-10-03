@@ -12,12 +12,13 @@
 运行：source /d/model/env.sh && "$KP_PY" tools/e5_layer_probe.py [arm]
   arm ∈ {W4A4, W4A16, W4A8}，默认 W4A8
 """
+from kp.paths import MODELS_SANA, OUT
 import os, sys, gc, json, torch, copy
 import modelopt.torch.quantization as mtq
 from diffusers import SanaTransformer2DModel
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
-OUT = "D:/model/out/e5"
+MODEL = str(MODELS_SANA)
+OUT = OUT / "e5"
 KEY, T = "01_en_scene", 500.0
 ARM = sys.argv[1] if len(sys.argv) > 1 else "W4A8"
 

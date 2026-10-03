@@ -6,14 +6,15 @@
 
 运行：source /d/model/env.sh && "$KP_PY" tools/e5b_probe2.py
 """
+from kp.paths import MODELS_SANA, OUT
 import os, gc, json, time, torch
 import torch.nn.functional as F
 import modelopt.torch.quantization as mtq
 from diffusers import SanaTransformer2DModel
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
-E5 = "D:/model/out/e5"
-OUT = "D:/model/out/e5b"
+MODEL = str(MODELS_SANA)
+E5 = OUT / "e5"
+OUT = OUT / "e5b"
 DEV = "cuda"
 store = torch.load(os.path.join(E5, "embeds.pt"), map_location="cpu")
 _pos = store["01_en_scene"]["pos"].to(DEV).to(torch.bfloat16)

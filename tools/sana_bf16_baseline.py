@@ -6,11 +6,12 @@
 产出：D:/model/out/e4b_bf16/*.png + baseline_log.json（供 G1 复现与对照）
 运行：source /d/model/env.sh && "$KP_PY" tools/sana_bf16_baseline.py [图片数]
 """
+from kp.paths import MODELS_SANA, OUT
 import os, sys, json, time, torch
 from diffusers import SanaPipeline
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
-OUT = "D:/model/out/e4b_bf16"
+MODEL = str(MODELS_SANA)
+OUT = OUT / "e4b_bf16"
 SEED = 42
 STEPS = 20
 GUIDANCE = 4.5

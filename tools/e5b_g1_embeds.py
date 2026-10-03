@@ -5,11 +5,12 @@
 
 运行：source /d/model/env.sh && "$KP_PY" tools/e5b_g1_embeds.py
 """
+from kp.paths import MODELS_SANA, OUT
 import os, json, torch
 from diffusers import SanaPipeline
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
-OUT = "D:/model/out/e5b"
+MODEL = str(MODELS_SANA)
+OUT = OUT / "e5b"
 os.makedirs(OUT, exist_ok=True)
 
 PROMPTS = [

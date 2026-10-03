@@ -9,10 +9,11 @@
 只读探测，不写权重。
 运行：source /d/model/env.sh && "$KP_PY" tools/e5_probe.py
 """
+from kp.paths import MODELS_SANA, OUT
 import os, time, inspect, torch
 from diffusers import SanaPipeline, SanaTransformer2DModel
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
+MODEL = str(MODELS_SANA)
 
 print("=" * 74)
 print("[1] SanaPipeline.encode_prompt 签名")

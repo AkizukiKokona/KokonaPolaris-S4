@@ -20,12 +20,13 @@ E5 是「前哨」，目标是**用真模型的真权重**回答一个问题：
 
 运行：source /d/model/env.sh && "$KP_PY" tools/e5_forward_probe.py
 """
+from kp.paths import MODELS_SANA, OUT
 import os, gc, copy, json, time, torch
 import modelopt.torch.quantization as mtq
 from diffusers import SanaTransformer2DModel
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
-OUT = "D:/model/out/e5"
+MODEL = str(MODELS_SANA)
+OUT = OUT / "e5"
 os.makedirs(OUT, exist_ok=True)
 TIMESTEPS = [999.0, 750.0, 500.0, 250.0, 50.0]
 PROMPT_KEYS = ["01_en_scene", "02_zh_text", "03_anime"]

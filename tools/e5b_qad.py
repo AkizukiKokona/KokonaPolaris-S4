@@ -21,14 +21,15 @@
   source /d/model/env.sh && "$KP_PY" tools/e5b_qad.py probe
   source /d/model/env.sh && "$KP_PY" tools/e5b_qad.py qat --steps 30
 """
+from kp.paths import MODELS_SANA, OUT
 import os, gc, json, time, argparse, math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from diffusers import SanaTransformer2DModel
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
-OUT = "D:/model/out/e5b"
+MODEL = str(MODELS_SANA)
+OUT = OUT / "e5b"
 DEV = "cuda"
 os.makedirs(OUT, exist_ok=True)
 
@@ -94,7 +95,7 @@ def swap_linears(model, a_mode="fp8", skip=("proj_out",)):
 
 
 # ---------------- 数据 ----------------
-store = torch.load("D:/model/out/e5/embeds.pt", map_location="cpu")
+store = torch.load(OUT / "e5/embeds.pt", map_location="cpu")
 _KEYS = list(store.keys())
 POS = store[_KEYS[0]]["pos"].to(DEV).to(torch.bfloat16)
 MASK = store[_KEYS[0]]["pos_mask"].to(DEV)

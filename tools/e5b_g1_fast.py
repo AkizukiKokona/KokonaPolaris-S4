@@ -15,6 +15,7 @@
 特征：InceptionV3 2048-d（torchvision 权重已在本机缓存）
 运行：source /d/model/env.sh && "$KP_PY" tools/e5b_g1_fast.py
 """
+from kp.paths import MODELS_SANA, OUT
 import os, re, json, itertools
 import numpy as np
 import torch
@@ -22,9 +23,9 @@ import torch.nn as nn
 from PIL import Image
 from torchvision.models import inception_v3, Inception_V3_Weights
 
-E5 = "D:/model/out/e5/images"
-G1B = "D:/model/out/e5b/g1/bf16"
-OUT = "D:/model/out/e5b/g1_fast.json"
+E5 = OUT / "e5/images"
+G1B = OUT / "e5b/g1/bf16"
+OUT = OUT / "e5b/g1_fast.json"
 DEV = "cuda"
 PROMPTS = ["01_en_scene", "02_zh_text", "03_anime"]
 ARMS = ["W4A8", "W4A16", "W4A4"]

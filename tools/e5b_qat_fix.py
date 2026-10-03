@@ -18,19 +18,20 @@
 
 运行：source /d/model/env.sh && "$KP_PY" tools/e5b_qat_fix.py
 """
+from kp.paths import MODELS_SANA, OUT
 import os, gc, copy, json, time, traceback
 import torch
 import torch.nn.functional as F
 import modelopt.torch.quantization as mtq
 from diffusers import SanaTransformer2DModel
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
-OUT = "D:/model/out/e5b"
+MODEL = str(MODELS_SANA)
+OUT = OUT / "e5b"
 DEV = "cuda"
 RES = 512
 TOK = 16  # 512² → (1,32,16,16)
 
-store = torch.load("D:/model/out/e5/embeds.pt", map_location="cpu")
+store = torch.load(OUT / "e5/embeds.pt", map_location="cpu")
 POS = store["01_en_scene"]["pos"].to(DEV).to(torch.bfloat16)
 MASK = store["01_en_scene"]["pos_mask"].to(DEV)
 

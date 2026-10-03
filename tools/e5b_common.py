@@ -9,13 +9,14 @@
   与量化器 enable/disable 无关（所以"量化器全关"也断）。
   ⇒ 只需把模块级 FP8SDPA 换成一个直接调 original SDPA 的普通函数（前向严格等价）。
 """
+from kp.paths import MODELS_SANA, OUT
 import os, math, time, gc
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
-OUT = "D:/model/out/e5b"
+MODEL = str(MODELS_SANA)
+OUT = OUT / "e5b"
 CKPT = os.path.join(OUT, "qat_ckpt")
 DEV = "cuda"
 os.makedirs(CKPT, exist_ok=True)
@@ -56,7 +57,7 @@ def prepare():
 # ---------------------------------------------------------------- 数据
 _EMBEDS = os.path.join(OUT, "g1_embeds.pt")
 if not os.path.exists(_EMBEDS):
-    _EMBEDS = "D:/model/out/e5/embeds.pt"
+    _EMBEDS = OUT / "e5/embeds.pt"
 _STORE = torch.load(_EMBEDS, map_location="cpu")
 _KEYS = list(_STORE.keys())
 

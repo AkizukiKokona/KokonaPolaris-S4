@@ -14,6 +14,7 @@
 
 运行：source /d/model/env.sh && "$KP_PY" tools/e5b_g1_eval.py
 """
+from kp.paths import MODELS_SANA, OUT
 import os, gc, json, time
 import torch
 import torch.nn as nn
@@ -22,8 +23,8 @@ import numpy as np
 from PIL import Image
 from diffusers import SanaPipeline
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
-OUT = "D:/model/out/e5b"
+MODEL = str(MODELS_SANA)
+OUT = OUT / "e5b"
 G1 = os.path.join(OUT, "g1")
 DEV = "cuda"
 RES = 1024
@@ -34,7 +35,7 @@ _E4M3 = torch.finfo(torch.float8_e4m3fn)
 BLK = 16
 os.makedirs(G1, exist_ok=True)
 
-store = torch.load("D:/model/out/e5/embeds.pt", map_location="cpu")
+store = torch.load(OUT / "e5/embeds.pt", map_location="cpu")
 
 
 # ---------- 可微/可用的 NVFP4 模拟量化（STE；推理时 detach 无影响） ----------

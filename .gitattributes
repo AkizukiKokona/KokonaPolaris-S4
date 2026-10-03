@@ -1,0 +1,37 @@
+# ============================================================
+# KokonaPolaris-S4 · 行尾与差异策略
+# 目标：Windows 开发 ↔ Linux / macOS / Codespaces 读取，
+#       不产生整文件全改的假差异。
+# ============================================================
+
+# 默认：入库时统一 LF，检出时按平台决定
+* text=auto eol=lf
+
+# ---- 源码：明确 LF ----
+*.py    text eol=lf diff=python
+*.md    text eol=lf
+*.sh    text eol=lf
+*.json  text eol=lf
+*.txt   text eol=lf
+*.csv   text eol=lf
+
+# ---- 绝不转换（二进制 / 会被搞坏的格式）----
+*.safetensors binary
+*.ckpt      binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.pt        binary
+*.pth       binary
+*.bin       binary
+*.onnx      binary
+*.ttf       binary
+*.otf       binary
+*.pdf       binary
+
+# ---- 设计稿 HTML：保留原样（本地生成物，避免无谓 diff）----
+design/*.html -diff linguist-generated=true
+
+# ---- 语言统计 ----
+*.py     linguist-language=Python
+*.md     linguist-documentation

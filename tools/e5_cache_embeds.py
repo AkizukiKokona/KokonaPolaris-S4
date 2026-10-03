@@ -10,11 +10,12 @@
               "neg": (1,300,2304), "neg_mask": (1,300)}}
 运行：source /d/model/env.sh && "$KP_PY" tools/e5_cache_embeds.py
 """
+from kp.paths import MODELS_SANA, OUT
 import os, torch, json
 from diffusers import SanaPipeline
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
-OUT = "D:/model/out/e5"
+MODEL = str(MODELS_SANA)
+OUT = OUT / "e5"
 os.makedirs(OUT, exist_ok=True)
 
 # 与 E4b 基线完全相同的 prompt 集（保证可比）

@@ -11,6 +11,7 @@
 运行：source /d/model/env.sh && "$KP_PY" tools/e5_e2e.py [arms]
   arms 例: bf16,W4A4,W4A8   默认全部
 """
+from kp.paths import MODELS_SANA, OUT
 import os, sys, gc, copy, json, time, torch
 import numpy as np
 from PIL import Image
@@ -18,8 +19,8 @@ from skimage.metrics import structural_similarity as ssim_fn
 import modelopt.torch.quantization as mtq
 from diffusers import SanaPipeline
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
-OUT = "D:/model/out/e5"
+MODEL = str(MODELS_SANA)
+OUT = OUT / "e5"
 IMG = os.path.join(OUT, "images")
 os.makedirs(IMG, exist_ok=True)
 SEED, STEPS, GUIDANCE = 42, 20, 4.5

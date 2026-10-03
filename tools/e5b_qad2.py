@@ -22,14 +22,15 @@ QAD 目标：flow-matching MSE + λ·蒸馏(self-distill)
   source /d/model/env.sh && "$KP_PY" tools/e5b_qad2.py sgd_full --steps 30 --res 512
   source /d/model/env.sh && "$KP_PY" tools/e5b_qad2.py adapter --steps 5 --res 512 --tag smoke
 """
+from kp.paths import MODELS_SANA, OUT
 import os, gc, json, time, argparse, math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from diffusers import SanaTransformer2DModel
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
-OUT = "D:/model/out/e5b"
+MODEL = str(MODELS_SANA)
+OUT = OUT / "e5b"
 CKPT = os.path.join(OUT, "qat_ckpt")
 DEV = "cuda"
 os.makedirs(CKPT, exist_ok=True)
@@ -139,7 +140,7 @@ def set_student(m, quant_on=True):
 
 
 # ---------------- 数据 ----------------
-store = torch.load("D:/model/out/e5/embeds.pt", map_location="cpu")
+store = torch.load(OUT / "e5/embeds.pt", map_location="cpu")
 _KEYS = list(store.keys())
 
 

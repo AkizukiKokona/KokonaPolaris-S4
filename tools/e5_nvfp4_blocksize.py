@@ -8,10 +8,11 @@
 
 运行：source /d/model/env.sh && "$KP_PY" tools/e5_nvfp4_blocksize.py
 """
+from kp.paths import MODELS_SANA, OUT
 import torch
 from diffusers import SanaTransformer2DModel
 
-MODEL = "D:/model/models/Sana_1600M_1024px_BF16_diffusers"
+MODEL = str(MODELS_SANA)
 
 def nvfp4_roundtrip(w, blk):
     """标准 NVFP4：per-block(absmax) → E4M3 scale → E2M1 权重（±6），返回反量化结果。"""

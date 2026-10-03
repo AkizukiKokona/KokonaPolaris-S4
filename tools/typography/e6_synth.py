@@ -13,6 +13,8 @@
 """
 from __future__ import annotations
 
+from kp.paths import MODELS_SANA, OUT
+
 import argparse
 import json
 import os
@@ -27,7 +29,7 @@ import kp_engine as E
 import kp_schema as S
 import kp_compose as C
 
-OUT = "D:/model/out/e6/synth"
+OUT = OUT / "e6/synth"
 
 # 额外字表：扩增稀见字/混合内容（真实训练应换成 GB2312 6763 常用字）
 EXTRA = "雨夜灯影雪风雷鸣海浪云山门桥车站医院学校图书馆咖啡店天台走廊"
