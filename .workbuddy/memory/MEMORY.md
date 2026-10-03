@@ -85,7 +85,10 @@ Polaris 双关「北极星 + 极性/对偶」：语义·细节双通道 latent /
 分层：`latent`（40ch 混合 latent + 打包纯函数 + 通道监督件）/ `capability`（bus / delta_pack / svd_pack / parallel_pack / erase）/ `models`（dit / vae / text_tower / **charabridge**）/ `character`（card / fitter / pipeline）/ `quant`（nvfp4，与 `tools/e5b_qad.py` 逐位对拍）/ `train`（qad）/ `typography`（**layout / typography_pack**）/ `sample`。
 自检覆盖：latent 往返 / 通道监督件 / **门控全 0 bit-exact** / 谱检查双向 / `E⁻¹∘E` KL≈0 / ∥-Pack 零初始化短路 / 主干前向与挂包 / VAE 32× / Fitter / RF+Matryoshka / NVFP4 对拍+STE+block 对比 / 包落盘加载往返 / QAD / **SVDPack 谱检查+跨版本迁移** / **CharaBridge 关断返回 None** / **Layout 折行避头尾+竖排+ROIBranch**。
 ⭐ **adapter 预算投影**（`kp.train.budget_projection`）：KP-S 可训 **1.89M/0.33%**、AdamW ≈0.02GB；KP-M 3.89M/0.22% —— 与 **E5b 在 Sana 1.6B 实测（5.99M/0.37%）同量级**，**独立复现「必须 adapter 式 QAD」**。
-版本控制：本地 git 仓库 **KokonaPolaris-S4**（工作库 `D:\model`；裸镜像 origin = `repos/KokonaPolaris-S4.git`）。只版本化设计稿/源码/配置/小数据。
+版本控制：本地 git 仓库 **KokonaPolaris-S4**（工作库 `D:\model`）。
+⭐ **云端 = `https://github.com/AkizukiKokona/KokonaPolaris-S4.git`（远端名 `cloud`）**；`origin` = 本地裸镜像 `repos/KokonaPolaris-S4.git`（兜底）。
+**每轮收尾必须双推** `git push origin main && git push cloud main`。代理 `127.0.0.1:7897` 已写入本仓库 `.git/config`（不影响其他项目）。仓库 **5.5MB / 132 文件**。
+⚠️ **推之前先自检**：没跑通的自检不提交（曾有半成品 `separation.py` 被隔离到 /tmp）。只版本化设计稿/源码/配置/小数据/记忆库；`models/`(4.6GB) 与 `out/`(163MB) 不入库。**新环境第一条命令 = `python tools/onboard.py`。**
 ⚠️ **待用户拍板**：**KP-M 主干实测 1.806B，比标称 1.5B 大 +20.4%**（KP-S 565.9M ≈ 0.6B ✅）→ 建议下调 dim/layers；**未擅自改配置**。
 
 ## 就绪度与验证门
