@@ -7,7 +7,9 @@
     给出的数字没有意义；
   · `RealAxisProbe`（`kp/probe/real.py`）—— **真探针**：responder 接在
     **真主干 + 真轴注入路径**（`domain → domain_embed → adaLN → blocks`）上，
-    ④ 低比特行程走**真量化回路**（`kp/quant/nvfp4.py` 挂在主干 `GatedLinear` 上）。
+    ④ 低比特行程走**真量化回路**（`kp/quant/nvfp4.py` 挂在主干 `GatedLinear` 上）；
+  · `kp/probe/attn.py` —— **G3 Sigmoid 注意力**的机制层装置（长提示收益 / 量化友好性）。
+    ⚠️ 只验**算子层**（随机权重），**不能**替代 G6 后的 benchmark 级验收。
 """
 from .axis import (  # noqa: F401
     AxisResult,
@@ -16,6 +18,22 @@ from .axis import (  # noqa: F401
     axis_report_text,
 )
 from .synthetic import Synthetic  # noqa: F401
+from .attn import (  # noqa: F401
+    G3_GAPS,
+    AttentionWeights,
+    DilutionPoint,
+    DilutionResult,
+    attention_weights,
+    compare_dilution,
+    contrast_report,
+    contrast_vs_offset,
+    dilution_curve,
+    dilution_exponent,
+    dilution_share,
+    g3_report_text,
+    plan_composition,
+    qknorm_logit_bound,
+)
 from .real import (  # noqa: F401
     DOMAIN_AXES,
     DOMAIN_AXIS_NAMES,

@@ -2,7 +2,7 @@
 
 > **给新环境 / 新 IDE / 新智能体的第一份文档。**
 > 读完这一份 + 记忆库，你就能接着干，不需要问人。
-> 生成时间：2026-10-03 17:05 · 对应 commit `32449ae` · 自检 **63/63**
+> 生成时间：2026-10-03 17:05 · 对应 commit `32449ae` · 自检 **70/70**
 
 ---
 
@@ -11,7 +11,7 @@
 | 问 | 答 |
 |---|---|
 | 这是什么？ | **从零设计的文生图模型架构**（不是 SDXL/Flux 修补）。有完整设计稿 + 可跑的自检骨架。 |
-| 现在到哪了？ | **设计层收敛（~90%）· 实现层骨架完整（63 项自检全绿）· 假设层未验证** |
+| 现在到哪了？ | **设计层收敛（~90%）· 实现层骨架完整（70 项自检全绿）· 假设层未验证** |
 | 有底模吗？ | **没有。一个权重都不继承。** Sana 只是验证用的「试件」。 |
 | 训练了吗？ | **没有。** 骨架是 CPU 可跑的架构验证，不是成品模型。 |
 | 我该干什么？ | 见 §4「下一个动作」。**先读记忆库，再动代码。** |
@@ -65,7 +65,7 @@
 💻 代码骨架（纯 CPU 可跑）
    kp/config.py     全部可调旋钮（QUANT/CAP/CAPTION/AXIS/LATENT/DIT/RUNTIME）
    kp/paths.py      路径唯一真源（三级探测，跨机可移植）
-   kp/selftest.py   ★ 63 项验收自检 = 事实上的「验收单」
+   kp/selftest.py   ★ 70 项验收自检 = 事实上的「验收单」
    kp/arch_report.py 架构速览 + 真实参数量
 
 🧪 可执行判据（本项目不是纸面）
@@ -88,7 +88,7 @@
 python tools/onboard.py
 
 # ② 验收（纯 CPU，1 分钟内；只需 torch/numpy/pillow）
-python -m kp.selftest              # 期望 63/63
+python -m kp.selftest              # 期望 70/70
 
 # ③ 架构速览 + 参数量核对
 python -m kp.arch_report
@@ -123,13 +123,14 @@ source env.sh && "$KP_PY" tools/fetch_sana.py     # 可断点续传
 | Fitter 闭式四判据 | 自检 §18 | 留出泛化 + 负对照 |
 | **G2 通道分离** | 自检 §19 | 交叉扰动 + 反向扰动 + MI 惩罚（补充12） |
 | **G3.5 真探针** | 自检 §20 | 真主干 + 真轴注入路径 + 非空性守卫 + 真量化 |
+| **G3 Sigmoid 注意力装置** | 自检 §21 | 机制层已建成（7 项：已知答案 + 平移不变性负对照）；⚠️ **实测「长提示收益」未获支持、「量化友好性」获支持** |
 
 ### ❌ 未做 / 未验证
 
 | 项 | 状态 | 阻塞在 |
 |---|---|---|
 | **G1 正式 FID** | ⏳ 唯一遗留（快速判据已过：`d_quant/d_ref` W4A8=0.535） | 需白天窗口跑 ≥50 张/臂 |
-| **G3** Sigmoid 注意力 | 未开始 | 可在 CPU 骨架上做 |
+| **G3** Sigmoid 注意力 | 机制层装置已建，**官方判据阻塞** | ⛔ 官方判据是 benchmark 级（「>150 token 的 Spatial 分数」），**须先有 G6 预训练模型** |
 | **G4** Matryoshka 分辨率 | 骨架可跑，未做正式验收 | — |
 | **G5** 角色卡 | 管线 + Fitter 可跑，**语义层还是启发式占位** | 需 See-through 自举 |
 | **G6** Micro-budget 预训练 | 未做 | **必须租云**（验证机 ≠ 训练机） |
@@ -183,7 +184,7 @@ source env.sh && "$KP_PY" tools/fetch_sana.py     # 可断点续传
 ## 8. 🔁 每轮收尾流程（照做就不会出事）
 
 ```bash
-python -m kp.selftest                    # ① 63/63，有失败先修
+python -m kp.selftest                    # ① 70/70，有失败先修
 python -m kp.arch_report                 # ② 回归
 python tools/portable_paths.py --verify  # ③ 须为 0
 git add -A && git commit && git push     # ④ 远端名 cloud（+ origin 兜底）
@@ -198,9 +199,9 @@ git add -A && git commit && git push     # ④ 远端名 cloud（+ origin 兜底
 ## 9. 🎯 下一个动作（按优先级）
 
 1. ⏳ **等你拍板**：KP-M 实测 1.875B vs 标称 1.5B（+25.0%）→ 选「改结构」还是「改标称」
-   （⭐ 已落地零损失部分：删 adaLN 段 7 `g_geo` 死参数，−5.2%，自检仍 63/63；
+   （⭐ 已落地零损失部分：删 adaLN 段 7 `g_geo` 死参数，−5.2%，自检仍 70/70；
    ⭐ **判据：KP 不靠 LoRA 堆能力**，可训大头是 adaLN，LoRA 仅 3.89M/0.22% ⇒ 杠杆在 adaLN 与 dim，不在层数）
-2. **G3** Sigmoid 注意力验收（纯 CPU 可做）
+2. ⏳ **G3** 官方判据 = benchmark 级，**须先过 G6**；机制层装置已建。⏳ **等你拍板补判据阈值**（量化友好性那半边无条目，详见 `MEMORY.md §G3 装置实测`）
 3. **G5 语义层**：把角色卡管线里的启发式占位换成 **See-through 自举**
 4. **排版链路闭环**：Layout Planner → ROIBranch → 拼回 latent（三件各自可跑，未串起来）
 5. **G1 正式 FID**（需白天窗口）
@@ -214,7 +215,7 @@ git add -A && git commit && git push     # ④ 远端名 cloud（+ origin 兜底
 1. 读 .workbuddy/memory/MEMORY.md      ← 决策与硬约束都在这
 2. 读 design/主文档.md                 ← 项目的真相
 3. 跑 python tools/onboard.py          ← 体检
-4. 跑 python -m kp.selftest            ← 63 项验收，先确认基线
+4. 跑 python -m kp.selftest            ← 70 项验收，先确认基线
 5. 看 2026-10-03.md 末尾「下一步」      ← 接着干这个
 6. 改代码 → selftest → commit 双推（cloud + origin）→ 写日志
 ```

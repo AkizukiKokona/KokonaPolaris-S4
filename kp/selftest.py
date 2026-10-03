@@ -26,6 +26,9 @@
    19. ★ G2 通道分离：尺子双向校验 + 显式监督净收益（mix 对照）+ 退化输入报缺口
    20. ★ G3.5 **真探针**：接在真主干 + 真轴注入路径（domain→domain_embed→adaLN）；
        adaLN-Zero 不变量 / **非空性守卫**（死轴不许假通过 ①）/ ④ 真过量化器 / 负对照
+   21. G3 **Sigmoid 注意力**（机制层装置）：one-hot v 反解精确权重 / 已知答案（等 logit ⇒
+       α=1）/ **平移不变性负对照**（softmax 恒定 vs sigmoid 零点敏感）/ 3:1 构成 / L311 离群值
+       ⛔ 只验算子层（随机权重），**不能**替代 G6 后的 benchmark 级验收
 """
 from __future__ import annotations
 
@@ -35,7 +38,24 @@ from typing import Callable, List, Tuple
 
 import torch
 
+from kp.paths import OUT
+
 RESULTS: List[Tuple[str, bool, str]] = []
+
+
+def _rm(path: str) -> None:
+    """删临时产物。
+
+    ⚠️ **不要用 `tempfile.gettempdir()`**：它在受沙箱限制的机器上（实测 viim）
+    会静默退化成 cwd，于是临时 `.pt` 掉进**仓库根**、混进 `git status`
+    （本机 kokona 上返回正常临时目录，所以这是**潜伏的、机器相关的**坑）。
+    ⇒ 临时产物一律落 `KP_OUT` 并清理。
+    """
+    import os
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 def check(name: str, fn: Callable[[], str]) -> None:
@@ -403,10 +423,13 @@ def main() -> int:
         gl.set_gate("d1", 0.7)
         gl.set_gate("p1", 0.3)
         y = gl(x)
-        path = _os.path.join(tempfile.gettempdir(), "_kp_adapter_selftest.pt")
+        path = str(OUT / "_kp_adapter_selftest.pt")
         n = save_adapter(gl, path)
-        gl2 = GatedLinear(w)
-        mounted = load_adapter(gl2, path)
+        try:
+            gl2 = GatedLinear(w)
+            mounted = load_adapter(gl2, path)
+        finally:
+            _rm(path)
         gl2.set_gate("d1", 0.7)
         gl2.set_gate("p1", 0.3)
         assert torch.allclose(gl2(x), y, atol=1e-6), float((gl2(x) - y).abs().max())
@@ -428,9 +451,12 @@ def main() -> int:
                 d.B.normal_()
             glmod.add_pack(d)
             glmod.set_gate(d.name, 1.0)
-        path = _os.path.join(tempfile.gettempdir(), "_kp_adapter_dit.pt")
+        path = str(OUT / "_kp_adapter_dit.pt")
         n = save_adapter(m1, path)
-        mounted = load_adapter(m2, path)
+        try:
+            mounted = load_adapter(m2, path)
+        finally:
+            _rm(path)
         x = torch.randn(1, 40, 8, 8)
         t = torch.full((1,), 300.0)
         with torch.no_grad():
@@ -1141,6 +1167,102 @@ def main() -> int:
         return (f"D=48 基线 {b48['mean_max_cos']:.3f} > 门线 {_AXIS.ortho_threshold}"
                 f"（无分辨力）｜D=1440 基线 {bhi['mean_max_cos']:.3f}（有分辨力）")
     check("② 的分辨力基线：低维读出下门线不可达", _rp_ortho_power)
+
+    # ---------------- 21. G3 Sigmoid 注意力（机制层装置） ----------------
+    section("21. G3 Sigmoid 注意力装置（机制层 · ⛔ 非过门依据）")
+    from kp.probe import attn as _G3
+    from kp.models.dit import SIGMOID as _SIG, SOFTMAX as _SM
+
+    def _g3_identity():
+        """装置地基：one-hot v 恒等式 ⇒ out[...,j] 必须**逐位**等于真实权重。"""
+        w = _G3.attention_weights(_SIG, [3.0, 0.5, -1.0, 2.0, 0.0])
+        # 真算一遍权重，与「从 out 反解出来的」对拍
+        lg = w.logits[0, 0, 0]
+        ref = torch.sigmoid(lg)
+        assert torch.allclose(w.weights[0, 0, 0], ref, atol=1e-6), \
+            float((w.weights[0, 0, 0] - ref).abs().max())
+        s = w.shares()[0, 0, 0]
+        assert abs(float(s.sum()) - 1.0) < 1e-5, float(s.sum())
+        # ⭐ sigmoid 权重**不和为 1**（这正是它与 softmax 的分水岭）
+        assert abs(float(w.total_mass()[0, 0, 0]) - 1.0) > 1e-3, \
+            "sigmoid 权重总和居然≈1，装置可能读错了"
+        return f"sigmoid 总质量 {float(w.total_mass()[0,0,0]):.3f}（≠1 ✅ 非归一化确认）"
+    check("装置能反解真实代码路径上的精确权重", _g3_identity)
+
+    def _g3_known_answer():
+        """⭐ **已知答案**：等 logit ⇒ 份额恒 1/N ⇒ α=1，两种机制都必须给出 1.0。"""
+        r = {}
+        for k in (_SM, _SIG):
+            a = _G3.dilution_exponent(k, sig_logit=0.0, bg_logit=0.0)
+            assert abs(a - 1.0) < 1e-3, f"{k} 等 logit 的 α 应恒为 1.0，实测 {a:.4f}"
+            r[k] = a
+        return f"softmax α={r[_SM]:.4f} / sigmoid α={r[_SIG]:.4f}（理论 1.0000 ✅）"
+    check("已知答案：等 logit ⇒ α 必为 1（尺子有分辨力）", _g3_known_answer)
+
+    def _g3_softmax_shift_invariant():
+        """⭐ 已知答案：**softmax 可用抬高信号**把 α 压到 ~0 —— 它只看间距（平移不变）。"""
+        a_far = _G3.dilution_exponent(_SM, sig_logit=50.0, bg_logit=0.0)
+        a_near = _G3.dilution_exponent(_SM, sig_logit=8.0, bg_logit=0.0)
+        assert a_far < 0.05, f"间距 50 时 softmax 应当几乎不稀释，α={a_far:.4f}"
+        assert a_far < a_near, (a_far, a_near)
+        return f"间距50 α={a_far:.4f} ≤ 间距8 α={a_near:.4f}（间距越大越不稀释）"
+    check("已知答案：softmax 靠「抬信号」不稀释（平移不变）", _g3_softmax_shift_invariant)
+
+    def _g3_sigmoid_needs_negative_bg():
+        """⭐ 已知答案：**sigmoid 只能靠把背景压到负侧**才不稀释 —— 它看绝对零点。"""
+        a_bg0 = _G3.dilution_exponent(_SIG, sig_logit=4.0, bg_logit=0.0)
+        a_bgneg = _G3.dilution_exponent(_SIG, sig_logit=0.0, bg_logit=-50.0)
+        assert a_bg0 > 0.9, f"背景在 0 时 sigmoid 应当强稀释，α={a_bg0:.4f}"
+        assert a_bgneg < 0.05, f"背景压到 -50 时不应稀释，α={a_bgneg:.4f}"
+        return (f"背景=0 → α={a_bg0:.4f}（强稀释）｜背景=-50 → α={a_bgneg:.4f}（不稀释）"
+                f" ⇒ sigmoid **不是**天然不稀释，取决于绝对零点")
+    check("已知答案：sigmoid 靠「压背景到负侧」不稀释", _g3_sigmoid_needs_negative_bg)
+
+    def _g3_negative_control():
+        """⭐ **负对照**：零点敏感性 —— softmax 恒定，sigmoid 跨数量级塌陷。
+
+        这是本轮最关键的发现：sigmoid **没有平移不变性**。
+        """
+        offs = (-12.0, -8.0, -4.0, 0.0, 4.0)
+        sm = _G3.contrast_vs_offset(_SM, 8.0, offs)
+        sg = _G3.contrast_vs_offset(_SIG, 8.0, offs)
+        # softmax：对比度必须与零点无关（数学恒等式）
+        rel = (max(sm) - min(sm)) / max(sm)
+        assert rel < 1e-9, f"softmax 对比度不该随零点变，实测变化 {rel:.2%}"
+        # sigmoid：零点一漂就必须塌（否则这条负对照没有分辨力）
+        drop = max(sg) / max(min(sg), 1e-30)
+        assert drop > 1e3, f"sigmoid 对零点应极敏感，实测只差 {drop:.1f}×（无分辨力？）"
+        return (f"softmax 恒 {sm[0]:,.0f}×（变化 {rel:.1%}）｜"
+                f"sigmoid {max(sg):,.0f}× → {min(sg):,.1f}×（塌 {drop:,.0f}×）")
+    check("负对照：softmax 平移不变 vs sigmoid 零点敏感", _g3_negative_control)
+
+    def _g3_plan():
+        """3:1 混合注意力构成 + 第 0 层 softmax 锚点（L308 / L313）。"""
+        c = _G3.plan_composition(32)
+        assert c["softmax"] == 1, f"softmax 锚点应恰好 1 次，实测 {c}"
+        assert c["layers"] == 32, c
+        ratio = c["sigmoid"] / max(c["linear"], 1)
+        assert 0.2 <= ratio <= 0.35, f"3:1 比例失守：{c}"
+        b = _G3.qknorm_logit_bound(1792, 16)
+        return f"{c} ｜ 3:1 ≈ 1:{1/ratio:.1f} ｜ QK-Norm logit 上界 {b:.2f}"
+    check("3:1 计划构成正确 + QK-Norm logit 上界", _g3_plan)
+
+    def _g3_quant_friendly():
+        """L311「减少激活离群值」—— 官方判据缺阈值，这里只报方向不作门。"""
+        import math as _m
+        outs = {}
+        for n in (128, 512):
+            a = _G3._act_stats_for(_SM, n_tokens=n, seed=0)
+            b = _G3._act_stats_for(_SIG, n_tokens=n, seed=0)
+            outs[n] = (a, b)
+        sm512, sg512 = outs[512]
+        assert sg512["outlier_ratio"] < sm512["outlier_ratio"], \
+            f"N=512 时 sigmoid 离群比应更低：sm={sm512} sg={sg512}"
+        gain = sm512["outlier_ratio"] / max(sg512["outlier_ratio"], 1e-9)
+        return (f"N=128 离群比 sm {outs[128][0]['outlier_ratio']:.2f} / sg {outs[128][1]['outlier_ratio']:.2f}"
+                f"｜N=512 sm {sm512['outlier_ratio']:.2f} / sg {sg512['outlier_ratio']:.2f}"
+                f"（{gain:.2f}× 更低 ✅）")
+    check("L311 量化友好性：Sigmoid 激活离群值更低", _g3_quant_friendly)
 
     # ---------------- 汇总 ----------------
     return _summary()
