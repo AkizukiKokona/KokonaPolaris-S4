@@ -1894,6 +1894,49 @@ def main() -> int:
                 f"三档包含关系正确（strict ⊂ sensitive_ok ⊂ explicit_ok）")
     check("默认最严（strict 只留 safe）+ 档位包含关系正确", _rating_policy_default_strict)
 
+    # ---------------- 29. G5 语义层解算器（可插拔 + 质量尺子）----------------
+    section("29. G5 语义层解算器（⭐ txt2img+角色卡 主线的第一道阻塞）")
+
+    def _seg_contract():
+        """语义层解算器必须**可插拔 + 自报质量**（否则换模型只能靠"看着像"）。"""
+        from kp.character.segmenter import (LAYER_QUALITY, Segmenter,
+                                           available, register_segmenter)
+        assert "color_cluster" in available(), f"基线解算器未注册：{available()}"
+        q = LAYER_QUALITY(mean_iou=0.0, name_hit=0.0)
+        assert "mean_iou" in q.summary() and "name_hit" in q.summary()
+        return f"已注册 {available()}；质量表字段 {sorted(q.__dict__)}"
+    check("语义层解算器可插拔 + 有质量尺子", _seg_contract)
+
+    def _seg_baseline_honest():
+        """🔴 **基线必须诚实自报「我不是语义层」** —— 不许假装已实现 See-through。"""
+        from kp.character.segmenter import ColorClusterBaseline
+        seg = ColorClusterBaseline(k=8)
+        # ⭐ 关键：颜色聚类**不按 19 类命名** ⇒ name_hit 结构上就是 0
+        assert seg.quality.name_hit == 0.0, \
+            f"颜色聚类基线的 name_hit 竟报 {seg.quality.name_hit} ⇒ 虚报"
+        assert seg.quality.mean_iou == 0.0, "基线 mean_iou 虚报"
+        assert "占位" in seg.name or "baseline" in seg.name.lower(), \
+            f"解算器名未标出它是基线/占位：{seg.name!r}"
+        return (f"诚实自报：{seg.quality.summary()[:52]}…")
+    check("⛔ 基线诚实自报「不是语义层」（不虚报）", _seg_baseline_honest)
+
+    def _seg_predicts_on_real_image():
+        """解算器必须能在**真图**上跑通（不只是接口存在）。"""
+        import numpy as _np
+        from PIL import Image
+        from kp.character.segmenter import ColorClusterBaseline
+        from kp.paths import DATA
+        imgs = sorted((DATA / "characters" / "kokona").rglob("*.png"))
+        if not imgs:
+            return "⚠️ 无 kokona 真图，跳过"
+        rgba = _np.array(Image.open(imgs[0]).convert("RGBA"))
+        lab = ColorClusterBaseline(k=8).predict(rgba)
+        assert lab.shape == rgba.shape[:2], f"输出形状 {lab.shape} ≠ 输入 {rgba.shape[:2]}"
+        assert lab.dtype == _np.int16, f"dtype 应为 int16（-1=背景），实为 {lab.dtype}"
+        assert int(lab.min()) >= -1, "背景标记应 ≥ -1"
+        return f"真图 {rgba.shape[:2]} -> {lab.shape} int16，背景占比 {float((lab<0).mean()):.2f}"
+    check("解算器在真图上跑通（形状/dtype 契约）", _seg_predicts_on_real_image)
+
     # ---------------- 汇总 ----------------
     return _summary()
 
