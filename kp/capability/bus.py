@@ -32,9 +32,16 @@ class CapabilityPack(nn.Module, ABC):
     def __init__(self, name: str, gate: float = None):
         super().__init__()
         self.name = name
+        # 🔴 `gate_dtype` 接线（2026-10-03）：此前是**死旋钮** —— config 写 `gate_dtype="float32"`
+        #   但这里**硬编码** `dtype=torch.float32`，改 config 只会改一行打印。
+        #   ⇒ 现在由 config 真正决定。⚠️ 只接受浮点类型（gate 是门控量，int/bool 无意义）。
+        _gdt = getattr(torch, str(CAP.gate_dtype), None)
+        if not (isinstance(_gdt, torch.dtype) and _gdt.is_floating_point):
+            raise ValueError(
+                f"CapabilityCfg.gate_dtype={CAP.gate_dtype!r} 不是浮点 torch dtype。"
+                f"⚠️ 故意**不静默回退**：静默忽略配置正是死旋钮的原始病因。")
         self.gate = nn.Parameter(
-            torch.tensor(float(CAP.gate_init if gate is None else gate),
-                         dtype=torch.float32),
+            torch.tensor(float(CAP.gate_init if gate is None else gate), dtype=_gdt),
             requires_grad=False,
         )
         self.meta: dict = {"kind": "abstract", "version": 1}

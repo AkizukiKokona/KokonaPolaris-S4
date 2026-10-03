@@ -38,7 +38,8 @@ def sample(model, shape: Tuple[int, ...], *, steps: int = 20,
            identity_ctx: Optional[torch.Tensor] = None,
            domain: Optional[torch.Tensor] = None,
            device: str = "cpu", dtype: torch.dtype = torch.float32,
-           seed: int = 0, matryoshka: Optional[Sequence[int]] = (256, 1024)) -> torch.Tensor:
+           seed: int = 0,
+           matryoshka: Optional[Sequence[int]] = None) -> torch.Tensor:
     """Euler 采样器。
 
     shape: (B, C, H, W) —— 目标 latent 网格（1024² 图 → (B,40,32,32)）。
@@ -48,10 +49,18 @@ def sample(model, shape: Tuple[int, ...], *, steps: int = 20,
     x = torch.randn(*shape, generator=g).to(device=device, dtype=dtype)
     t_scale = 1000.0
 
-    sched = make_matryoshka_schedule(steps, *matryoshka) if matryoshka else [shape[-1] * shape[-2]] * steps
+    # 🔴 `DiTCfg.matryoshka_tokens` 接线（2026-10-03）：此前 `sample.py` 把 (256,1024)
+    #   **写死成默认参数**，改 config 不生效 ⇒ 死旋钮。⇒ 现在默认从 config 读。
+    #   ⚠️ 显式传 `matryoshka=None` 时**回落到 config**；传 `()` 可关闭 Matryoshka。
+    if matryoshka is None:
+        from .config import DIT_S
+        matryoshka = tuple(DIT_S.matryoshka_tokens)
+    sched = (make_matryoshka_schedule(steps, *matryoshka) if matryoshka
+             else [shape[-1] * shape[-2]] * steps)
     for i in range(steps):
         t = torch.full((shape[0],), (i / steps) * t_scale, device=device, dtype=dtype)
-        xt = _resize_latent(x, sched[i]) if matryoshka else x
+        xt = (_resize_latent(x, sched[i])
+              if (matryoshka and sched[i] != shape[-1] * shape[-2]) else x)
         v = model(xt, t, text_ctx=text_ctx, identity_ctx=identity_ctx, domain=domain)
         if matryoshka and v.shape != x.shape:
             v = _resize_latent(v, x.shape[-1] * x.shape[-2])

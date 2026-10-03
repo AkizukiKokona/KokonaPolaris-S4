@@ -1410,15 +1410,49 @@ def main() -> int:
     check("负对照：softmax 平移不变 vs sigmoid 零点敏感", _g3_negative_control)
 
     def _g3_plan():
-        """3:1 混合注意力构成 + 第 0 层 softmax 锚点（L308 / L313）。"""
+        """3:1 混合注意力构成 + 第 0 层 softmax 锚点（L308 / L313）。
+
+        🔴🔴 **这条断言在 2026-10-03 被重写（原版违反本项目教训 #5）**：
+
+        **原版**：`assert 0.2 <= ratio <= 0.35`，实测 0.2917。
+        ⛔ **问题**：那个容差带是围绕「实际发生的 1:3.43」设计的，**不是围绕设计目标 1:3**。
+        它无法区分「符合设计」与「偏离设计但落在宽容带内」⇒ **把偏离固化成了合格**。
+
+        ⭐ **结构性根因**（`build_attn_plan`）：softmax 锚点占掉第 0 层后，剩余 `L−1` 个槽位，
+        而 **只有 `L ≡ 1 (mod 4)` 时 `[L,L,L,S]` 才能整除**。实测：
+            L=24 → 1:3.60（L−1=23 ≡ 3 mod 4）
+            L=32 → 1:3.43（L−1=31 ≡ 3 mod 4）  ← KP-S / KP-M 都是这个
+            L=25 → **1:3.00 ✓**（25 ≡ 1 mod 4）
+            L=33 → **1:3.00 ✓**
+        ⇒ KP-S=24 / KP-M=32 **在结构上就不可能精确 3:1**（除非改层数）。
+
+        ✅ **现在断言的是「设计意图」而非「当前行为」**：
+            ① 锚点恰好 1 次、第 0 层（硬不变量）
+            ② **每 4 层窗口内严格 3 linear + 1 sigmoid**（这是设计真正的承诺）
+            ③ 报告**如实给出**全局比例与「差多少」，不假装它是 3:1
+        """
+        from kp.models.dit import build_attn_plan, SOFTMAX, LINEAR, SIGMOID
         c = _G3.plan_composition(32)
         assert c["softmax"] == 1, f"softmax 锚点应恰好 1 次，实测 {c}"
         assert c["layers"] == 32, c
+        # ② 逐 4 层窗口校验（锚点之后）：这是「每 4 层 3+1」的字面承诺
+        plan = build_attn_plan(32, 3, 1, True)
+        assert plan[0] == SOFTMAX, f"第 0 层应为 softmax 锚点，实测 {plan[0]}"
+        body = plan[1:]
+        for s in range(0, len(body) - 3, 4):
+            win = body[s:s + 4]
+            assert win.count(LINEAR) == 3 and win.count(SIGMOID) == 1, (
+                f"第 {s + 1}–{s + 4} 层窗口应严格 3 linear + 1 sigmoid，实测 {win}")
+        # ③ 如实报告偏差（**不 assert 它等于 1/3** —— 结构上就不可能）
         ratio = c["sigmoid"] / max(c["linear"], 1)
-        assert 0.2 <= ratio <= 0.35, f"3:1 比例失守：{c}"
+        # 顺带证明「L ≡ 1 (mod 4) 才行」这个根因
+        ok = _G3.plan_composition(25)
+        assert ok["sigmoid"] / max(ok["linear"], 1) == 1 / 3, (
+            f"L=25 应能整除到精确 1:3，实测 {ok} ⇒ 根因判断有误，需重新理解 build_attn_plan")
         b = _G3.qknorm_logit_bound(1792, 16)
-        return f"{c} ｜ 3:1 ≈ 1:{1/ratio:.1f} ｜ QK-Norm logit 上界 {b:.2f}"
-    check("3:1 计划构成正确 + QK-Norm logit 上界", _g3_plan)
+        return (f"{c} ｜ 每 4 层窗口严格 3+1 ✓ ｜ 全局 1:{1/ratio:.1f}"
+                f"（L=32 时结构上无法整除；L=25 时精确 1:3 ✓）｜ QK-Norm 上界 {b:.2f}")
+    check("3:1 每 4 层窗口严格 3+1（不把偏离固化成合格）", _g3_plan)
 
     def _g3_quant_friendly():
         """L311「减少激活离群值」—— 官方判据缺阈值，这里只报方向不作门。"""
@@ -1635,6 +1669,125 @@ def main() -> int:
             return "无图 → 显式报错并说明缺口（不静默替代）"
         raise AssertionError("没图却没报错 ⇒ 静默用了替代数据（这是最坏的一类 bug）")
     check("无图时显式报错（⛔ 不静默用合成数据替代）", _p1_no_silent_data_substitution)
+
+    # ---------------- 25. P1 四旋钮数据扩增 ----------------
+    section("25. P1 数据扩增（四旋钮 · ⛔ 增广≠新内容）")
+
+    def _aug_knobs_deterministic():
+        """增广必须**确定性**：同一 (图, idx) 永远同一结果 ⇒ 可复现、可对照。"""
+        import hashlib
+        from kp.data.augment import list_images, augment_one
+        from kp.character.dataset import load_image
+        from kp.paths import DATA
+        paths = list_images([DATA / "characters" / "kokona"])
+        if not paths:
+            return "⚠️ 无 kokona 图，跳过"
+        base = load_image(str(paths[0]), 32)
+        h = lambda t: hashlib.md5(t.numpy().tobytes()).hexdigest()[:8]  # noqa: E731
+        a1, a2 = augment_one(base, 3, size=32), augment_one(base, 3, size=32)
+        b = augment_one(base, 4, size=32)
+        assert h(a1) == h(a2), "同一 idx 两次调用结果不同 ⇒ 不可复现"
+        assert h(a1) != h(b), "不同 idx 结果相同 ⇒ idx 没起作用"
+        return f"确定性 ✓（idx=3 两次一致；idx=3 vs 4 不同：{h(a1)} / {h(b)}）"
+    check("增广确定性（同 idx 可复现）", _aug_knobs_deterministic)
+
+    def _aug_actually_changes():
+        """🔴 增广必须**真的改变图像**（否则等于没扩）。"""
+        from kp.data.augment import list_images, augment_one
+        from kp.character.dataset import load_image
+        from kp.paths import DATA
+        paths = list_images([DATA / "characters" / "kokona"])
+        if not paths:
+            return "⚠️ 无 kokona 图，跳过"
+        base = load_image(str(paths[0]), 32)
+        diffs = [float((augment_one(base, i, size=32) - base).abs().mean())
+                 for i in range(8)]
+        mean_d = sum(diffs) / len(diffs)
+        assert mean_d > 1e-3, f"增广平均差异仅 {mean_d:.5f} ⇒ 等于没扩"
+        assert max(diffs) > mean_d, "所有增广差异相同 ⇒ 参数没起作用"
+        return f"8 个增广平均差异 {mean_d:.4f}（最大 {max(diffs):.4f}）⇒ 确实在变"
+    check("增广真的改变图像（不是复制）", _aug_actually_changes)
+
+    def _aug_rot90_is_off_by_default():
+        """⛔ 90° 旋转**必须默认关** —— 角色图「上」有语义，旋转会造出倒立的人。"""
+        from kp.data.augment import build_dataset
+        from kp.paths import DATA
+        rep = build_dataset([DATA / "characters" / "kokona"], per_image=2,
+                            size=32, dry_run=True)
+        assert rep["allow_rot90"] is False, "rot90 不该默认开启"
+        # 显式开启时**必须**报出警告
+        rep2 = build_dataset([DATA / "characters" / "kokona"], per_image=2, size=32,
+                             allow_rot90=True, dry_run=True)
+        assert any("倒立" in w for w in rep2["⚠️_warnings"]), \
+            "开启 rot90 却没报出「污染姿态先验」的警告 ⛔ 静默危险"
+        return "rot90 默认关 ✓ · 显式开启时**必报**姿态污染警告 ✓"
+    check("⛔ 90° 旋转默认关 + 开启时必报警告", _aug_rot90_is_off_by_default)
+
+    def _aug_declares_nature():
+        """⛔ 报告**必须声明「这是增广不是新内容」** —— 防止拿它冒充训练集规模。"""
+        from kp.data.augment import build_dataset
+        from kp.paths import DATA
+        rep = build_dataset([DATA / "characters" / "kokona"], per_image=2,
+                            size=32, dry_run=True)
+        assert "⚠️_nature" in rep, "报告缺少性质声明"
+        assert "增广" in rep["⚠️_nature"] and "不是" in rep["⚠️_nature"], \
+            f"性质声明没说清是增广：{rep['⚠️_nature']}"
+        return f"已声明：{rep['⚠️_nature'][:34]}…"
+    check("⛔ 增广数据必须声明性质（不许冒充新内容）", _aug_declares_nature)
+
+    # ---------------- 26. 死旋钮接线（第二批）----------------
+    section("26. 死旋钮接线（gate_dtype / matryoshka_tokens）")
+
+    def _gate_dtype_is_live():
+        """🔴 `CAP.gate_dtype` 必须**真接线**（此前硬编码 `torch.float32`）。"""
+        import dataclasses
+        import torch as _t
+        from kp.capability.delta_pack import DeltaPack
+        from kp.config import CAP
+        import kp.capability.bus as B
+        try:
+            d = DeltaPack("p", 32, 64, rank=4, seed=1)
+            assert d.gate.dtype == getattr(_t, str(CAP.gate_dtype)), (
+                f"gate dtype {d.gate.dtype} 与 config {CAP.gate_dtype} 不符")
+            # 变异性：改 config ⇒ dtype 必须跟着变
+            B.CAP = dataclasses.replace(CAP, gate_dtype="float64")
+            d2 = DeltaPack("p", 32, 64, rank=4, seed=1)
+            assert d2.gate.dtype == _t.float64, f"改 gate_dtype=64 后实测 {d2.gate.dtype} ⇒ 仍是死的"
+            return f"接线 ✓（config={CAP.gate_dtype} → {d.gate.dtype}；改 64 → {d2.gate.dtype}）"
+        finally:
+            B.CAP = CAP
+
+    def _gate_dtype_rejects_bad():
+        """⛔ 非浮点 dtype 必须**显式报错**（不静默回退）。"""
+        import dataclasses
+        from kp.capability.delta_pack import DeltaPack
+        from kp.config import CAP
+        import kp.capability.bus as B
+        try:
+            B.CAP = dataclasses.replace(CAP, gate_dtype="int64")
+            try:
+                DeltaPack("p", 32, 64, rank=4, seed=1)
+            except ValueError as e:
+                assert "不静默" in str(e), f"报错信息没说明意图：{e}"
+                return "gate_dtype=int64 → 显式报错 ✓（不静默回退）"
+            raise AssertionError("非浮点 gate_dtype 被静默接受 ⇒ 回到死旋钮病根")
+        finally:
+            B.CAP = CAP
+    check("gate_dtype 真接线 + 非法值显式报错", _gate_dtype_is_live)
+    check("⛔ 非浮点 gate_dtype 显式报错（防回到病根）", _gate_dtype_rejects_bad)
+
+    def _matryoshka_reads_config():
+        """🔴 `DiTCfg.matryoshka_tokens` 必须被 `sample.sample` 真正读取。"""
+        import inspect
+        from kp.config import DIT_S
+        import kp.sample as S
+        sig = inspect.signature(S.sample)
+        assert sig.parameters["matryoshka"].default is None, (
+            f"sample 的 matryoshka 默认值是 {sig.parameters['matryoshka'].default!r}，"
+            f"应是 None（=运行时从 config 读）⇒ 写死了")
+        assert tuple(DIT_S.matryoshka_tokens), "config 里 matryoshka_tokens 为空"
+        return (f"默认 None（运行时读 config）✓ ｜ config 值 {tuple(DIT_S.matryoshka_tokens)}")
+    check("matryoshka_tokens 真读 config（默认 None 不写死）", _matryoshka_reads_config)
 
     # ---------------- 汇总 ----------------
     return _summary()
