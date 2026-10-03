@@ -10,7 +10,7 @@
   ⇒ 只需把模块级 FP8SDPA 换成一个直接调 original SDPA 的普通函数（前向严格等价）。
 """
 from kp.paths import MODELS_SANA, OUT
-import os, math, time, gc
+import os, math, time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

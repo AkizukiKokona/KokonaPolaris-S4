@@ -10,7 +10,7 @@
 """
 from __future__ import annotations
 
-from kp.paths import MODELS_SANA, OUT
+from kp.paths import OUT
 
 import json
 import os

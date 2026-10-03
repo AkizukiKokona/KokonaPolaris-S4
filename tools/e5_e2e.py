@@ -14,7 +14,6 @@
 from kp.paths import MODELS_SANA, OUT
 import os, sys, gc, copy, json, time, torch
 import numpy as np
-from PIL import Image
 from skimage.metrics import structural_similarity as ssim_fn
 import modelopt.torch.quantization as mtq
 from diffusers import SanaPipeline

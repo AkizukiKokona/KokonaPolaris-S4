@@ -11,12 +11,11 @@
 
 用法：source /d/model/env.sh && "$KP_PY" tools/e5b_g1_fid.py
 """
-from kp.paths import MODELS_SANA, OUT
-import os, sys, json, glob, argparse
+from kp.paths import OUT
+import os, json, glob, argparse
 import numpy as np
 import torch
 from PIL import Image
-from scipy import linalg
 
 from pytorch_fid.inception import InceptionV3
 from pytorch_fid.fid_score import get_activations, calculate_frechet_distance

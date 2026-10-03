@@ -7,7 +7,7 @@
 
 用法：python bench_115w.py
 """
-import torch, time, subprocess, sys, os
+import torch, time, subprocess, sys
 
 DEV = "cuda"
 PY = sys.executable

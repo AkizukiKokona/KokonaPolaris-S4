@@ -13,7 +13,7 @@
 """
 from __future__ import annotations
 
-from kp.paths import MODELS_SANA, OUT
+from kp.paths import OUT
 
 import argparse
 import json
@@ -22,7 +22,6 @@ import random
 import sys
 import time
 
-import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import kp_engine as E

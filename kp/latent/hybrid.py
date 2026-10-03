@@ -19,7 +19,6 @@ from dataclasses import dataclass
 from typing import Tuple
 
 import torch
-import torch.nn.functional as F
 
 from ..config import LATENT
 

@@ -7,7 +7,7 @@
 运行：source /d/model/env.sh && "$KP_PY" tools/e5b_probe2.py
 """
 from kp.paths import MODELS_SANA, OUT
-import os, gc, json, time, torch
+import os, gc, json, torch
 import torch.nn.functional as F
 import modelopt.torch.quantization as mtq
 from diffusers import SanaTransformer2DModel

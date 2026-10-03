@@ -17,7 +17,7 @@
   mode=lora    : 在 ModelOpt 量化模型上挂 LoRA 旁路，跑 5 步（测显存/耗时/参数量）
 """
 from kp.paths import MODELS_SANA, OUT
-import os, sys, gc, json, time, math, argparse, traceback
+import os, gc, json, time, math, argparse, traceback
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

@@ -11,7 +11,7 @@
 运行：source /d/model/env.sh && "$KP_PY" tools/e5_cache_embeds.py
 """
 from kp.paths import MODELS_SANA, OUT
-import os, torch, json
+import os, torch
 from diffusers import SanaPipeline
 
 MODEL = str(MODELS_SANA)

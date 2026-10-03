@@ -14,7 +14,7 @@
 
 用法：python bench_fp8.py
 """
-import torch, time, subprocess, sys
+import torch, time, subprocess
 
 DEV = "cuda"
 

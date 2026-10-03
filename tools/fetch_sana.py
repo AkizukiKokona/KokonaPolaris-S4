@@ -7,7 +7,7 @@
 运行：source /d/model/env.sh && "$KP_PY" tools/fetch_sana.py
 特性：可重复运行（增量补齐，断点续传）。
 """
-from kp.paths import MODELS_SANA, OUT
+from kp.paths import MODELS_SANA
 import os
 from huggingface_hub import snapshot_download, HfApi
 

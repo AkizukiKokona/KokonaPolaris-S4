@@ -15,7 +15,7 @@
 特征：InceptionV3 2048-d（torchvision 权重已在本机缓存）
 运行：source /d/model/env.sh && "$KP_PY" tools/e5b_g1_fast.py
 """
-from kp.paths import MODELS_SANA, OUT
+from kp.paths import OUT
 import os, re, json, itertools
 import numpy as np
 import torch

@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Tuple
 
 # 行首禁则（避头尾）：这些字符不能出现在行首
 NO_LINE_START = set("，。、；：？！）】》」』”’…—·%℃,.;:?!)]}>")

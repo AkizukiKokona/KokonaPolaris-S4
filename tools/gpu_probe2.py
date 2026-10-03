@@ -1,7 +1,7 @@
 """KokonaPolaris · G0 决定性探针：NVFP4 block-scaled matmul 在 SM120 上能否实跑
 外加：naming/模型量化工具链自检
 """
-import torch, traceback, time, inspect
+import torch, time
 
 print("=" * 70)
 print("### 1. torch._scaled_mm 的 FP4 支持")

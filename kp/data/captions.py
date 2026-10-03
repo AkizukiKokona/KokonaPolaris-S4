@@ -17,7 +17,7 @@ import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from statistics import mean, median
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..config import CAPTION
 

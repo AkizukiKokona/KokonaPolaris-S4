@@ -47,7 +47,6 @@ items : array  —— 版面元素（文字框 / 气泡 / 拟声词等）——*
 """
 from __future__ import annotations
 
-import copy
 import random
 from typing import Optional
 

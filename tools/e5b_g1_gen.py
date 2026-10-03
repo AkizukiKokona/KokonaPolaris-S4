@@ -7,7 +7,7 @@
   source /d/model/env.sh && "$KP_PY" tools/e5b_g1_gen.py --arm bf16 --n-seeds 5
   ... --arm TRAIN-W4A8 --adapter out/e5b/qat_ckpt/adapter_mopt_W4A8.pt
 """
-import os, sys, gc, json, time, argparse
+import os, sys, json, time, argparse
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

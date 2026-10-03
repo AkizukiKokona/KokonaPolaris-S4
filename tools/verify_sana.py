@@ -2,7 +2,7 @@
 只加载 transformer 与 vae（CPU, bf16），不占显存。
 运行：source /d/model/env.sh && "$KP_PY" tools/verify_sana.py
 """
-from kp.paths import MODELS_SANA, OUT
+from kp.paths import MODELS_SANA
 import os, json, torch
 from diffusers import SanaTransformer2DModel, AutoencoderDC
 

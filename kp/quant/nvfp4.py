@@ -21,10 +21,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 import torch
-import torch.nn.functional as F
 
 _E4M3 = torch.finfo(torch.float8_e4m3fn)
 DEFAULT_BLOCK = 16

@@ -13,7 +13,7 @@
   arm ∈ {W4A4, W4A16, W4A8}，默认 W4A8
 """
 from kp.paths import MODELS_SANA, OUT
-import os, sys, gc, json, torch, copy
+import os, sys, gc, json, torch
 import modelopt.torch.quantization as mtq
 from diffusers import SanaTransformer2DModel
 

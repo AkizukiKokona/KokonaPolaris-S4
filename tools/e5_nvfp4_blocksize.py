@@ -8,7 +8,7 @@
 
 运行：source /d/model/env.sh && "$KP_PY" tools/e5_nvfp4_blocksize.py
 """
-from kp.paths import MODELS_SANA, OUT
+from kp.paths import MODELS_SANA
 import torch
 from diffusers import SanaTransformer2DModel
 

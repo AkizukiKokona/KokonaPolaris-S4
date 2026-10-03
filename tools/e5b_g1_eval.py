@@ -19,8 +19,6 @@ import os, gc, json, time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from PIL import Image
 from diffusers import SanaPipeline
 
 MODEL = str(MODELS_SANA)

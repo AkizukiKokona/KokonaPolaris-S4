@@ -51,6 +51,15 @@ class CapabilityPack(nn.Module, ABC):
     # --- 通用 ---
     @property
     def is_off(self) -> bool:
+        """门控是否**恰好为 0**（严格等值，不是「接近 0」）。
+
+        ⚠️ **为什么不能用 `abs(g) < eps`**：本项目的核心不变量是
+        「门控全 0 ⇒ 与裸模型 **bit-exact**」，靠的是 `forward` 里
+        **整条旁路短路**（`return zeros_like(x)`，不参与任何计算）。
+        一旦引入阈值语义，极小但非零的门控（如 1e-9）会被判成「关断」
+        ⇒ **能力被静默丢弃**，且用户以为自己开了它 —— 这正是设计稿
+        要防的「静默失效」。⇒ 必须是**精确 ==0.0**。
+        """
         g = self.gate
         # meta device 上没有真实数据（`.item()` 不可用）——此时只做结构计数，
         # 不参与 bit-exact 判定，返回 False 即可。

@@ -9,8 +9,8 @@
 只读探测，不写权重。
 运行：source /d/model/env.sh && "$KP_PY" tools/e5_probe.py
 """
-from kp.paths import MODELS_SANA, OUT
-import os, time, inspect, torch
+from kp.paths import MODELS_SANA
+import time, inspect, torch
 from diffusers import SanaPipeline, SanaTransformer2DModel
 
 MODEL = str(MODELS_SANA)

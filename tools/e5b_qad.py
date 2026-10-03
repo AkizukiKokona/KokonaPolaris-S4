@@ -22,7 +22,7 @@
   source /d/model/env.sh && "$KP_PY" tools/e5b_qad.py qat --steps 30
 """
 from kp.paths import MODELS_SANA, OUT
-import os, gc, json, time, argparse, math
+import os, gc, json, time, argparse
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

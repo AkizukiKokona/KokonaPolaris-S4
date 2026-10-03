@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 # 四旋钮中属于角色线的三个（字形光栅化属排版线，不在角色卡里）
 AXES: Tuple[str, ...] = ("view", "pose", "shader")

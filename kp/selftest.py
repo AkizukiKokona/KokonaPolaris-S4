@@ -160,7 +160,7 @@ def main() -> int:
 
     # ---------------- 4. 擦除可逆 ----------------
     section("4. 擦除算子 E 与 `E⁻¹∘E` 可逆性")
-    from kp.capability import EraseOperator, EraseLedger, kl_test, erasure_roundtrip
+    from kp.capability import EraseOperator, EraseLedger, erasure_roundtrip
 
     def _erase():
         w0 = torch.randn(64, 48)
@@ -318,7 +318,7 @@ def main() -> int:
     # ---------------- 9. NVFP4 ----------------
     section("9. NVFP4 模拟量化（W4A8 · STE）")
     from kp.quant import (QuantSpec, quant_fp4, quant_fp8, quant_fp4_ste,
-                          quant_fp8_ste, relative_error, precision_table)
+                          relative_error)
 
     def _ref_match():
         def ref_fp4(x, blk=16):
@@ -790,9 +790,9 @@ def main() -> int:
 
     # ---------------- 18. Character Fitter 训练（配对驱动） ----------------
     section("18. Character Fitter 训练（配对驱动 · 留出视角 + 负对照）")
-    from kp.character.dataset import PairViewLoader, load_image
+    from kp.character.dataset import PairViewLoader
     from kp.train.fitter import (train_fitter, run_closed_loop, fitter_loss,
-                                 holdout_invariance, shuffle_positives)
+                                 shuffle_positives)
 
     def _loader_synthetic():
         """合成加载器：n 身份 × C(v,2) 对，张量形状/轴标注都对得上。"""
