@@ -81,7 +81,28 @@
 - ⚠️ **`rembg` 必须装 `rembg[cpu]` 或 `[gpu]`** —— 只装 `rembg` 会 import 即打印提示并退出（缺 onnxruntime）。
 - ⚠️ modelopt 会对 transformers 4.55.4 打「not tested」警告 —— **故意的钉子**（5.x 会打坏插件），不是问题。
 - ✅ git 身份：**全局 + 本仓库**均已设为 `AkizukiKokona <139216879+AkizukiKokona@users.noreply.github.com>`（用户明确指定；**所有 commit 都用它**，且**禁止 PR、直接推**）。
-- ❌ **CUDA Toolkit 仍未装**（winget 有 `Nvidia.CUDA 13.4`，需管理员）。**当前阶段不阻塞**：ModelOpt 走 Python 侧 fake-quant，Triton 只需 MSVC，都不需要 nvcc。要编译自定义 CUDA 扩展时才需要。
+- ✅ **CUDA Toolkit 13.4 已装**（2026-10-03，winget `Nvidia.CUDA`）：
+  `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4`，**nvcc V13.4.59**。
+  已写入 Machine 级 `CUDA_PATH` + `PATH`（`...\v13.4\bin\x64` 与 `...\bin` 两条）
+  ⇒ **新开终端**才生效。⚠️ **占 C 盘 7.9GB**（C 盘可用 142GB → 121GB）——
+  与「不碰 C 盘」的约定冲突，是用户明确要求安装的；如需挪到 D 盘得用官方
+  `cuda_*.exe` 重装时改路径（winget 装法不给选路径）。
+  ⚠️ 驱动机报的是 CUDA UMD 13.1，工具链 13.4 属同大版本 ⇒ 可用（minor version compatibility）。
+- ⚙️ **本仓库 `.git/config` 推送链路**（2026-10-03 排查后写入）：
+  - `url.https://github.com/AkizukiKokona/.insteadOf = https://github.com/AkizukiKokona/`
+    —— **自映射抵消全局的 gh-proxy 重写**（git 取最长匹配前缀）。原因见下。
+  - `http.proxy` / `https.proxy = http://127.0.0.1:7897`（仓库级）⇒ 无需环境变量即可联网。
+  - 🔴 **gh-proxy 不支持 push**：`git-receive-pack` 返回 **405 Method Not Allowed**。
+    而本机全局配了 `url.https://gh-proxy.com/https://github.com/.insteadof = https://github.com/`
+    ⇒ 默认所有操作都会被导到 gh-proxy，**push 必失败**。fetch/clone 正常。
+  - ⚠️ `git remote -v` 显示 gh-proxy 地址是**显示层重写**的假象，`remote.origin.url` 实为
+    `https://github.com/AkizukiKokona/KokonaPolaris-S4`。**别被它骗了。**
+  - ⚠️ 本副本**没有**旧机的本地裸镜像 `repos/KokonaPolaris-S4.git`，所以 `origin`
+    直接就是云端真地址 ⇒ **本机只需推 `origin`，不需要旧机的「双推」**。
+  - 🔴 **仍缺凭证**：Windows 凭据管理器无 github 条目、无 `.git-credentials`、无 `gh`、无 token。
+    `credential.helper=helper-selector`（来自 PortableGit 的 **system** gitconfig）是个 GUI 程序，
+    无头环境下刷 libpng 警告后挂死 ⇒ **必须用户手动 `git push` 一次做浏览器登录**。
+- ❌ ~~CUDA Toolkit 未安装~~（已解决，见上）。
 - ⚠️ `tools/e5b_msvc_env.bat` 里 `TORCH_EXTENSIONS_DIR` 也写死了 `D:/model/.cache/torch_ext`（`env.sh` 已提供正确值）。
 - ⚠️ `env.sh` 已改为**自定位**（不再写死 `D:/model`）；未写注册表级持久变量（`kp.paths` 本就自动探测，写死反而多副本误伤）。
 
