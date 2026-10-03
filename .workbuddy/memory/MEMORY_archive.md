@@ -4,7 +4,10 @@
 > MEMORY.md 只保留「决策 + 硬约束 + 结论 + 协作约定」；具体数字/表格放这里。
 
 ## 开发机实测基线（完整）
-**目标机 = 本机**：RTX 5050 Laptop / 8151 MiB / compute_cap 12.0（sm_120 ✓）/ 20 SM / 驱动 610.74（CUDA UMD 13.3）。
+> ⚠️ **已作废（仅作历史快照）**：本节数字全部测于 RTX 5050 Laptop。
+> **2026-10-03 当前工作副本所在机 = `D:\kokonapolaris-s4` / RTX 5070 Laptop / sm_120 / 驱动 591.91 / CUDA UMD 13.1，环境全裸未装运行时** → 见 `MEMORY_ops.md`。新机跑 GPU 任务前必须 `tools/gpu_probe.py` 重测。
+
+**迁出机**：RTX 5050 Laptop / 8151 MiB / compute_cap 12.0（sm_120 ✓）/ 20 SM / 驱动 610.74（CUDA UMD 13.3）。
 - 功耗标称 5/55/**115W(max)**。实测峰值 **113.8W 可达（=上限 98.1%）**，82°C，`clocks_event_reasons.active` 恒 `0x0`。
 - 五形态实测：D2D 拷贝 68.4 W / fp32 elementwise 66.9 W / bf16 tensor 79.7 W / 三流并发 79.8 W / **FP4 tensor 113.0 W（峰 113.8）**。
 - 两档算力：静音 45.7 W = bf16 20.9 / FP4 99.2 TFLOPS；满血 = bf16 **25.8 @80W** / FP4 **120.5 @113W**。

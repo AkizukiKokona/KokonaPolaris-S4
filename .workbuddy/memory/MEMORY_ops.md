@@ -59,3 +59,33 @@
 ## 用户已有资产
 - ⭐ 本机 **WAI 系模型**（ComfyUI）+ **用户自训的角色 LoRA**。⚠️ **LoRA 不能迁移到 KP**（绑死旧 `W₀`）——
   **但证明用户已在做「能力挂件」**，且它是角色卡数据线的**现成引擎**（同角色 + 只换视角/姿势 → 多视角配对数据 → 喂 P2.6/G5 Fitter）。
+
+## ⭐ 当前工作副本所在机（2026-10-03 10:3x 实测；**与上面「迁出机」不是同一台**）
+仓库新克隆到 **`D:\kokonapolaris-s4`**（孤儿目录，**先于克隆为空**）。实测：
+
+| 项 | 实测值 |
+|---|---|
+| GPU | **NVIDIA GeForce RTX 5070 Laptop GPU** |
+| 显存 | 8151 MiB（≈8GB） |
+| compute_cap | **12.0（sm_120 ✓ 与硬约束一致）** |
+| 驱动 / CUDA UMD | **591.91 / 13.1** |
+| 功耗上限 | 115 W |
+| 系统 Python | 3.13.14（`.../Microsoft/WindowsApps`）+ 3.14.6；另有 uv 托管 **3.12.15** |
+| 磁盘 | C: 剩 142GB / D: 剩 196GB |
+
+### 环境缺口（**全裸，必须先装**）
+- ❌ **没有任何 DL 运行时**：三个解释器里 `torch / numpy / PIL` 全无（**D:/model 不存在**，旧 venv 与 4.6GB 靶子都没跟过来）。
+- ❌ **CUDA Toolkit 未安装**（无 `nvcc`；迁出机是 nvcc 13.2，三套并存）。⚠️ `nvidia-smi` 报的 "CUDA 13.1" 只是**驱动支持的 UMD 版本，不等于装了工具链**。
+- ❌ git **全局身份未配置**（`user.name/email` 皆空）→ 已在本仓库**局部**配置为 `AkizukiKokona <AkizukiKokona@users.noreply.github.com>`（与历史提交一致，**未动全局**）。
+- ⚠️ `env.sh` 仍**硬编码** `KP_ROOT="D:/model"` + `KP_VENV="$KP_ROOT/.venv"` ⇒ 在本机**直接 use 会指向不存在的路径**。（`kp/paths.py` 不受影响，自动探测到 `D:\kokonapolaris-s4`。）
+
+### 已有、可直接复用
+- ✅ **MSVC 14.44.35207**（`C:\Program Files\Microsoft Visual Studio\2022\Community\...`）+ **Windows SDK 10.0.26100.0**。
+  ⚠️ `tools/e5b_msvc_env.bat` 默认路径找的是 `2022\BuildTools\...` 与 `D:\vc2022` / `D:\vs` ⇒ **本机三处都不匹配**，需设 `MSVC_ROOT` 指向 Community 版。
+- ✅ 代理 `127.0.0.1:7897` 连通（github 200 / 6.6s）；PyPI 清华镜像 200 / 3s。
+- ✅ pip 26.1.2 可用（WorkBuddy 托管 python 3.13）。
+
+### 待装清单（按「项目代码实际 import」+ onboard 判定）
+- **必需**：`torch`(cu128, 需含 sm_120)、`numpy`、`pillow`
+- **可选但代码已用到**：`transformers`(⚠️ 钉 4.55.4，**5.10.1 会打坏 modelopt 插件**)、`diffusers`、`tokenizers`、`huggingface_hub`、`torchvision`、`nvidia-modelopt`、`scipy`、`scikit-image`、`pytorch-fid`、`fontTools`、`uharfbuzz`、`freetype-py`、`rembg`、`triton-windows`、`peft`
+- ⚠️ **`requirements.lock.txt` 只有 4 行**（diffusers / hf_hub / tokenizers / transformers）——那是旧机 **venv 覆盖层**，其余靠「系统 Python 3.12.10 的 site-packages」。**本机照它装不够**。
