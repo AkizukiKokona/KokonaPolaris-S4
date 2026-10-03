@@ -56,18 +56,20 @@
 
 > ### 🤖 给接手这个仓库的 AI / 新同事
 >
-> **第一件事不是跑代码，是读记忆库** —— 里面记录了「已定决策、硬约束、以及踩过的坑」，
-> 这些**不在代码注释里**，也不在 git 历史里。跳过它最容易重犯已经解决过的问题。
+> 👉 **先看 [`ONBOARDING.md`](ONBOARDING.md)** —— 它是接手指南（现状盘点 / 已验证与未验证 /
+> 已知事故 / 每轮收尾流程 / 下一个动作），读完就能直接干活。
+>
+> 然后按这个顺序读：
 >
 > ```bash
-> ① .workbuddy/memory/MEMORY.md        # 决策 + 硬约束 + 协作约定（**先读这个**）
+> ① .workbuddy/memory/MEMORY.md        # 决策 + 硬约束 + 协作约定（**最重要**）
 > ② .workbuddy/memory/MEMORY_ops.md    # 本机环境细则、数据交付规范
 > ③ .workbuddy/memory/MEMORY_archive.md# 实测数字（跑分、量化、显存）
 > ④ .workbuddy/memory/2026-10-*.md     # 逐日日志，末尾有「**下一步**」
 > ```
 >
 > 读完直接看 `design/KokonaPolaris_架构设计方案.md`（项目的真相）。
-> 代码是**骨架**，不跑训练；它承载的是「可验收的不变量」，自检 52 项就是验收单。
+> 代码是**骨架**，不跑训练；它承载的是「可验收的不变量」，自检就是验收单。
 
 ```bash
 git clone https://github.com/AkizukiKokona/KokonaPolaris-S4.git
