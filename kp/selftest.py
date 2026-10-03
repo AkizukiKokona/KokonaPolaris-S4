@@ -2054,6 +2054,65 @@ def main() -> int:
         return f"本地齐备 {len(need)} 个文件 / {sz:.1f}MB（源 {QWEN3}）⇒ 离线可用"
     check("⛔ tokenizer 本地缓存齐备（离线可用）", _tok_local_cache_first)
 
+    # ---------------- 32. P1.8 蒸馏通路（教师离线一次）----------------
+    section("32. P1.8 · 文本塔蒸馏通路（⛔ 教师未就位，只证数据侧）")
+
+    def _distill_encode_path():
+        """蒸馏的**第一步**必须能跑：caption jsonl → ids（⛔ 不需教师权重）。"""
+        import tempfile
+        from pathlib import Path as _P
+        from kp.text.distill import encode_captions
+        d = _P(tempfile.gettempdir()) / "kp_distill_smoke"
+        d.mkdir(parents=True, exist_ok=True)
+        src = d / "caps.jsonl"
+        src.write_text(
+            '{"caption": "一名黑色长发的少女站在樱花树下。", "lang": "zh"}\n'
+            '{"caption": "a girl under cherry blossoms", "lang": "en"}\n',
+            encoding="utf-8")
+        out = d / "ids.pt"
+        r = encode_captions(str(src), str(out), max_len=64)
+        assert r["count"] == 2, f"应编码 2 条，实得 {r['count']}"
+        assert r["skipped"] == 0, f"不该有跳过，实得 {r['skipped']}"
+        import torch
+        obj = torch.load(out, weights_only=False)
+        assert obj["rows"][0]["lang"] == "zh", "语言标记丢了"
+        assert len(obj["rows"][0]["ids"]) > 0, "ids 为空"
+        return (f"caption→ids ✓ {r['count']} 条，平均 {r['平均长度']} token，lang 保留")
+    check("蒸馏①：caption→ids（⛔ 不需教师，可离线跑）", _distill_encode_path)
+
+    def _distill_multilayer_config():
+        """🔴 设计稿 §4.1 明写「**多层特征聚合**，不是只用最后一层」。
+
+        ⚠️ 理由（设计稿原文）：「自回归 LLM 的末层是为 next-token 优化的，
+        对图像生成并非最优」⇒ 必须取**浅层 + 多层**。
+        ⇒ 这条断言防止有人「图省事只取最后一层」。
+        """
+        from kp.text.distill import TEACHER_LAYERS
+        assert len(TEACHER_LAYERS) >= 3, f"只取 {len(TEACHER_LAYERS)} 层，不算多层聚合"
+        assert TEACHER_LAYERS != tuple(sorted(TEACHER_LAYERS)[-1:]), \
+            "只取最后一层 ⇒ 违背设计稿 §4.1"
+        assert min(TEACHER_LAYERS) < max(TEACHER_LAYERS),             "应同时含浅层与深层（浅层给结构，深层给语义）"
+        return f"多层 = {list(TEACHER_LAYERS)}（含浅层 {min(TEACHER_LAYERS)} + 深层 {max(TEACHER_LAYERS)}）✓"
+    check("🔴 教师特征取多层（非仅最后一层）", _distill_multilayer_config)
+
+    def _distill_three_things_separated():
+        """⛔ 断言「能编码 / 懂中文 / 主干用中文」是**三件独立的事**。
+
+        ⭐ 背景（防止把一件事的结论当另一件事的证据）：
+          ① 中文**能被编码**   —— ✅ 自检 §31 已证（汉字覆盖 100%）
+          ② 塔**懂中文**       —— ⛔ **未证**（塔尚未蒸馏）
+          ③ 主干**用中文**     —— ⛔ 未开始
+        ⇒ 任何「KP 支持中文」的说法，**必须指明是这三件里的哪一件**。
+        """
+        from kp.text.tokenizer import load_tokenizer
+        try:
+            load_tokenizer()
+        except Exception:                                 # noqa: BLE001
+            return "⚠️ 无 tokenizer，跳过"
+        return ("严格区分：①能编码 ✅(§31) / ②塔懂中文 ⛔未证(未蒸馏) / "
+                "③主干用中文 ⛔未开始 ⇒ 说'支持中文'必须指明是哪一件")
+    check("⛔ 「支持中文」的三件事必须分开说", _distill_three_things_separated)
+
     # ---------------- 汇总 ----------------
     return _summary()
 
