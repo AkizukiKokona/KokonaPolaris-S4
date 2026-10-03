@@ -35,6 +35,11 @@ DATASET = "aipracticecafe/curated-danbooru-2026"
 STATE = Path("out/data/_fetch_daemon_state.json")
 
 
+def out_dir_marker() -> Path:
+    """已下载分片的存放目录（供 --sizes 打勾）。"""
+    return Path("out/data/curated_danbooru/_shards")
+
+
 def _load_state() -> dict:
     if STATE.exists():
         try:
@@ -97,6 +102,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="下到约多少张就停（0 = 不限，只受 --max-shards 约束）")
     ap.add_argument("--loop", action="store_true", help="下完 max-shards 后再等一轮（常驻）")
     ap.add_argument("--status", action="store_true", help="只打印状态")
+    ap.add_argument("--no-sort", action="store_true", help="不按大小排序，按原序下")
+    ap.add_argument("--sizes", action="store_true",
+                    help="列出分片及其大小（★ 慢网时先挑小的下，不浪费时间）")
     a = ap.parse_args(argv)
 
     st = _load_state()
@@ -105,6 +113,35 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if a.status:
         print(json.dumps(st, ensure_ascii=False, indent=1))
+        return 0
+
+    if a.sizes:
+        import requests
+        s = requests.Session()
+        s.proxies.update({"http": os.environ["HTTP_PROXY"], "https": os.environ["HTTPS_PROXY"]})
+        try:
+            shards = list_shards()
+        except Exception as e:                                  # noqa: BLE001
+            print(f"⛔ 列不出清单：{type(e).__name__}: {e}")
+            return 1
+        rows = []
+        for sh in shards[:40]:
+            url = f"{MIRROR}/datasets/{DATASET}/resolve/main/{sh}"
+            try:
+                h = s.head(url, timeout=20, allow_redirects=True)
+                n = int(h.headers.get("content-length", 0))
+            except Exception:                                   # noqa: BLE001
+                n = -1
+            rows.append((n, sh))
+        rows.sort()
+        print(f"{'大小':>10s}  分片")
+        for n, sh in rows:
+            mark = "✅已下" if (out_dir_marker() / Path(sh).name).exists() else ""
+            print(f"{n/1e6:9.0f}MB  {Path(sh).name} {mark}")
+        tot = sum(max(n, 0) for n, _ in rows) / 1e9
+        print(f"\n合计 {tot:.1f} GB / {len(rows)} 片；已下 "
+              f"{len(st['done_shards'])} 片")
+        print("💡 慢网建议：先 `--max-shards 1` 下完一片（约 17 分钟 @1.06MB/s）")
         return 0
 
     out_dir = Path(a.out)
@@ -121,7 +158,35 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
     _log(f"该数据集共 {len(shards)} 个分片；本次最多下 {a.max_shards} 个")
 
-    todo = [s for s in shards if s not in st["done_shards"]][:a.max_shards]
+    # ⭐ **按分片大小升序**（慢网优化）：全部都是 ~1GB 量级时，
+    #    先下最小的能最快拿到**第一个完整分片**（≈17 分钟 @1.06MB/s），
+    #    而不是卡在某个随机分片上白等。
+    def _sizes_mb(names: List[str]) -> dict:
+        """**一次并发**拿全部分片大小（⛔ 不用 34 次串行 HEAD —— 慢网下那要好几分钟）。"""
+        from concurrent.futures import ThreadPoolExecutor
+        import requests
+
+        def one(n: str) -> tuple:
+            try:
+                s = requests.Session()
+                s.proxies.update({"http": os.environ["HTTP_PROXY"],
+                                  "https": os.environ["HTTP_PROXY"]})
+                h = s.head(f"{MIRROR}/datasets/{DATASET}/resolve/main/{n}",
+                           timeout=15, allow_redirects=True)
+                return n, int(h.headers.get("content-length", 0)) / 1e6
+            except Exception:                                   # noqa: BLE001
+                return n, 1e9                                  # 拿不到 ⇒ 排最后
+
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            return dict(ex.map(one, names))
+
+    todo = [s for s in shards if s not in st["done_shards"]]
+    if not a.no_sort:
+        _log(f"查询 {len(todo)} 个分片大小（并发，慢网约 15-30s）…")
+        sz = _sizes_mb(todo)
+        todo.sort(key=lambda n: sz.get(n, 1e9))
+        _log(f"最小分片 {sz.get(todo[0], 0):.0f}MB，先下它")
+    todo = todo[:a.max_shards]
     if not todo:
         _log("✅ 没有待下的分片（全部已完成或达到上限）")
         _save_state(st)

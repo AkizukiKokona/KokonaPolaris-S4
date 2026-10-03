@@ -1982,6 +1982,78 @@ def main() -> int:
         return "两者都吃 [B,V,3,H,W] 视图（并列，非串联）✓ 契约已钉"
     check("🔴 CharaBridge/Fitter 输入契约（并列非串联）", _e2e_charabridge_input_contract)
 
+    # ---------------- 31. P1.8 tokenizer 绑定（中文进模型的唯一通路）----------------
+    section("31. P1.8 · tokenizer（⭐「中文能进模型」的唯一通路）")
+
+    def _tok_chinese_encodable():
+        """🔴 **中文必须真的能被编码成 ids** —— 这是 P1.8 那条「不可逆死线」的前提。
+
+        ⭐ 背景：设计稿说「**中文是文本塔的原生能力**」，但
+        `TextTower.forward(ids)` **只吃 token ids**，
+        🔴 **而全库原先 grep 不到任何 tokenizer** ⇒ **中文根本进不了模型**。
+        ⇒ 本条断言守住这个链路（`kp/text/tokenizer.py` 补上了它）。
+
+        ⚠️ **严格区分两件事**（本项目反复吃的坑：指标口径不对，结论必错）：
+            本条**只证明「能被编码」** ⛔ **不证明「模型懂中文」** ——
+            塔**尚未蒸馏**，中文能力要等蒸馏后**单独测**。
+        """
+        from kp.text.tokenizer import load_tokenizer, han_coverage, HAN_COVERAGE_GATE
+        try:
+            tok = load_tokenizer()
+        except Exception as e:                              # noqa: BLE001
+            return f"⚠️ 拿不到 tokenizer（{type(e).__name__}），本条跳过"
+        tot = ok = 0
+        for s in ("一名黑色长发的少女站在樱花树下，穿着校服。",
+                  "赛博朋克风格的城市夜景，霓虹灯牌，机械义肢。",
+                  "心夏北极星 沫夏澄影"):
+            t, o, _ = han_coverage(tok, s)
+            tot += t
+            ok += o
+        cov = ok / max(tot, 1)
+        assert cov >= HAN_COVERAGE_GATE, (
+            f"汉字覆盖率仅 {cov:.3f} < 门线 {HAN_COVERAGE_GATE} ⇒ 中文配比/词表有问题")
+        return f"汉字 {ok}/{tot} 覆盖率 {cov:.1%} ≥ 门线 {HAN_COVERAGE_GATE:.0%} ⛔(仅证'能编码')"
+    check("🔴 中文可编码成 ids（P1.8 的前提）", _tok_chinese_encodable)
+
+    def _tok_vocab_fits_embedding():
+        """🔴 词表**必须能装进嵌入表**（防越界）；顺带报出白占的行数。
+
+        ⭐ **三种口径必须分清**（实测踩过）：
+            ① `tokenizer.vocab_size` = 151643 —— **不含** added_tokens
+            ② `len(tok)`             = 151669 —— 含 26 个 added
+            ③ `max(token id) + 1`    = 151669 —— 真正能安全索引的上界
+        ⇒ 嵌入表**按 ③ 建才安全**；config 写 151936（比③大 267）**不会越界**，
+          但**白占 267×768 = 0.2M 参数**（仅浪费，不报错 ⇒ 又是一个「静默」项）。
+        """
+        from kp.text.tokenizer import load_tokenizer
+        from kp.models.text_tower import TextTowerCfg
+        try:
+            tok = load_tokenizer()
+        except Exception:                                 # noqa: BLE001
+            return "⚠️ 拿不到 tokenizer，跳过"
+        need = max(tok.get_vocab().values()) + 1
+        cfg_v = TextTowerCfg().vocab_size
+        assert cfg_v >= need, (
+            f"嵌入表 {cfg_v} < 实际需要的 {need} ⇒ **token id 会越界**（会崩）")
+        waste = cfg_v - need
+        extra = f"（白占 {waste} 行 ≈ {waste * TextTowerCfg().dim / 1e6:.1f}M 参数）" if waste else "（零浪费）"
+        return f"需 {need} / 配置 {cfg_v} ⇒ 能容纳 ✓ {extra}"
+    check("🔴 词表装得进嵌入表（防越界）", _tok_vocab_fits_embedding)
+
+    def _tok_local_cache_first():
+        """⛔ tokenizer 必须**本地优先** —— 慢网下远端会返回 HTML/限流页被当成 JSON。"""
+        from pathlib import Path
+        from kp.text.tokenizer import LOCAL_DIR, QWEN3
+        assert LOCAL_DIR.is_dir(), f"本地 tokenizer 目录不存在：{LOCAL_DIR}"
+        need = ("tokenizer.json", "tokenizer_config.json", "vocab.json", "merges.txt")
+        missing = [f for f in need if not (LOCAL_DIR / f).exists()]
+        assert not missing, (
+            f"本地缓存缺 {missing} ⛔ **只有 tokenizer_config.json 不够**"
+            f"（那是配置不是词表）⇒ 踩过：HF 缓存正好只有它 ⇒ JSONDecodeError")
+        sz = sum((LOCAL_DIR / f).stat().st_size for f in need) / 1e6
+        return f"本地齐备 {len(need)} 个文件 / {sz:.1f}MB（源 {QWEN3}）⇒ 离线可用"
+    check("⛔ tokenizer 本地缓存齐备（离线可用）", _tok_local_cache_first)
+
     # ---------------- 汇总 ----------------
     return _summary()
 
