@@ -63,9 +63,14 @@ __all__ = [
     "compare_dilution",
     "activation_shape_stats",
     "plan_composition",
+    "qknorm_logit_bound",
+    "contrast_vs_offset",
+    "contrast_report",
     "known_answer_samples",
     "g3_report_text",
 ]
+# ⚠️ 本清单与 `kp/probe/__init__.py` 的 re-export **必须逐项一致**（改一处请同步另一处）：
+#    两份清单不同步过一次，导致本模块自己的公开函数被 star-import 漏掉。
 
 
 # ⛔ 设计稿**未给出**阈值的地方 —— 按「不猜」原则显式报缺口，不擅自设门

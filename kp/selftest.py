@@ -401,7 +401,6 @@ def main() -> int:
     # ---------------- 10. 能力包落盘 / 加载 ----------------
     section("10. 能力包落盘 / 加载往返（四接口之一）")
     from kp.capability import save_adapter, load_adapter
-    import tempfile
     import os as _os
 
     def _adapter_roundtrip():
@@ -1172,6 +1171,21 @@ def main() -> int:
     section("21. G3 Sigmoid 注意力装置（机制层 · ⛔ 非过门依据）")
     from kp.probe import attn as _G3
     from kp.models.dit import SIGMOID as _SIG, SOFTMAX as _SM
+
+    def _g3_estimator_known_answer():
+        """⭐ **已知答案（层①：估计器本身）**：α 拟合器必须在**构造样本**上给出 1 / 0。
+
+        ⚠️ 为什么单独验这一层：下面三项走的是真实代码路径，验的是**设计主张**；
+        但如果 α 的拟合逻辑本身算错了，那三项的数字全无意义。
+        ⇒ 两层互补（照 `known_answer_samples` 的 docstring）：
+           层①验「尺子准不准」，层②验「测的是不是真东西」。
+        """
+        ka = _G3.known_answer_samples()
+        assert abs(ka["flat_alpha"] - 1.0) < 1e-6, ka
+        assert abs(ka["concentrated_alpha"] - 0.0) < 1e-6, ka
+        return (f"flat α={ka['flat_alpha']:.4f}（理论 1）/ "
+                f"concentrated α={ka['concentrated_alpha']:.4f}（理论 0）")
+    check("已知答案：α 估计器在构造样本上给出 1 / 0（尺子本身准）", _g3_estimator_known_answer)
 
     def _g3_identity():
         """装置地基：one-hot v 恒等式 ⇒ out[...,j] 必须**逐位**等于真实权重。"""

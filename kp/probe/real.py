@@ -755,7 +755,8 @@ def build_test_backbone(*, dim: int = DEFAULT_SHAPE["dim"],
 
 
 def run_real_probe(*, door: bool = True, door_scale: float = 0.02, seed: int = 0,
-                   dim: int = 192, layers: int = 6, heads: int = 6, tokens: int = 8,
+                   dim: int = DEFAULT_SHAPE["dim"], layers: int = DEFAULT_SHAPE["layers"],
+                   heads: int = DEFAULT_SHAPE["heads"], tokens: int = 8,
                    use_text: bool = True, quant_spec: Optional[QuantSpec] = DESIGN_SPEC,
                    model: Optional[SingleStreamDiT] = None,
                    sweep_steps: Optional[int] = None,
