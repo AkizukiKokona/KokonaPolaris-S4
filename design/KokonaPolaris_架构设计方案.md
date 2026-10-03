@@ -82,6 +82,82 @@
 
 ---
 
+## 🔴 v1.17 · 多视角数据**永久缺口**的连带影响与替代路径（2026-10-03）
+
+> **用户明确：多视角图绝对补不齐。** 本节把这个约束从"待解决"改成"**设计前提**"，
+> 并给出**有外部证据支撑**的替代路径。⚠️ 静音模式下的静默决策，已落文档备查。
+
+### 0. 结论先行
+
+| 项 | 判定 |
+|---|---|
+| 原 G5「角色卡 2–8 张多视角（正/背/侧）即可」 | 🔴 **降级为"需要 paired 数据才能达成的上限"** |
+| **G5 是否仍然可达** | ✅ **可达，但要走 InstantCharacter 的三阶段退化路径**（见 §2） |
+| **P1（训 VAE）是否受影响** | ✅ **完全不受影响** —— P1 只需**通用单图**，与多视角无关 |
+| **P0→P2→G6 主线是否受影响** | ✅ **不受影响** —— 主干训练靠 text-image 对，不靠多视角 |
+
+### 1. ⭐ 关键外部证据：多视角**不是**「一致���」的必要条件
+
+**InstantCharacter（arXiv 2504.12395，腾讯混元，FLUX.1-dev 底座）** 原文（§3.2，已联网核实）：
+
+> "To achieve **character consistency**, we first train with **unpaired data**, where the
+> character image is incorporated as **reference guidance to reconstruct itself** and preserve
+> structural consistency. We discovered that **a resolution of 512 is significantly more
+> efficient than 1024**."
+>
+> 第二阶段："we continue training at a low resolution (512) but **switch to paired training data**.
+> ... This training stage **efficiently eliminates the copy-paste effect and enhances text
+> controllability**."
+>
+> 第三阶段："high-resolution **joint training using both paired and non-paired images**."
+
+⭐⭐ **这直接回答了我们的缺口问题**：
+- **身份一致性（character consistency）由 `unpaired`（单图自重建）阶段建立** ⇒ **不需要多视角**；
+- **paired（多视角）买的是「文本可控性 / 消除 copy-paste」** ⇒ 缺它 ⇒ **文生图时会「照抄参考图」**，
+  而不是「认不出角色」。
+
+⇒ **两条路的差别是「复制粘贴感」vs「身份丢失」，后者是不可接受的，前者是可以缓解的。**
+
+⚠️ **诚实标注**：这条路我们**还没有实测**，只是**有强外部先例**。它把 G5 从
+「已设计」降级为「有先例支撑的待验证方案」。**不假装已经解决。**
+
+### 2. 替代路径（不依赖多视角）—— 三阶段退化
+
+| 阶段 | InstantCharacter 原版 | 🔴 我们的退化版（无 paired 数据） | 缺什么 / 怎么补 |
+|---|---|---|---|
+| **S1 身份建立** | unpaired 低分辨率预训练 | ✅ **完全照做**（单图自重建） | ⛔ 不需要多视角 |
+| **S2 文本可控** | paired 512 微调 | 🔴 **跳过 / 用启发式替代** | 缺 paired ⇒ **改用 layout token + L1 控制栈**（设计稿已有）顶替「姿态可控」 |
+| **S3 高分辨率** | paired+unpaired 联合 | ✅ **用 unpaired 图做高分辨率微调** | 分辨率提升不需 paired |
+
+⇒ **净损失**（诚实列出，不粉饰）：
+1. **姿态/视角可控性下降** —— 只能靠 layout token（空间先验）而非真实多视角监督；
+2. **可能有「照抄参考图」的 copy-paste 倾向** —— InstantCharacter 明确说 paired 阶段就是为了消除它；
+3. ⚠️ **跨视角泛化未被任何证据支持**（我们没数据、也没实测）⇒ **验收基线里的「身份一致度接近 LoRA」必须下调或改判据**。
+
+### 3. 🔴 必须下调的验收基线（原表在主文档 §验收表）
+
+| 原指标 | 原目标 | 🔴 修订后 | 修订理由 |
+|---|---|---|---|
+| 身份训练数据 | 2–8 张**多视角** | **2–8 张单图**（同一角色不同图/不同表情） | 多视角永久缺失 |
+| 身份一致度 | 接近 LoRA 基线 | ⚠️ **改判据**：不测「多视角一致」，改测**「参考图 vs 生成图的同角色可辨性」**（可用 DINOv3 嵌入余弦） | 多视角一致度**不可测**（无 ground truth） |
+| 换角色耗时 | 秒级 | ✅ **不变**（Fitter 前向，与数据量无关） | — |
+
+### 4. ⭐ 顺带确认：**P1 完全不受此影响**
+
+P1（训 HybridVAE）只需要**通用单图**（要多样性，不要多视角）。
+⇒ **多视角缺口不影响主线**；影响的是**G5 角色卡的上限**。
+⇒ 行动优先级不变：**先解 P1 的「通用图多样性」**（见 `kp/data/augment.py` 与数据源探测），
+**G5 的 paired 需求放到「有预算/有代理再说」**。
+
+### 5. 环境事实（本轮实测）
+
+- ✅ **代理 `http://127.0.0.1:7897` 可用** —— `huggingface.co` 与 `hf-mirror.com` 均 200
+  （直连 HF **失败** ⇒ 任何下载都必须带代理，这是一条环境硬事实）
+- ✅ GitHub 直连 200
+- ⇒ **数据策略改为：代理可下通用图库**，不再依赖「只能自产」
+
+---
+
 ## 📊 v1.16 新增 · 实际推进速度复盘（为什么本项目的工期表不能按人类开发速度读）
 
 > **这一节回答一个必须写进文档的问题**：§9.2 的验证门表标的工期（合计 **86 工作日 ≈ 4 个月**）是**按人类开发速度**估的。
