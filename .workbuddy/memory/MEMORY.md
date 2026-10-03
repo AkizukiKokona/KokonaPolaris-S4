@@ -74,8 +74,10 @@
 - 🔴 **永久规范**：① 逐像素 PSNR/SSIM 只用于同轨迹复现性，**不可判画质** → G1 主判据须分布级；② PTQ 是模拟量化，其峰值显存**不能论证 NVFP4 显存收益**。
 
 ## 参考实现骨架（`kp/`，2026-10-03 落地）
-纯 CPU 可跑、夜间安全。`python -m kp.arch_report` = 架构速览与真实参数量核对。
-🔴 **`kp/models/` 源码包曾整体丢失（2026-10-03 发现，换机后暴露）**：`.gitignore` 里 `models/` **没加前导斜杠** ⇒ 连带忽略了源码包 `kp/models/`（DiT / HybridVAE / TextTower / CharaBridge）⇒ **从未入库、全历史不存在**。后果：`python -m kp.selftest` **跑到第 6 节就 `No module named 'kp.models'` 中断**（1–5 节 10/10 通过），`kp.arch_report` 不可用，所谓「自检 52/52」**在仓库副本上复现不出来**。`.gitignore` 已修为 `/models/`；**源码本身本机找不到，需从旧机回捞或重写**。⚠️ **这个包必须重新入库**。
+纯 CPU 可跑、夜间安全。`python -m kp.selftest` = **52/52 通过**；`python -m kp.arch_report` = 架构速览与真实参数量核对。
+🔴→✅ **`kp/models/` 曾整体丢失并已重建（2026-10-03）**：`.gitignore` 里 `models/` **没加前导斜杠** ⇒ 连带忽略了源码包 `kp/models/`（DiT / HybridVAE / TextTower / CharaBridge）⇒ **从未入库、全历史不存在**，换机后自检第 6 节 `No module named 'kp.models'` 中断。`.gitignore` 已修为锚定 `/models/`；**源码已按设计稿 + `config.py` + `selftest`/`arch_report`/`train/qad` 调用面重写并入库**。
+⭐ **参数量反推（确认结构正确的依据）**：每 block 恰 **18·d²** = attention 4d²(qkv+out) + MLP 5d² + **adaLN 9d²（→9 段，第 8 段 = 身份门控）**。⇒ 重建后 KP-S **626.7M**（+4.5% ✅）/ KP-M **1.978B**（+31.8% ⚠️，比旧版 565.9M/1.806B 多 ~64M，差异来自 double-stream 独立文本投影；**KP-M 尺寸本就待拍板，未擅改 config**）。
+🔧 **adaLN-Zero 的正确做法**：末层 **weight 清零，但 attn/mlp/txt 三个 gate 的 bias 置 1** —— 若 bias 全清 0，整个 block 初值是恒等映射（网络退化）。身份门控（第 8 段）保持 0。
 分层：`latent`（40ch 混合 latent + 打包纯函数 + 通道监督件）/ `capability`（bus / delta_pack / svd_pack / parallel_pack / erase）/ `models`（dit / vae / text_tower / **charabridge**）/ `character`（card / fitter / pipeline）/ `quant`（nvfp4，与 `tools/e5b_qad.py` 逐位对拍）/ `train`（qad）/ `typography`（**layout / typography_pack**）/ `probe` / `sample`。
 ⭐ **adapter 预算投影**（`kp.train.budget_projection`）：KP-S 可训 **1.89M/0.33%**、AdamW ≈0.02GB；KP-M 3.89M/0.22% —— 与 **E5b 在 Sana 1.6B 实测（5.99M/0.37%）同量级**，**独立复现「必须 adapter 式 QAD」**。
 ⚠️ **待用户拍板**：**KP-M 主干实测 1.806B，比标称 1.5B 大 +20.4%**（KP-S 565.9M ≈ 0.6B ✅）→ 建议下调 dim/layers；**未擅自改配置**。
