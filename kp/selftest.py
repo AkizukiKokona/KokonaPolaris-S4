@@ -1455,8 +1455,18 @@ def main() -> int:
     check("3:1 每 4 层窗口严格 3+1（不把偏离固化成合格）", _g3_plan)
 
     def _g3_quant_friendly():
-        """L311「减少激活离群值」—— 官方判据缺阈值，这里只报方向不作门。"""
-        import math as _m
+        """🔴 L311「减少激活离群值」—— **已有通过门线**（2026-10-03 用户拍板）。
+
+        ⭐ **判据缺口已闭合**：设计稿 §9.2 的 G3 行把「量化友好性」写在「验证什么」列，
+        但「**通过判据**」列**没有条目** ⇒ 此前只能报方向、不敢作门。
+        ⇒ 用户拍板补：**离群比 ≤ 2× softmax**（实测 4.62 vs 13.18 = **2.85× 更低**）。
+
+        ⭐ **为什么门线取 2.0 而不是「越低越好」**：
+        · 实测增益是 **2.85×** ⇒ 门线 2.0 留了 ~30% 余量，**不会因随机波动假红**；
+        · 门线 <1.0 意味着 sigmoid 必须比 softmax **还好**，那是不可证伪的强主张。
+        ⚠️ 门线**只约束方向 + 幅度**（量化友好性），**不**替代 L310（长提示收益）——
+           那一半实测**未获支持**（见 §21 的平移不变性负对照）。
+        """
         outs = {}
         for n in (128, 512):
             a = _G3._act_stats_for(_SM, n_tokens=n, seed=0)
@@ -1466,10 +1476,16 @@ def main() -> int:
         assert sg512["outlier_ratio"] < sm512["outlier_ratio"], \
             f"N=512 时 sigmoid 离群比应更低：sm={sm512} sg={sg512}"
         gain = sm512["outlier_ratio"] / max(sg512["outlier_ratio"], 1e-9)
+        # 🔴 正式门线（用户拍板）：离群比不得高于 softmax 的 2 倍
+        GATE = 2.0
+        assert gain >= GATE, (
+            f"量化友好性未达门线：实测 {gain:.2f}× < 要求的 {GATE}× "
+            f"（sm {sm512['outlier_ratio']:.2f} / sg {sg512['outlier_ratio']:.2f}）"
+            f" ⇒ 若真如此，**Sigmoid 层对 NVFP4 不再是优势**，3:1 的立论要重估")
         return (f"N=128 离群比 sm {outs[128][0]['outlier_ratio']:.2f} / sg {outs[128][1]['outlier_ratio']:.2f}"
                 f"｜N=512 sm {sm512['outlier_ratio']:.2f} / sg {sg512['outlier_ratio']:.2f}"
-                f"（{gain:.2f}× 更低 ✅）")
-    check("L311 量化友好性：Sigmoid 激活离群值更低", _g3_quant_friendly)
+                f"（**{gain:.2f}× 更低 ≥ 门线 {GATE}× ✅**）")
+    check("🔴 L311 量化友好性：离群比 ≤2× softmax（门线已补）", _g3_quant_friendly)
 
     # ---------------- 22. 排版链路闭环（plan → ROIBranch → composite） ----------------
     section("22. 排版链路闭环（拼回 latent · 判据可证伪）")

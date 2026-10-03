@@ -60,15 +60,30 @@ class DiTCfg:
         return self.dim // self.heads
 
     def param_count(self) -> int:
-        """粗略参数量（单流主干估算，用于档案核对）。"""
+        """**名义**参数量（`17·d²` 口径，与 `arch_report` 的实测账有差，见下）。
+
+        ⚠️⚠️ **这只是名义值，不要当实测用**（2026-10-03 修）：
+        · **原版漏了 adaLN 的 `8d²`**（`4d²+5d²=9d²` vs 真实 `17d²`）
+        · 原版 `int(d * mlp_ratio)` 在 `mlp_ratio=2.5` 时**截断**（1152→2880）⇒ 不是 `5d²`
+        · 本式**仍不含**双流层(+4d²)、身份锚点层(+4d²)、norm/bias 等小项
+          ⇒ **与 `arch_report` 的实测值差 ~7-10%**（KP-M 实测 1.6564B vs 名义 ~1.529B）。
+        ⇒ **要真实数字请跑 `python -m kp.arch_report`**（meta device 实测）。
+        """
         d, L = self.dim, self.layers
-        per_block = 4 * d * d + 2 * d * int(d * self.mlp_ratio) + 4 * d
+        per_block = 4 * d * d + int(round(self.mlp_ratio)) * d * d + 8 * d * d
         return L * per_block + 2 * d * LATENT.total_ch
 
 
 # KP-S（主力 0.6B）/ KP-M（质量档 1.5B）
 DIT_S = DiTCfg(dim=1152, layers=24, heads=16)
-DIT_M = DiTCfg(dim=1792, layers=32, heads=16)
+# 🔴 2026-10-03 用户拍板：KP-M 改回 **28 层**（此前误写 32，导致 +25% 偏差）
+#   依据：设计稿**三处一致**写 28 层（§4.3 参数量表 L346 / 附录A L1259 / §4.4 深度阶梯 L353）
+#   meta device 实测：L32=1.8748B(+25.0%) → **L28=1.6564B(+10.4%)**
+#   ⭐ **L28 是唯一「零代价」选项** —— `head_dim` 保持 112、只损失 12% 深度
+#      （对比旧建议 dim1664/L32：实测 1.6167B(+7.8%) 且 head_dim 掉到 104）
+#   全对比工具：`python -m kp.tools.kpm_sizing`
+#   ⚠️ 3:1 在 L=28 时**仍不整除**（需 L≡1 mod 4，见 kpm_sizing 的说明）
+DIT_M = DiTCfg(dim=1792, layers=28, heads=16)
 
 
 # ---------------------------------------------------------------------------
