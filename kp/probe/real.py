@@ -360,22 +360,38 @@ def gate_ranges(model: SingleStreamDiT, responder: BackboneDomainResponder,
 
 
 def noise_floor(responder: BackboneDomainResponder, batch: int = 9,
-                n_axes: Optional[int] = None) -> float:
+                n_axes: Optional[int] = None, *,
+                probe_batches: Sequence[int] = (2, 9, 10, 17, 18, 33)) -> float:
     """**同批次行间数值噪声底线** —— 非空性判据的分母。
 
     ⚠️ 实测根因（不是猜的）：CPU 上的 oneDNN GEMM **不是逐行可复现的**。
-       把同一批次的若干行喂成**完全相同**的输入，输出行之间仍有 ~1e-8 的差异
-       （定位过程：`patch_embed`/`adaLN` 逐位相同 → `_attn_core` 相同 →
-       `out` 那层 `F.linear` 在 M=612 时出现行间差异；M=17 时不出现）。
+       把同一批次的若干行喂成**完全相同**的输入，输出行之间仍有 ~1e-8 的差异。
        ⇒ 「这个轴有没有作用」**不能**用「diff == 0」判，必须用
          「diff 是否显著高于同一批次、同一形状下测出来的噪声底线」判。
-       否则门关（adaLN-Zero）时的 6e-8 假信号会被当成"轴有响应"。
+
+    ⛔ **不能只测一个 batch**（这是实测踩到的真 bug）：
+       噪声**依赖 GEMM 的分块形状**，而分块形状依赖 batch 大小，于是
+       某些 batch 恰好测出 0、另一些测出 ~3e-8。实测（tokens=6, dim=64）：
+
+           batch= 2  → 0.0        batch=17  → 2.98e-08
+           batch= 5  → 0.0        batch=18  → 2.98e-08
+           batch= 9  → 2.98e-08   batch=33  → 5.96e-08
+           batch=10  → 0.0   ← 巧合点！
+
+       单点测量撞上「0.0」⇒ 阈值塌成 `1e-12` ⇒ 门关时那两条 7e-9 / 3e-8 的
+       **纯噪声**被当成真响应 ⇒ 自检「门关时 16 条轴应全判 inert」实测只判 14。
+    ⇒ **扫多个 batch 取最大值**（最大值是噪声的上确界，用它当门线最保守）。
     """
     n_axes = len(DOMAIN_AXIS_NAMES) if n_axes is None else n_axes
-    V = torch.zeros(int(batch), n_axes)
-    with torch.no_grad():
-        F = responder(V)
-    return float((F - F[:1]).abs().max())
+    best = 0.0
+    for b in dict.fromkeys([int(batch), *(int(x) for x in probe_batches)]):
+        if b < 1:
+            continue
+        V = torch.zeros(b, n_axes)
+        with torch.no_grad():
+            F = responder(V)
+        best = max(best, float((F - F[:1]).abs().max()))
+    return best
 
 
 def domain_response_dev(model: SingleStreamDiT,
