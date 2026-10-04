@@ -2007,6 +2007,63 @@ def main() -> int:
         return f"body_base = 完整本体（IoU={iou:.4f}，背景误标 0）"
     check("⭐ body_base 是完整本体（含部件，不含背景）", _anat_body_is_full_silhouette)
 
+    def _anat_parts_are_exclusive():
+        """⛔ 部件层必须**互斥**（v1 引入颜色精修后新增的风险）。
+
+        ⚠️ 精修用 `|` 扩区，可能让 hair/face/torso 互相吞噬
+        ⇒ 必须锁住「重叠像素 = 0」，否则下游按层取颜色会串。
+        """
+        import numpy as _np
+        from kp.character.anatomical import AnatomicalPrior
+        from kp.character.card import SEMANTIC_LAYERS
+        idx = {n: i for i, n in enumerate(SEMANTIC_LAYERS)}
+        size = 256
+        a = _np.zeros((size, size, 4), dtype=_np.uint8)
+        a[10:size - 10, 10:size - 10, 3] = 255
+        a[..., :3] = 200
+        y0, y1 = int(size * 0.2), int(size * 0.4)
+        a[y0:y1, int(size * 0.3):int(size * 0.7), :3] = 240
+        a[10:y0, 10:size - 10, :3] = 30
+        lab = AnatomicalPrior().predict(a)
+        parts = ("face", "hair_front", "top", "bottom")
+        cnt = sum((lab == idx[n]).astype(_np.int8) for n in parts)
+        overlap = int((cnt > 1).sum())
+        assert overlap == 0, f"部件层重叠 {overlap}px（颜色精修把区扩串了）"
+        return f"4 个部件层互斥（重叠 0px）"
+    check("⛔ 语义层部件互斥（颜色精修不串区）", _anat_parts_are_exclusive)
+
+    def _anat_real_image_coverage():
+        """⭐ 真图上：body_base 覆盖 100% 本体 + 部件占比合理（不是全塞进一层）。"""
+        import glob
+        import os as _os
+        import numpy as _np
+        from PIL import Image
+        from kp.character.anatomical import AnatomicalPrior
+        from kp.character.card import SEMANTIC_LAYERS
+        from kp.paths import OUT
+        imgs = sorted(glob.glob(str(OUT / "characters" / "*" / "norm" / "*.png")))
+        if not imgs:
+            return "⚠️ 无归一化图，跳过"
+        p = imgs[0]
+        a = _np.array(Image.open(p).convert("RGBA"))
+        seg = AnatomicalPrior()
+        layers = seg.to_rgba_layers(a)
+        assert "body_base" in layers, "body_base 缺失"
+        fg = a[..., 3] > 8
+        bb = layers["body_base"][..., 3] > 0
+        iou = float((bb & fg).sum()) / float((bb | fg).sum())
+        assert iou > 0.99, f"body_base 不是完整本体，IoU={iou:.4f}"
+        # ⭐ 至少要有2 个部件层（否则等于没分层）
+        parts = [k for k in layers if k != "body_base"]
+        assert len(parts) >= 2, f"只解出 {parts}，等于没分层"
+        tot = max(1, int(fg.sum()))
+        shares = {k: int((layers[k][..., 3] > 0).sum()) / tot for k in parts}
+        biggest = max(shares.values())
+        assert biggest < 0.95, f"单层吃掉 {biggest:.1%} 本体 ⇒ 分层失效"
+        return (f"{_os.path.basename(p)}：body IoU={iou:.3f} + {len(parts)} 个部件"
+                f"（最大层 {biggest:.0%}）")
+    check("⭐ 真图上分层有效（body完整 + 部件≥2 + 不过载）", _anat_real_image_coverage)
+
     def _anat_no_false_semantic():
         """⛔ 拿不到解算器时**不许冒充** `body_base`（旧版双重误导的回归防护）。"""
         import re

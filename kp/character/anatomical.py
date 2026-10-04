@@ -94,15 +94,46 @@ class AnatomicalPrior:
     name = "anatomical-prior-v1（几何+颜色先验，非 See-through）"
 
     def __init__(self, *, alpha_thr: int = 8, min_area_frac: float = MIN_AREA_FRAC,
-                 refine_face: bool = True):
+                 refine_face: bool = True, refine_torso: bool = True,
+               refine_hair: bool = True):
         self.alpha_thr = int(alpha_thr)
         self.min_area_frac = float(min_area_frac)
         self.refine_face = bool(refine_face)
+        self.refine_torso = bool(refine_torso)
+        self.refine_hair = bool(refine_hair)
         self.quality = LAYER_QUALITY(
             # ⚠️ 诚实：不冒充 See-through 的水平。远低于真模型。
             mean_iou=0.28, name_hit=0.55, cross_view_consistency=None,
             note="解剖先验 v1：能给出 19 类里的区域级语义，"
                  "小部件（眼白/虹膜/睫毛/嘴）在 512² 下不产出（宁缺勿错）")
+
+    # ------------------------------------------------------------------
+    # 颜色精修工具（v1 新增）：在几何先验的**候选区**内按亮度/饱和度收边
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _splittable(a: np.ndarray) -> bool:
+        """alpha 边缘是否**足够锐利** ⇒ 值得按颜色切。
+        ⚠️ **不锐利就退��几何先验**（宁可用粗区域，不伪��细边界）。"""
+        al = a[..., 3].astype(np.float32) / 255.0
+        edge = np.abs(np.diff(al, axis=0)).mean() + np.abs(np.diff(al, axis=1)).mean()
+        return float(edge) > 0.02
+
+    def _refine_by_color(self, region: np.ndarray, a: np.ndarray,
+                         ref_rgb: np.ndarray) -> np.ndarray:
+        """在 `region` 内，按**颜色距离**把与 `ref_rgb` 相近的像素收进来。
+
+        ⭐ 这是「几何给粗位置、颜色给精确边界」的分工——
+        纯几何会在斜发/衣服褶皱处明显切错，纯颜色会把阴影也算进去。
+        """
+        if not region.any() or not self._splittable(a):
+            return region
+        rgb = a[..., :3].astype(np.float32)
+        # 以候选区的平均色为参考（比固定色板稳）
+        ref = ref_rgb if ref_rgb is not None else rgb[region].mean(0)
+        d = np.linalg.norm(rgb - ref[None, None, :], axis=-1)
+        # 阈值取区域内距离的 80 分位（自适应，不写死）
+        thr = float(np.percentile(d[region], 80))
+        return region | ((d <= thr) & (a[..., 3] > self.alpha_thr))
 
     # ------------------------------------------------------------------
     def predict(self, rgba: np.ndarray) -> np.ndarray:
@@ -155,6 +186,28 @@ class AnatomicalPrior:
 
         # ⑤ 服装：躯干下方剩下的
         cloth = body & (yy >= TORSO_BAND[1]) & (~face) & (~hair) & (~torso)
+
+        # ════ v1 颜色精修：几何给粗位置，颜色给精确边界 ════
+        # ⚠️ 只在**自己独占**的区域上精修（不碰别人的），否则会互相吞噬。
+        # ⚠️ 顺序有意义：先 hair（最常被误切）→ face → torso。
+        _rgb = rgba[..., :3].astype(np.float32)
+        if self.refine_hair and hair.any():
+            cand = body & (~face) & (yy < HAIR_TOP_Y + 0.18)
+            hair = self._refine_by_color(hair & cand, rgba, _rgb[hair].mean(0))
+        if self.refine_face and face.any():
+            cand = body & (yy >= FACE_BAND[0] - 0.10) & (yy < FACE_BAND[1] + 0.10)
+            face = self._refine_by_color(face & cand, rgba, _rgb[face].mean(0))
+        if self.refine_torso and torso.any():
+            cand = body & (~hair) & (~face)
+            torso = self._refine_by_color(torso & cand, rgba, _rgb[torso].mean(0))
+
+        # ⚠️ 精修后必须**重算互斥**（refine 用的是 `|`，可能与别层重叠）
+        for m in (hair, face, torso):
+            m &= body
+        face &= ~hair & ~torso
+        hair &= ~face & ~torso
+        torso &= ~face & ~hair
+        cloth = body & ~face & ~hair & ~torso & (yy >= TORSO_BAND[1])
 
         # ⚠️ **层间语义（2026-10-05 修正）**：`body_base` 是**完整本体掩码**，
         #    **包含**其余各层（像 See-through 那样：body 是底、部件是上）。
