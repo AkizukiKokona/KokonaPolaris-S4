@@ -2253,6 +2253,54 @@ def main() -> int:
                 "vae.py 无 patch_embed ⇒ 修法② 管不到 latent 内部 ⇒ **两者互补，不是替代**")
     check("🔴 M3 因果链：修法② 管不到 VAE latent 的冗余", _m3_fix_scope)
 
+    # ---------------- 36. 判据有效性守卫（防止拿失效的量下结论）----------------
+    section("36. 🔴 判据有效性守卫（_r2 在小样本下**饱和**）")
+
+    def _r2_calibration():
+        """🔴 `_r2` 必须在**已知答案**上校准 —— 小样本下它会**饱和到 1.0**。
+
+        ⚠️ **实测踩过的坑（2026-10-04）**：用 `base=8 / 32² / N=8` 训小 VAE 做 M3 预研，
+        三组（无约束 / penalty / 分块重建）**全报 1.0000**，一度以为"结构解法也无效"。
+        ⛔ **真因是判据在该规模下失效**：
+            `_r2(前半, 全零后半)` 竟报 **1.0000** —— 而它**本该是 0**（后半全是常数）。
+        ⇒ 「目标含大量常数维」时，ridge 回归仍能靠截距+噪声拟合出高 R²。
+        ⇒ **结论：小样本下 `cross_r2` 不可用**；本条守卫已知答案，确保它仍在有效区间。
+        """
+        import torch as _t
+        from kp.latent.real_separation import _r2
+        g = _t.Generator().manual_seed(0)
+        # ① 独立 ⇒ R² 应接近 0
+        a = _t.randn(16, 8, 16, 16, generator=g)
+        b = _t.randn(16, 32, 16, 16, generator=g)
+        r_indep = _r2(a, b)
+        assert r_indep < 0.35, f"独立数据竟报 R²={r_indep:.3f} ⇒ 判据已失效"
+        # ② 完全可预测 ⇒ R² 应接近 1
+        r_copy = _r2(a, a.repeat(1, 4, 1, 1))
+        assert r_copy > 0.9, f"完全可预测竟报 R²={r_copy:.3f} ⇒ 判据已失效"
+        return f"独立 {r_indep:.3f}（应≈0）/ 可预测 {r_copy:.3f}（应≈1）⇒ 判据有效"
+    check("🔴 _r2 判据在有效区间（已知答案校准）", _r2_calibration)
+
+    def _m3_vae_fix_result_is_unusable():
+        """⛔ 记录：M3 VAE 侧预研的三个数**全部无效**（判据在该规模饱和）。
+
+        ⚠️ 这条不是"守卫代码"，是**留档一个已知的无效结论**，
+        防止以后有人从 `out/m3_vae_fix.json` 里读出"A/B/C 三者都是 1.0 ⇒ 结构解法无效"这个
+        **错误推论**。真正的结论是：**那个实验的判据本身失效**（见 `_r2_calibration`）。
+        """
+        import json
+        from kp.paths import OUT
+        p = OUT / "m3_vae_fix.json"
+        if not p.exists():
+            return "⚠️ 尚无 m3_vae_fix.json"
+        d = json.loads(p.read_text(encoding="utf-8"))
+        r = d.get("结果") or {}
+        all_one = all(abs(float(v) - 1.0) < 0.02 for v in r.values() if isinstance(v, float))
+        if all_one:
+            return ("⛔ **这三个数无效**（全 1.0 是判据饱和，非真实结果）"
+                    "⇒ **不可**推出「结构解法无效」；重做需更大规模或换判据")
+        return f"结果 {r}（非全 1.0，可用）"
+    check("⛔ M3 预研无效结论留档（三组全 1.0 是判据饱和）", _m3_vae_fix_result_is_unusable)
+
     # ---------------- 汇总 ----------------
     return _summary()
 
