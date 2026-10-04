@@ -1,0 +1,25 @@
+chore: 交接项收尾（attn.__all__ 补齐 + run_real_probe 去硬编码 + §21 加估计器自检 73/73）
+
+## ① attn.__all__ 漏 3 个名字
+contrast_report / contrast_vs_offset / qknorm_logit_bound 被包级 re-export 了
+但没进 attn.py 自己的 __all__ => star-import 会漏。已补齐并加注释：
+本清单与 kp/probe/__init__.py 的 re-export 必须逐项一致（两份清单不同步过一次）。
+
+## ② run_real_probe 的第三份 192/6/6 硬编码
+real.py:758 的默认值改为引用 DEFAULT_SHAPE，与 build_test_backbone 同源，
+消除「改一处忘另一处」的静默陷阱。值相同，行为不变。
+
+## ③ §21 新增「已知答案（层①：估计器本身）」
+原先三项走真实代码路径验的是设计主张，但若 α 拟合逻辑本身错了，
+那三项的数字全无意义。两层互补：
+  层① known_answer_samples：构造份额序列，验「尺子准不准」
+  层② dilation_exponent -> _attn_core：验「测的是不是真东西」
+flat α=1.0000 / concentrated α=-0.0000（理论 1 / 0）。
+
+## ④ 删 selftest.py 的未用 import tempfile
+（tempfile 在本文件只剩 3 处禁令注释；临时产物一律落 KP_OUT 并清理）
+
+行为等价性证据：arch_report 参数量改动前后一致
+  KP-S 594.8M / KP-M 1.875B（与上一 commit c83fcf7 相同）
+
+验收：selftest 73/73 · portable_paths=0

@@ -1,0 +1,8 @@
+ELAPSED 7.5
+TYPE dict
+KEYS ['arms', 'background_sensitivity', 'conclusion_strength', 'config', 'data', 'gap', 'gaps', 'random_encoder_latent', 'rulers', 'sanity_ok', 'synthetic_control', 'verdict']
+VERDICT FAIL sanity_ok True strength OK
+ARMS ['frozen_random_encoder', 'joint_supervised', 'joint_negative', 'joint_no_anchor', 'semantic_routed']
+GAPS
+  - 输入分辨率 128² 过低，32× 压缩后 latent 仅 4² 格，细节通道几乎没有空间可分
+SMOKE_OK

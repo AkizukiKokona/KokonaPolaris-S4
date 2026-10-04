@@ -1,0 +1,11 @@
+{
+  "format_version": 1,
+  "name": "Kokona",
+  "tokens": 16,
+  "layers": [
+    "body_base"
+  ],
+  "meta": {
+    "source": "selftest"
+  }
+}
