@@ -2336,6 +2336,51 @@ def main() -> int:
         return "✅ 缺数据时如实报缺口（不用合成数据顶替）"
     check("⛔ 缺数据时报缺口（不拿合成数据替代）", _safe_impact_refuses_synthetic)
 
+    # ---------------- 38. 可中断训练（关机安全）----------------
+    section("38. ⏱️ 可中断训练（用户随时可能关机）")
+
+    def _ckpt_roundtrip_and_corrupt():
+        """🔴 长任务必须**随时能停、停了不丢、接着能续**。
+
+        ⭐ 用户会随时关机 ⇒ 这三条是硬要求，不满足就是设计缺陷。
+        ⚠️ 特别验了「**损坏的 checkpoint 必须如实返回 None**」——
+           强杀/断电可能留下半个文件，这时**不能抛异常**让整轮崩掉。
+        """
+        import shutil
+        import torch as _t
+        from pathlib import Path as _P
+        from kp.train.checkpoint import Ckpt
+        root = _P("out/_ck_selftest")
+        shutil.rmtree(root, ignore_errors=True)
+        try:
+            c = Ckpt(root, every=10)
+            assert not c.maybe_save(5, {"w": _t.zeros(3)}), "非保存步不该存"
+            assert c.maybe_save(10, {"w": _t.zeros(3)}), "保存步该存"
+            st = c.load()
+            assert st and st["step"] == 10, f"续跑失败：{st}"
+            c.path.write_bytes(b"corrupted")            # 模拟强杀留下坏文件
+            assert c.load() is None, "损坏的 ckpt 应返回 None（不抛异常）"
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+        return "保存/续跑 ✅ · 损坏时如实返回 None ✅（原子替换 + 容错）"
+    check("⏱️ 检查点：可存/可续/损坏不崩", _ckpt_roundtrip_and_corrupt)
+
+    def _ckpt_path_is_durable():
+        """⛔ 检查点**不许**落在临时目录（否则关机即丢）。"""
+        import ast
+        # ⭐ 只看**实际代码**（import / 调用），不看 docstring ——
+        #    docstring 里提到 tempfile 是"记录这个坑"，不是"用了它"。
+        tree = ast.parse(open("kp/train/checkpoint.py", encoding="utf-8").read())
+        used = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} \
+             | {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)} \
+             | {n.value.id for n in ast.walk(tree)
+                if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)}
+        assert "tempfile" not in used, (
+            "checkpoint.py **代码里**用了 tempfile ⇒ 检查点可能落到临时目录（关机即丢）")
+        assert "gettempdir" not in used, "同上"
+        return "✅ 代码不引用 tempfile（docstring 提及不算）· 约定落在 out/"
+    check("⛔ 检查点落在工作区（不用 tempfile）", _ckpt_path_is_durable)
+
     # ---------------- 汇总 ----------------
     return _summary()
 
