@@ -102,3 +102,7 @@ Thumbs.db
 desktop.ini
 *.swp
 .DS_Store
+
+# ---- 临时测试目录（本机排查用，勿入库）----
+/_vt*/
+/_venv*/
