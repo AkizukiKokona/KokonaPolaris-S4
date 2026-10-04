@@ -443,14 +443,48 @@ def multiscale_perceptual(rec: torch.Tensor, x: torch.Tensor,
     return total
 
 
+_LPIPS_FN = None
+
+
+def true_lpips(rec: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+    """**真 LPIPS**（AlexNet 预训练特征距离），可反向。
+
+    ⭐ 为什么必须用它（2026-10-04 实测的关键发现）：
+    原来的 `multiscale_perceptual` 是**手写金字塔 + 逐尺度 L1**（零依赖），
+    但它**仍然只罚「逐像素对应」** —— 与 L1 同一家族，只是多尺度。
+    实测（base32 vs 参照系 DC-AE）：像素层 L1 只差 **1.63×**，
+    而**感知层 LPIPS 差 4.51×、分布层 rFID 差 14.24×**
+    ⇒ ⛔ **瓶颈不在「像素精度」，而在「重建的自然度」**
+    ⇒ 罚「像素」 losses 已在天花板，**必须换一个度量空间**（预训练特征）。
+
+    ⚠️ 三条纪律：
+    ① **它只作为损失，不作为评估指标**（自证）。
+       评估用 `kp.train.vae_eval` 里**独立实例**的 LPIPS 副本。
+    ② 权重**随包自带**（不需联网），`lpips.LPIPS(net='alex')`。
+    ③ 首次调用会懒加载并缓存到模块级全局（每进程一次）。
+    """
+    global _LPIPS_FN
+    if _LPIPS_FN is None:
+        import lpips
+        _LPIPS_FN = lpips.LPIPS(net="alex", verbose=False).to(rec.device)
+        _LPIPS_FN.eval()
+        for p in _LPIPS_FN.parameters():             # 冻结：只当固定度量空间
+            p.requires_grad_(False)
+    return _LPIPS_FN(x, rec).mean()
+
+
 def block_recon_loss(vae: HybridVAE, x: torch.Tensor, *,
                      w_sem: float = 1.0, w_det: float = 1.0,
-                     w_lpips: float = 0.0, w_grad: float = 0.5) -> dict:
-    """**分块**重建损失（要点②）+ 多尺度感知项。
+                     w_lpips: float = 0.0, w_grad: float = 0.5,
+                     w_tlpips: float = 0.0) -> dict:
+    """**分块**重建损失（要点②）+ 多尺度感知项 + ⭐真 LPIPS。
 
-        L = w_lpips · 多尺度感知 + L1 + w_grad · 边缘
+        L = w_lpips · 多尺度感知 + **w_tlpips · 真LPIPS** + L1 + w_grad · 边缘
+
     ⚠️ 通道在 latent 上是**连续切片**（`split_latent`），所以「分块」通过
     **对 latent 两块分别加权重**实现，而不是对图像切片。
+    ⚠️ `w_lpips`（零依赖金字塔）与 `w_tlpips`（真 LPIPS）是**两个不同的轴**，
+       别混：前者是像素家族，后者是预训练特征家族。
     """
     z = vae.encode_latent(x)
     rec = vae.decode(z)
@@ -462,6 +496,10 @@ def block_recon_loss(vae: HybridVAE, x: torch.Tensor, *,
     # 🔴 多尺度感知（零依赖 LPIPS 替代）：压住「只保颜色、轮廓糊掉」的退化
     percep = multiscale_perceptual(rec, x) if w_lpips > 0 else x.new_zeros(())
     total = w_lpips * percep + l1 + w_grad * edge
+    # ⭐ 真 LPIPS：换到预训练特征空间罚 —— 对齐 P1 门的 rFID/LPIPS 差距
+    tlp = true_lpips(rec, x) if w_tlpips > 0 else x.new_zeros(())
+    if w_tlpips > 0:
+        total = total + w_tlpips * tlp
 
     # 分块：按 latent 通道给重建加权的中间监督（**潜空间**，不额外解码头）
     with torch.no_grad():
@@ -474,7 +512,7 @@ def block_recon_loss(vae: HybridVAE, x: torch.Tensor, *,
     # ⚠️ 用 `detach()` 再转 float：直接 `float(tensor)` 会在 requires_grad 张量上告警
     #    （也避免把计算图带进日志里）。
     return {"loss": total, "l1": float(l1.detach()), "edge": float(edge.detach()),
-            "percep": float(percep.detach()),
+            "percep": float(percep.detach()), "tlpips": float(tlp.detach()),
             "z_abs": float(z_s_norm.detach()), "z": z, "rec": rec}
 
 
@@ -649,6 +687,7 @@ def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
               steps: int = 2000, batch: int = 4, size: int = 256,
               lr: float = 2e-3, base: int = 16, w_sem: float = 1.0, w_det: float = 1.0,
               w_lpips: float = 0.0, w_grad: float = 0.5,
+              w_tlpips: float = 0.0,
               opt_name: str = "adamw8bit",
               device: str = "cpu", seed: int = 0, out_path: Optional[str] = None,
               log_every: int = 50, n_eval: int = 256,
@@ -742,7 +781,8 @@ def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
         x = next(batch_iter)
 
         r = block_recon_loss(vae, x, w_sem=w_sem, w_det=w_det,
-                             w_lpips=w_lpips, w_grad=w_grad)
+                             w_lpips=w_lpips, w_grad=w_grad,
+                             w_tlpips=w_tlpips)
         opt.zero_grad(set_to_none=True)
         r["loss"].backward()
         torch.nn.utils.clip_grad_norm_(vae.parameters(), 1.0)
@@ -853,6 +893,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--w-det", type=float, default=1.0)
     ap.add_argument("--w-lpips", type=float, default=0.0,
                     help="多尺度感知权重（零依赖 LPIPS 替代）。0=关闭")
+    ap.add_argument("--w-tlpips", type=float, default=0.0,
+                    help="⭐**真 LPIPS** 权重（预训练 AlexNet 特征，权重随包自带）。"
+                         "与 --w-lpips 是**两个不同的轴**：那个是像素家族，这个是"
+                         "预训练特征家族。实测 P1 的瓶颈在感知/分布层（LPIPS 差 4.51×、"
+                         "rFID 差 14.24×）⇒ 罚像素已在天花板，须换度量空间")
     ap.add_argument("--w-grad", type=float, default=0.5, help="边缘项权重")
     ap.add_argument("--opt", default="adamw8bit",
                     choices=("adamw", "adamw8bit", "sgd"),
@@ -879,7 +924,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
               workers=a.workers, prefetch=a.prefetch, policy=a.policy,
               steps=a.steps, batch=a.batch, size=a.size, lr=a.lr,
               base=a.base, w_sem=a.w_sem, w_det=a.w_det,
-              w_lpips=a.w_lpips, w_grad=a.w_grad, device=a.device,
+              w_lpips=a.w_lpips, w_grad=a.w_grad, w_tlpips=a.w_tlpips,
+              device=a.device,
               opt_name=a.opt,
               seed=a.seed, out_path=a.out, log_every=a.log_every,
               n_eval=a.n_eval, ckpt_dir=a.ckpt_dir,
