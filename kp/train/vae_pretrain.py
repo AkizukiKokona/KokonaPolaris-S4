@@ -351,7 +351,9 @@ def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
         opt.step()
         sched.step()
 
-        if step % log_every == 0 or step == steps - 1:
+        # ⚠️ `log_every=0` 必须表示「不打印逐步日志」，而不是 `step % 0` 崩掉
+        #    （2026-10-04 实测踩到：`ZeroDivisionError`，而且被 grep 吞了看不见）
+        if (log_every > 0 and step % log_every == 0) or step == steps - 1:
             row = {"step": step, "loss": float(r["loss"]), "l1": r["l1"],
                    "edge": r["edge"], "z_abs": r["z_abs"], "percep": r["percep"]}
             hist.append(row)
