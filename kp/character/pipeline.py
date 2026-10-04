@@ -28,12 +28,35 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import torch
 
-from .card import CharacterCard
+from .card import CharacterCard, SEMANTIC_LAYERS
 
 CANVAS = 1024          # 归一化画布边长
 BODY_RATIO = 0.88      # 角色本体高度占画布比例
 KMEANS_K = 10
 MAX_FIT_PIXELS = 20000
+
+#: ⭐ **当前激活的语义层解算器**（模块级；`stage_pack` 需要它来产真语义层）。
+#: 由 `main()` 按 `--segmenter` 设置。`None` ⇒ 无解算器，卡片只有 `__alpha_only__`。
+#: ⚠️ 用模块级而不是参数传递，是为了让 `stage_pack` 签名保持稳定（它还被别处调用）。
+_active_segmenter: Optional[object] = None
+
+
+def _layer_palette() -> np.ndarray:
+    """19 类语义层的**固定**调色板（同一层跨图同色⇒ 肉眼可比）。
+
+    ⭐ 确定性生成（不用随机）：给定 seed 的黄金角散列 ⇒ 每次跑颜色一致。
+    """
+    pal = np.zeros((len(SEMANTIC_LAYERS), 3), dtype=np.uint8)
+    golden = 0.61803398875
+    for i in range(len(SEMANTIC_LAYERS)):
+        h = (i * golden) % 1.0
+        s, v = 0.55 + 0.35 * ((i * 7 % 3) / 2.0), 0.65 + 0.30 * ((i * 5 % 2))
+        i_ = int(h * 6) % 6
+        f = h * 6 - int(h * 6)
+        p, q, t = v * (1 - s), v * (1 - f * s), v * (1 - (1 - f) * s)
+        r, g, b = [(v, t, p), (q, v, p), (p, v, t), (p, q, v), (t, p, v), (v, p, q)][i_]
+        pal[i] = [int(r * 255), int(g * 255), int(b * 255)]
+    return pal
 BANDS = {"head": (0.00, 0.22), "torso": (0.22, 0.55), "legs": (0.55, 1.00)}
 
 
@@ -195,11 +218,55 @@ def stage_normalize(entries: List[Entry], out_dir: str,
 
 
 def stage_layers(entries: List[Entry], norm_dir: str, out_dir: str,
-                 k: int = KMEANS_K, seed: int = 0) -> Dict[str, dict]:
-    """启发式分层（k-means 颜色聚类 + 规则）→ 存掩码预览 + 返回统计。"""
+                 k: int = KMEANS_K, seed: int = 0,
+                 segmenter: Optional[object] = None) -> Dict[str, dict]:
+    """分层 → 存掩码预览 + 返回统计。
+
+    ⭐ **2026-10-05 接通解算器**（此前 `segmenter.py` 的注册表**只被 selftest 调用**，
+       生产管线完全不走它 —— 审计发现的 P1-3）：
+       - `segmenter=None` → 保持原行为（k-means 颜色聚类，**非语义层**）
+       - `segmenter=<Segmenter>` → 用给定解算器（推荐 `AnatomicalPrior`，
+         它**真的产出与19 类同名的层**，不是簇号）
+
+    ⚠️ 两条路径都**如实标注**自己在 meta 里，不伪装。
+    """
     Image = _require_pil()
     os.makedirs(out_dir, exist_ok=True)
     info: Dict[str, dict] = {}
+
+    # ════ 路径 A：给定解算器（真实语义层）════
+    if segmenter is not None:
+        for e in entries:
+            p = os.path.join(norm_dir, e.file)
+            a = np.array(Image.open(p).convert("RGBA"))
+            h, w = a.shape[:2]
+            lab = np.asarray(segmenter.predict(a))          # (H,W) int16
+            stem = os.path.splitext(e.file)[0]
+            got = sorted({int(v) for v in np.unique(lab) if int(v) >= 0})
+            names = [SEMANTIC_LAYERS[v] for v in got if v < len(SEMANTIC_LAYERS)]
+            # ⭐ 面积占比（判据：太小的不算有效层）
+            total = max(1, int((a[..., 3] > 8).sum()))
+            areas = {SEMANTIC_LAYERS[v]: round(float((lab == v).sum() / total), 4)
+                     for v in got if v < len(SEMANTIC_LAYERS)}
+            # 可视化（用固定调色板，便于跨图对比同一层）
+            vis = np.zeros((h, w, 4), dtype=np.uint8)
+            vis[..., 3] = (a[..., 3] > 8) * 255
+            pal = _layer_palette()
+            for v in got:
+                if v < len(SEMANTIC_LAYERS):
+                    vis[lab == v, :3] = pal[v]
+            Image.fromarray(vis, "RGBA").save(
+                os.path.join(out_dir, f"layers_{e.file}"))
+            info[e.file] = {"n_layers": len(got),
+                            "layers": names,
+                            "areas": areas,
+                            "segmenter": getattr(segmenter, "name", "custom"),
+                            "quality": getattr(segmenter, "quality", None)
+                            and segmenter.quality.summary(),
+                            "is_semantic": True}
+        return info
+
+    # ════ 路径 B：老行为（k-means 颜色聚类，明确非语义层）════
     for e in entries:
         p = os.path.join(norm_dir, e.file)
         a = np.array(Image.open(p).convert("RGBA"))
@@ -393,8 +460,27 @@ def stage_pack(entries: List[Entry], norm_dir: str, layer_info: Dict[str, dict],
                               None)
         front = declared_front or es[0]          # 声明优先；否则取第一条（不猜）
         img = np.array(Image.open(os.path.join(norm_dir, front.file)).convert("RGBA"))
-        # 唯一「真实掩码」的层：本体 alpha（语义层掩码待 See-through 自举）
-        layers: Dict[str, np.ndarray] = {"body_base": img[..., 3]}
+        # ════ 语义层来源（2026-10-05 接通）════
+        # ⚠️ 旧版硬编码 `{"body_base": img[..., 3]}` —— **键名复用真名却存整图 alpha**，
+        #    下游若按「我有body_base 层」消费会以为拿到躯干语义层（实际含头发/脸/衣服）⇒ 双重误导。
+        # ✅ 现在：能拿到解算器就用**真语义层**；拿不到就**用明确的非语义键名**。
+        seg_obj = _active_segmenter
+        if seg_obj is not None and hasattr(seg_obj, "to_rgba_layers"):
+            try:
+                layers = dict(seg_obj.to_rgba_layers(img))
+                layer_src = f"anatomical/segmenter（{getattr(seg_obj, 'name', 'custom')}）"
+                sem_note = (f"解出 {len(layers)} 层："
+                            + "、".join(sorted(layers)))
+            except Exception as e:                                    # noqa: BLE001
+                layers = {"__alpha_only__": img[..., 3]}
+                layer_src = f"⛔ 解算器失败（{type(e).__name__}）⇒ 退回 alpha"
+                sem_note = "⚠️ 解算器失败，本卡只有 alpha 兜底，无语义层"
+        else:
+            # ⛔ 明确用**非语义**的键名，不再冒充 `body_base`
+            layers = {"__alpha_only__": img[..., 3]}
+            layer_src = "⛔ 无解算器（占位）⇒ 只有整图 alpha"
+            sem_note = ("⚠️ 未接语义层解算器，`__alpha_only__` 是整图 alpha，"
+                        "**不是** `body_base`；19 类语义层待 See-through 自举")
         tok = identity_tokens.get(tag) if identity_tokens else None
         if tok is None:
             tokens = np.zeros((256, 1024), dtype=np.float32)
@@ -412,10 +498,18 @@ def stage_pack(entries: List[Entry], norm_dir: str, layer_info: Dict[str, dict],
                   "caption": es[0].caption,
                   "source": es[0].source,
                   "pair": pair_info.get(tag, {}),
-                  "palette": {e.file: layer_info[e.file]["palette"] for e in es},
-                  "bands": {e.file: layer_info[e.file]["bands"] for e in es},
+                  # ⚠️ `palette`/`bands` 只有 k-means 路径才有；语义层路径用 `layers`/`areas`
+                  "layers": {e.file: layer_info[e.file].get("layers", [])
+                             for e in es},
+                  "layer_areas": {e.file: layer_info[e.file].get("areas", {})
+                                  for e in es},
+                  "palette": {e.file: layer_info[e.file]["palette"]
+                              for e in es if "palette" in layer_info[e.file]},
+                  "bands": {e.file: layer_info[e.file]["bands"]
+                            for e in es if "bands" in layer_info[e.file]},
                   "identity_token": tok_src,
-                  "semantic_layers": "仅 body_base 为真实掩码；19 类语义层待 See-through 自举"},
+                  "layers_source": layer_src,
+                  "semantic_layers": sem_note},
         )
         p = os.path.join(out_dir, f"{tag}.card")
         card.save(p)
@@ -436,21 +530,41 @@ def stage_report(batch: str, counts: dict, norm_stats: dict, layer_info: dict,
     for f, s in norm_stats.items():
         lines.append(f"| {f} | {s['body_bbox']} | {s['body_size']} | ×{s['scale']} |")
     lines.append("")
-    lines.append("## 分层（色板 + 几何分区 —— ⚠️ **非语义层**）")
-    lines.append("> 语义层掩码需要 **See-through 自举**模型；此处只给颜色与位置先验。")
-    lines.append("")
-    for f, s in layer_info.items():
-        b = s["bands"]
-        lines.append(f"### {f} — 本体 {s['body_pixels']} px / {s['n_clusters']} 簇")
-        lines.append(f"- 几何分段占比：头 **{b.get('head', 0):.1%}** / "
-                     f"躯干 **{b.get('torso', 0):.1%}** / 腿 **{b.get('legs', 0):.1%}**")
-        lines.append("| 簇 | RGB | 占比 | 平均高度 |")
-        lines.append("|---|---|---|---|")
-        for c in s["palette"]:
-            rgb = c["rgb"]
-            lines.append(f"| {c['id']} | #{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X} | "
-                         f"{c['share']:.1%} | {c['y_frac']:.2f} |")
+    # ⭐ 两条路径渲染不同（有 `is_semantic` 标记）—— 不把语义层说成"色板"
+    _any_sem = any(s.get("is_semantic") for s in layer_info.values())
+    if _any_sem:
+        seg_used = next((s.get("segmenter", "?") for s in layer_info.values()
+                         if s.get("is_semantic")), "?")
+        qual = next((s.get("quality") for s in layer_info.values()
+                     if s.get("is_semantic")), None)
+        lines.append(f"## 分层（🧬 语义层 · 解算器 `{seg_used}`）")
+        if qual:
+            lines.append(f"> 解算器自报质量：{qual}")
+        lines.append("> ⚠️ **不是 See-through**；小部件（眼/嘴/耳）不产出"
+                     "（低分辨率下不可靠，宁缺勿错）。")
         lines.append("")
+        for f, s in layer_info.items():
+            areas = s.get("areas", {})
+            lines.append(f"### {f} — {s.get('n_layers', 0)} 层")
+            for name, frac in sorted(areas.items(), key=lambda kv: -kv[1]):
+                lines.append(f"- `{name}` 占本体 **{frac:.1%}**")
+            lines.append("")
+    else:
+        lines.append("## 分层（色板 + 几何分区 —— ⚠️ **非语义层**）")
+        lines.append("> 语义层掩码需要解算器；此处只给颜色与位置先验。")
+        lines.append("")
+        for f, s in layer_info.items():
+            b = s["bands"]
+            lines.append(f"### {f} — 本体 {s['body_pixels']} px / {s['n_clusters']} 簇")
+            lines.append(f"- 几何分段占比：头 **{b.get('head', 0):.1%}** / "
+                         f"躯干 **{b.get('torso', 0):.1%}** / 腿 **{b.get('legs', 0):.1%}**")
+            lines.append("| 簇 | RGB | 占比 | 平均高度 |")
+            lines.append("|---|---|---|---|")
+            for c in s["palette"]:
+                rgb = c["rgb"]
+                lines.append(f"| {c['id']} | #{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X} | "
+                             f"{c['share']:.1%} | {c['y_frac']:.2f} |")
+            lines.append("")
     lines.append("## 配对（角色卡最少 正 + 背）")
     for tag, p in pair_info.items():
         if tag.startswith("_"):
@@ -506,7 +620,8 @@ def run_batch(batch: str = "kokona", data_root: str = "data/characters",
     norm_dir = os.path.join(out_dir, "norm")
     entries = load_manifest(batch_dir)
     norm = stage_normalize(entries, norm_dir)
-    layers = stage_layers(entries, norm_dir, os.path.join(out_dir, "layers"))
+    layers = stage_layers(entries, norm_dir, os.path.join(out_dir, "layers"),
+                          segmenter=_active_segmenter)
     pair = stage_pair(entries, norm_dir)
 
     fit_info = None
@@ -551,7 +666,22 @@ def main(argv=None) -> int:
                     help="训练 Character Fitter 并把身份 token 写回角色卡")
     ap.add_argument("--fit-steps", type=int, default=60)
     ap.add_argument("--fit-size", type=int, default=256)
+    ap.add_argument("--segmenter", default="anatomical",
+                    choices=["anatomical", "none"],
+                    help="语义层解算器（默认 anatomical=真语义层；"
+                         "none=退回 k-means 颜色聚类，**非语义层**）")
     a = ap.parse_args(argv)
+
+    # ⭐ 设置模块级解算器（`stage_pack` 要用）
+    global _active_segmenter
+    _active_segmenter = None
+    if a.segmenter == "anatomical":
+        from .anatomical import AnatomicalPrior
+        _active_segmenter = AnatomicalPrior()
+        print(f"🧬 语义层解算器：{_active_segmenter.name}")
+        print(f"   {_active_segmenter.quality.summary()}")
+    else:
+        print("⚠️ 语义层解算器：**无** ⇒ 卡片只有 __alpha_only__（不是 body_base）")
 
     tv = tuple(x.strip() for x in a.target_views.split(",")) if a.target_views else None
     if a.pairing:

@@ -1939,6 +1939,108 @@ def main() -> int:
         return (f"诚实自报：{seg.quality.summary()[:52]}…")
     check("⛔ 基线诚实自报「不是语义层」（不虚报）", _seg_baseline_honest)
 
+    # ---------------- 29b. 解剖先验解算器（2026-10-05 落地：0 类 → 5 类）----------------
+    section("29b. 解剖先验解算器（⭐ 语义层从 0 类真实实现 → 5 类真解出）")
+
+    def _anat_outputs_named_layers():
+        """⭐ 必须解出**与 19 类同名**的层（不是簇号）—— 这才是「语义层」的判据。"""
+        import numpy as _np
+        from kp.character.anatomical import AnatomicalPrior
+        from kp.character.card import SEMANTIC_LAYERS
+        size = 256
+        a = _np.zeros((size, size, 4), dtype=_np.uint8)
+        a[10:size - 10, 10:size - 10, 3] = 255
+        a[..., :3] = 200
+        y0, y1 = int(size * 0.2), int(size * 0.4)
+        a[y0:y1, int(size * 0.3):int(size * 0.7), :3] = 240# 面部更亮
+        a[10:y0, 10:size - 10, :3] = 30                      # 头发更暗
+        lab = AnatomicalPrior().predict(a)
+        got = {SEMANTIC_LAYERS[v] for v in _np.unique(lab) if 0 <= v < len(SEMANTIC_LAYERS)}
+        assert got, "解剖先验一个层都没解出"
+        unknown = got - set(SEMANTIC_LAYERS)
+        assert not unknown, f"解出了 19 类之外的层名：{unknown}"
+        # ⭐ 关键：必须有「本体+ 至少一个部件」，否则等于没分层
+        assert "body_base" in got or len(got) >= 2, f"只解出 {got}，等于没分层"
+        return f"解出 {len(got)} 层（19 类同名）：{sorted(got)}"
+    check("⭐ 解剖先验解出 19 类同名的层（非簇号）", _anat_outputs_named_layers)
+
+    def _anat_judge_has_resolution():
+        """⛔ **判据必须有分辨力** —— 饱和的数字不可用（本项目反复吃的坑）。
+
+        ⚠️ 留档：v1 只比「层名集合」，三档构造给出**完全相同**的集合
+        ⇒ name_hit≡1.0 **判据饱和**（与 M3 的 cross_r2≡1.0 同类病）。
+        ✅ 已改成**像素级 IoU**；此处锁住「三档必须给出不同的 face IoU」。
+        """
+        from kp.character.anatomical import selftest_geom
+        r = selftest_geom(size=256, verbose=False)
+        assert r["distinguishable"], \
+            f"判据饱和（face IoU 跨度={r['face_iou_spread']}）⇒ 这些数字**不可用**"
+        assert r["face_iou_spread"] > 0.02, f"跨度太小：{r['face_iou_spread']}"
+        return (f"face IoU 跨度={r['face_iou_spread']:.4f}（>0.02 ⇒ 有分辨力）｜"
+                + " ".join(f"{k}:face={v['face']:.3f}"
+                           for k, v in r.items() if isinstance(v, dict)))
+    check("⛔ 语义层判据有分辨力（不饱和）", _anat_judge_has_resolution)
+
+    def _anat_body_is_full_silhouette():
+        """⭐ `body_base` 必须是**完整本体**（含部件），不是互斥标签里的一小块。
+
+        ⚠️ 留档：早期版本让 body_base 只兜底边角⇒ IoU 0.010，看着像 bug，
+        实际是**层间语义搞错了**（body 应是底、部件是上）。
+        """
+        import numpy as _np
+        from kp.character.anatomical import AnatomicalPrior
+        size = 256
+        a = _np.zeros((size, size, 4), dtype=_np.uint8)
+        a[10:size - 10, 10:size - 10, 3] = 255
+        a[..., :3] = 200
+        y0, y1 = int(size * 0.2), int(size * 0.4)
+        a[y0:y1, int(size * 0.3):int(size * 0.7), :3] = 240
+        a[10:y0, 10:size - 10, :3] = 30
+        seg = AnatomicalPrior()
+        body = seg.predict_body(a)
+        fg = a[..., 3] > 8
+        iou = float((body & fg).sum()) / float((body | fg).sum())
+        assert iou > 0.99, f"body_base 不是完整本体，IoU={iou:.4f}"
+        #⭐ 且背景**不能**被误标
+        bg = ~fg
+        assert int((body & bg).sum()) == 0, "背景被误标进 body_base"
+        return f"body_base = 完整本体（IoU={iou:.4f}，背景误标 0）"
+    check("⭐ body_base 是完整本体（含部件，不含背景）", _anat_body_is_full_silhouette)
+
+    def _anat_no_false_semantic():
+        """⛔ 拿不到解算器时**不许冒充** `body_base`（旧版双重误导的回归防护）。"""
+        import re
+        from kp.character.card import SEMANTIC_LAYERS
+        # ⚠️ 判据必须只看**代码行**，不能扫注释 —— 注释里为了讲清「旧版长什么样」
+        #    会故意写出那个串（那是文档，不是代码）。
+        import kp.character.pipeline as _pl
+        code = []
+        for line in open(_pl.__file__, encoding="utf-8"):
+            s = line.strip()
+            if s.startswith("#"):
+                continue
+            code.append(s.split("#")[0])
+        code = "\n".join(code)
+        assert '"__alpha_only__"' in code, "兜底键名缺失"
+        assert not re.search(r'"body_base"\s*:\s*img\[', code), \
+            "⛔ 又把整图 alpha 冒充成 body_base 了（旧的双重误导 bug）"
+        assert "body_base" in SEMANTIC_LAYERS
+        return "兜底用 __alpha_only__；body_base 只由解算器产出"
+    check("⛔ 拿不到解算器时不冒充 body_base", _anat_no_false_semantic)
+
+    def _anat_registered_in_pipeline():
+        """⭐ 解算器注册表必须**真的接进生产管线**（此前只被 selftest 调用）。"""
+        import inspect
+        import kp.character.pipeline as _pl
+        sig = inspect.signature(_pl.stage_layers)
+        assert "segmenter" in sig.parameters, "stage_layers 没有 segmenter 参数"
+        src = inspect.getsource(_pl.stage_layers)
+        assert "segmenter.predict" in src or "seg.predict" in src, \
+            "stage_layers 没调用解算器的 predict"
+        assert "is_semantic" in src, "缺少 is_semantic 标记（报告会分不清两条路径）"
+        return "stage_layers(segmenter=…) 已接通 + is_semantic 标记就位"
+    check("⭐ 解算器已接进生产管线（不再只被测试调用）", _anat_registered_in_pipeline)
+
     def _seg_predicts_on_real_image():
         """解算器必须能在**真图**上跑通（不只是接口存在）。"""
         import numpy as _np

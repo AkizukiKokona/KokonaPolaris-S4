@@ -3,7 +3,11 @@
   "name": "Kokona",
   "tokens": 256,
   "layers": [
-    "body_base"
+    "body_base",
+    "bottom",
+    "face",
+    "hair_front",
+    "top"
   ],
   "meta": {
     "views": [
@@ -47,245 +51,42 @@
       "n_pairs": 1,
       "gap": ""
     },
-    "palette": {
+    "layers": {
       "front.png": [
-        {
-          "id": 1,
-          "rgb": [
-            242,
-            228,
-            224
-          ],
-          "pixels": 48467,
-          "share": 0.4257,
-          "y_frac": 0.546
-        },
-        {
-          "id": 6,
-          "rgb": [
-            183,
-            209,
-            233
-          ],
-          "pixels": 11614,
-          "share": 0.102,
-          "y_frac": 0.391
-        },
-        {
-          "id": 2,
-          "rgb": [
-            230,
-            193,
-            179
-          ],
-          "pixels": 8627,
-          "share": 0.0758,
-          "y_frac": 0.499
-        },
-        {
-          "id": 7,
-          "rgb": [
-            100,
-            119,
-            172
-          ],
-          "pixels": 7732,
-          "share": 0.0679,
-          "y_frac": 0.477
-        },
-        {
-          "id": 8,
-          "rgb": [
-            238,
-            223,
-            130
-          ],
-          "pixels": 7462,
-          "share": 0.0655,
-          "y_frac": 0.361
-        },
-        {
-          "id": 9,
-          "rgb": [
-            177,
-            164,
-            160
-          ],
-          "pixels": 7417,
-          "share": 0.0651,
-          "y_frac": 0.313
-        },
-        {
-          "id": 0,
-          "rgb": [
-            137,
-            167,
-            213
-          ],
-          "pixels": 7137,
-          "share": 0.0627,
-          "y_frac": 0.412
-        },
-        {
-          "id": 5,
-          "rgb": [
-            85,
-            84,
-            102
-          ],
-          "pixels": 6224,
-          "share": 0.0547,
-          "y_frac": 0.403
-        },
-        {
-          "id": 4,
-          "rgb": [
-            149,
-            132,
-            107
-          ],
-          "pixels": 5827,
-          "share": 0.0512,
-          "y_frac": 0.372
-        },
-        {
-          "id": 3,
-          "rgb": [
-            54,
-            49,
-            50
-          ],
-          "pixels": 3340,
-          "share": 0.0293,
-          "y_frac": 0.433
-        }
+        "body_base",
+        "face",
+        "hair_front",
+        "top",
+        "bottom"
       ],
       "back.png": [
-        {
-          "id": 3,
-          "rgb": [
-            243,
-            228,
-            224
-          ],
-          "pixels": 33557,
-          "share": 0.2883,
-          "y_frac": 0.603
-        },
-        {
-          "id": 0,
-          "rgb": [
-            153,
-            192,
-            230
-          ],
-          "pixels": 16830,
-          "share": 0.1446,
-          "y_frac": 0.307
-        },
-        {
-          "id": 9,
-          "rgb": [
-            234,
-            181,
-            171
-          ],
-          "pixels": 14748,
-          "share": 0.1267,
-          "y_frac": 0.441
-        },
-        {
-          "id": 8,
-          "rgb": [
-            200,
-            225,
-            243
-          ],
-          "pixels": 11694,
-          "share": 0.1005,
-          "y_frac": 0.337
-        },
-        {
-          "id": 5,
-          "rgb": [
-            100,
-            129,
-            191
-          ],
-          "pixels": 11136,
-          "share": 0.0957,
-          "y_frac": 0.445
-        },
-        {
-          "id": 6,
-          "rgb": [
-            84,
-            93,
-            128
-          ],
-          "pixels": 8098,
-          "share": 0.0696,
-          "y_frac": 0.496
-        },
-        {
-          "id": 4,
-          "rgb": [
-            159,
-            147,
-            137
-          ],
-          "pixels": 6650,
-          "share": 0.0571,
-          "y_frac": 0.421
-        },
-        {
-          "id": 2,
-          "rgb": [
-            55,
-            54,
-            64
-          ],
-          "pixels": 4978,
-          "share": 0.0428,
-          "y_frac": 0.474
-        },
-        {
-          "id": 7,
-          "rgb": [
-            227,
-            213,
-            130
-          ],
-          "pixels": 4601,
-          "share": 0.0395,
-          "y_frac": 0.442
-        },
-        {
-          "id": 1,
-          "rgb": [
-            227,
-            215,
-            189
-          ],
-          "pixels": 4091,
-          "share": 0.0352,
-          "y_frac": 0.42
-        }
+        "body_base",
+        "face",
+        "hair_front",
+        "top",
+        "bottom"
       ]
     },
-    "bands": {
+    "layer_areas": {
       "front.png": {
-        "head": 0.1768,
-        "torso": 0.5153,
-        "legs": 0.3077
+        "body_base": 0.0136,
+        "face": 0.2997,
+        "hair_front": 0.0837,
+        "top": 0.4766,
+        "bottom": 0.1265
       },
       "back.png": {
-        "head": 0.1894,
-        "torso": 0.5118,
-        "legs": 0.2986
+        "body_base": 0.0153,
+        "face": 0.3128,
+        "hair_front": 0.0807,
+        "top": 0.4694,
+        "bottom": 0.1218
       }
     },
+    "palette": {},
+    "bands": {},
     "identity_token": "PLACEHOLDER(zeros) —— 需 Character Fitter（跑管线时加 --fit）",
-    "semantic_layers": "仅 body_base 为真实掩码；19 类语义层待 See-through 自举"
+    "layers_source": "anatomical/segmenter（anatomical-prior-v1（几何+颜色先验，非 See-through））",
+    "semantic_layers": "解出 5 层：body_base、bottom、face、hair_front、top"
   }
 }
