@@ -2181,30 +2181,47 @@ def main() -> int:
         return f"DC-AE 可用 ✅ {n/1e6:.1f}M"
     check("DC-AE 权重可用（M3 归因的对照基准）", _m3_dcae_available)
 
-    def _m3_attribution_conclusion():
-        """🔴🔴 **M3 归因结论固化**：冗余是**我们的问题**，不是 32× 压缩的必然。
+    def _m3_attribution_corrected():
+        """🔴🔴 **M3 归因（修正版）**：训练**把冗余做满**，⇒ 必须走结构路线。
 
-        ⚠️ 这条断言**不只是跑实验**，它是把**已得结论钉住**：
-            我们的 40ch（语义8|细节32）  R²(细节|语义) = **0.988**
-            DC-AE 32ch（同为 32×、Apache-2.0、海量数据训练）
-              切法 前8|后24  R² = 0.4375 / 前16|后16 = 0.6403
-        ⇒ 差距近一个数量级 ⇒ **32× 压缩本身不注定冗余** ⇒ 是我们的监督/训练问题。
-        ⭐ 这直接改变决策：**M3 值得继续投入**（修法② 的价值被大幅提高）。
+        ⛔ **2026-10-04 上午的判决已作废**（又一次「口径不全就下结论」）：
+            曾报「我们 0.988 vs DC-AE 0.4375 ⇒ 是我们的问题」——
+            ⛔ 但那个 0.988 是**随机初始化的 encoder** 测的
+            （`real_separation.encode_views` 用 `HybridVAE(base=16)` 冷启动，从不训练），
+            而 DC-AE 是**训练充分的** ⇒ **混淆了「架构」与「训练程度」**。
+
+        ✅ **修正后的对照**（同一批真图）：
+            我们 · 随机初始化      **0.2876**
+            我们 · 训练后(11张)    **0.9997**
+            我们 · 训练后(176张)   **0.9997**
+            DC-AE · 训练充分       0.4375
+
+        🔴 **修正后判决**：
+            不是「训练越强越糟」，而是「**训练把冗余做满了**」
+            ⇒ 归因是「**重建目标会主动抹平通道分工**」
+            ⇒ ⭐ **推论：纯靠监督 penalty（修法①）很可能无效**（重建压力会把它按回去，
+              与 DA-VAE「纯重建损失下细节通道吸收残差」方向一致）
+            ⇒ **修法②（结构路线）从「待验证」上调为「首选」**。
         """
         import json
         from kp.paths import OUT
         p = OUT / "m3_attribution.json"
         if not p.exists():
-            return "⚠️ 尚无 out/m3_attribution.json ⇒ 归因实验还没跑过"
-        r = json.loads(p.read_text(encoding="utf-8"))
-        best = r["best_dcae_r2"]
-        ours = r["我们的_40ch_sem_from_detail"]
-        assert best < ours - 0.2, (
-            f"结论翻转：DC-AE {best:.3f} 已接近我们 {ours:.3f} ⇒ "
-            f"**可能是架构必然**，归因结论需重估")
-        return (f"我们 {ours:.3f} vs DC-AE {best:.3f}（差 {ours-best:.2f}）"
-                f" ⇒ 🟢 **我们的问题**，M3 值得继续投入")
-    check("🔴 M3 归因结论：是我们问题（非架构必然）", _m3_attribution_conclusion)
+            return "⚠️ 尚无归因实验结果"
+        d = json.loads(p.read_text(encoding="utf-8"))
+        rows = d.get("修正后对照") or {}
+        rnd = rows.get("我们_随机初始化")
+        trained = [v for k, v in rows.items()
+                   if k.startswith("我们_训练后") and isinstance(v, float)]
+        assert rnd is not None and trained, f"结果不完整：{rows}"
+        # 🔴 核心不变量：**训练后冗余必须显著高于随机**（证明"训练做满冗余"）
+        assert min(trained) > rnd + 0.3, (
+            f"训练后 {min(trained):.3f} 未显著高于随机 {rnd:.3f} ⇒ "
+            f"「训练把冗余做满」这个结论不成立，归因需再查")
+        return (f"随机 {rnd:.3f} → 训练后 {min(trained):.3f}（+{min(trained)-rnd:.2f}）"
+                f" ⇒ 🔴 重建抹平分工 ⇒ 修法②（结构路线）为首选")
+    check("🔴 M3 归因（修正版）：训练做满冗余 → 结构路线", _m3_attribution_corrected)
+
 
     # ---------------- 汇总 ----------------
     return _summary()
