@@ -74,6 +74,21 @@
     }
   },
   "n_pairs": 1,
-  "fit": null,
-  "warnings": []
+  "fit": {
+    "fitter_path": "out/characters\\kokona\\fitter\\fitter.pt",
+    "n_pairs": 1,
+    "budget": {
+      "total": 1954816.0,
+      "trainable": 1954816.0,
+      "trainable_ratio": 1.0,
+      "adamw_state_gb": 0.015638528
+    },
+    "inv_end": 0.0,
+    "has_negatives": false,
+    "note": "⚠️ 只有 1 个身份 ⇒ 身份的**可区分性未经验证**（缺第 2 个角色 / 更多视图）",
+    "gaps": []
+  },
+  "warnings": [
+    "Fitter 只有一个身份 ⇒ **可区分性未经验证**（覆盖缺口，非通过）"
+  ]
 }

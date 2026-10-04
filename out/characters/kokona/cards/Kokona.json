@@ -85,7 +85,7 @@
     },
     "palette": {},
     "bands": {},
-    "identity_token": "PLACEHOLDER(zeros) —— 需 Character Fitter（跑管线时加 --fit）",
+    "identity_token": "trained(Character Fitter, stage_fit)",
     "layers_source": "anatomical/segmenter（anatomical-prior-v1（几何+颜色先验，非 See-through））",
     "semantic_layers": "解出 5 层：body_base、bottom、face、hair_front、top",
     "depth_order_meta": {
@@ -123,6 +123,12 @@
         "pass": true
       },
       "note": "伪深度 = **绘制序**（非真实 3D 深度）"
+    },
+    "occlusion_meta": {
+      "inferred": true,
+      "note": "遮挡补全是**几何推断**（非真相）；alpha 已丢失被压处信息",
+      "n_occluded": 1787,
+      "n_filled": 158
     }
   }
 }

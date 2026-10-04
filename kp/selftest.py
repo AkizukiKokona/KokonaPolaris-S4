@@ -2308,6 +2308,99 @@ def main() -> int:
         return f"ASCII 6 字符｜墨水 {ink:.1%}"
     check("⭐ T0 也能渲染 ASCII（不只中文）", _t0_glyph_ascii_not_empty)
 
+    # ---------------- 29f. 身份接线（补上 Fitter→主干 的断链）----------------
+    section("29f. 身份接线（⭐ 「秒级换角色」主线曾没有终点）")
+
+    def _bridge_exists_and_consumes_token():
+        """⭐ `TokenInjector` 必须**真的吃 Fitter 的 token**（补上断链）。"""
+        import torch as _t
+        from kp.config import CAP
+        from kp.models.injector import TokenInjector
+        d = CAP.identity_token_dim
+        inj = TokenInjector(dim=d, n_tokens=16, view_dim=64, heads=4)
+        inj.set_gate(1.0)
+        tok = _t.randn(1, 16, d)
+        with _t.no_grad():
+            out = inj(tok)
+        assert out is not None, "gate≠0 却返回 None"
+        assert tuple(out.shape) == (1, 16, d), f"输出形状 {tuple(out.shape)}"
+        return f"token(1,16,{d}) → 输出{tuple(out.shape)}"
+    check("⭐ TokenInjector 真的消费身份 token", _bridge_exists_and_consumes_token)
+
+    def _bridge_gate_off_is_none():
+        """⛔ gate=0 ⇒ 返回 **None**（不是零向量—— 零向量仍会算出非零输出）。"""
+        import torch as _t
+        from kp.config import CAP
+        from kp.models.injector import TokenInjector
+        d = CAP.identity_token_dim
+        inj = TokenInjector(dim=d, n_tokens=16, view_dim=64, heads=4)
+        inj.set_gate(0.0)
+        with _t.no_grad():
+            out = inj(_t.randn(1, 16, d))
+        assert out is None, f"gate=0 返回了 {type(out).__name__}，应是 None（整条分支短路）"
+        return "gate=0 → None（真短路，非零向量）"
+    check("⛔ 注入器 gate=0 返回 None（bit-exact 前置条件）", _bridge_gate_off_is_none)
+
+    def _bridge_different_role_changes_output():
+        """⭐ 换角色必须**真的改变输出**（否则注入器什么都没学到）。"""
+        import torch as _t
+        from kp.config import CAP
+        from kp.models.injector import TokenInjector
+        d = CAP.identity_token_dim
+        inj = TokenInjector(dim=d, n_tokens=16, view_dim=64, heads=4)
+        inj.set_gate(1.0)
+        a = _t.zeros(1, 16, d)
+        b = _t.ones(1, 16, d) * 3.0
+        with _t.no_grad():
+            oa, ob = inj(a), inj(b)
+        delta = float((oa - ob).abs().mean())
+        assert delta > 1e-5, f"换角色 Δ={delta:.2e} ⇒ 注入器对 token 无反应"
+        return f"换角色 Δ={delta:.4f}（>1e-5 ⇒ 真的在用 token）"
+    check("⭐ 换角色改变输出（注入器真的在用）", _bridge_different_role_changes_output)
+
+    def _bridge_rejects_mismatched_token():
+        """⛔ token **数**或**维度**不匹配 ⇒ 明确报错，不静默截断/补零。
+
+        ⚠️ 静默补零最毒：身份「部分来自训练、部分是零」⇒ 输出看着正常实则半残。
+        """
+        import torch as _t
+        from kp.config import CAP
+        from kp.models.injector import TokenInjector
+        d = CAP.identity_token_dim
+        inj = TokenInjector(dim=d, n_tokens=16, view_dim=64, heads=4)
+        inj.set_gate(1.0)
+        for bad, why in ((_t.randn(1, 32, d), "token 数"),
+                         (_t.randn(1, 16, d + 1), "维度")):
+            try:
+                with _t.no_grad():
+                    inj(bad)
+            except ValueError as e:
+                assert "不静默" in str(e) or "⛔" in str(e), f"报错没说明：{e}"
+                continue
+            raise AssertionError(f"⛔ {why}不匹配被静默接受了")
+        return "token 数 / 维度不匹配均明确报错"
+    check("⛔ 拒绝不匹配的 token（不静默补零）", _bridge_rejects_mismatched_token)
+
+    def _bridge_rejects_none_token_when_open():
+        """⛔ gate≠0 但传 tokens=None ⇒ 报错，不静默返回 None。
+
+        理由：静默 None 会让调用方以为「身份没生效」，而不是「你忘了传 token」。
+        """
+        import torch as _t
+        from kp.config import CAP
+        from kp.models.injector import TokenInjector
+        inj = TokenInjector(dim=CAP.identity_token_dim, n_tokens=16,
+                            view_dim=64, heads=4)
+        inj.set_gate(1.0)
+        try:
+            with _t.no_grad():
+                inj(None)
+        except ValueError as e:
+            assert "forget" in str(e) or "token" in str(e), f"报错没指引：{e}"
+            return "gate 开 + token=None ⇒ 明确报错"
+        raise AssertionError("⛔ 静默接受了 tokens=None")
+    check("⛔ 门开时传 None 会报错（不是静默）", _bridge_rejects_none_token_when_open)
+
     def _seg_predicts_on_real_image():
         """解算器必须能在**真图**上跑通（不只是接口存在）。"""
         import numpy as _np

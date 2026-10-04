@@ -34,7 +34,10 @@
 - `Kokona` → `out/characters\kokona\cards\Kokona.card`
 
 ## Character Fitter（身份 token 来源）
-- 未训练（管线未加 `--fit`）→ 身份 token 为**零向量占位**
+- 配对 **1** 对 → 训练 Fitter；不变性终值 0.0000
+- 负样本：**无**—— ⚠️ 只有 1 个身份 ⇒ 身份的**可区分性未经验证**（缺第 2 个角色 / 更多视图）
+- 参数 1,954,816｜AdamW 状态 ≈ 0.0156 GB
+- 权重：`out/characters\kokona\fitter\fitter.pt`
 
 > ⚠️ 19 类语义层掩码待 **See-through 自举**模型。
 > 本管线的作用是**先定格式、先打通**（路线图 P2.6 / 验证门 G5）。
