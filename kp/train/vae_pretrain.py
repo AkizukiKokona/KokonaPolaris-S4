@@ -88,6 +88,68 @@ def load_batch(paths: Sequence[Path], size: int, device: torch.device) -> torch.
 
 
 # ---------------------------------------------------------------------------
+# 数据源（⭐ 2026-10-04 新增缓存路径）
+# ---------------------------------------------------------------------------
+class _ImageDirSource:
+    """图片目录数据源（原路径，向后兼容）。每次取样都重新解码。"""
+
+    kind = "image_dir"
+
+    def __init__(self, dirs: Sequence[os.PathLike | str], size: int,
+                 device: torch.device):
+        self.paths = list_images(dirs)
+        if not self.paths:
+            raise FileNotFoundError(
+                f"没找到图片（扫了 {list(dirs)}）。⚠️ **不静默用合成数据替代** —— "
+                f"请先确认数据路径，见补充11 的数据交付规范。")
+        self.size, self.device = size, device
+
+    def __len__(self) -> int:
+        return len(self.paths)
+
+    def get(self, idx: Sequence[int], size: int) -> torch.Tensor:
+        return load_batch([self.paths[i] for i in idx], size, self.device)
+
+
+class _CacheSource:
+    """预解码缓存数据源（`kp.data.predecode` 的 `<base>.npy` + `.json`）。
+
+    ⭐ 实测动机：本数据集 99.9% 是 AVIF，**解码 35ms/张（纯 CPU）** ⇒
+    训练时 GPU 利用率只有 **0%**。改成读 uint8 memmap ≈ 0.1ms/张（快 ~350×），
+    **GPU 利用率 0% → 61%**。
+    ⚠️ 缓存是 **RGB（丢 alpha）** ⇒ 与 `load_batch` 的「alpha 预乘」在无 alpha 时等价；
+       有 alpha 的数据集**不要**用缓存路径（重建口径会变）。
+    """
+
+    kind = "cache"
+
+    def __init__(self, cache: str | os.PathLike, size: int, device: torch.device):
+        self.base = Path(cache).with_suffix("")
+        npy = self.base.with_suffix(".npy")
+        js = self.base.with_suffix(".json")
+        if not npy.exists() or not js.exists():
+            raise FileNotFoundError(
+                f"缓存不存在（{npy} / {js}）。⚠️ **不静默用合成数据替代** —— "
+                f"请先跑 `python -m kp.data.predecode`。")
+        import numpy as np
+        self.arr = np.load(npy, mmap_mode="r")
+        self.meta = json.loads(js.read_text(encoding="utf-8"))
+        self.size, self.device = size, device
+
+    def __len__(self) -> int:
+        return int(self.arr.shape[0])
+
+    def get(self, idx: Sequence[int], size: int) -> torch.Tensor:
+        import numpy as np
+        u8 = np.ascontiguousarray(self.arr[np.asarray(idx)])
+        t = torch.from_numpy(u8).to(self.device).permute(0, 3, 1, 2).float().div_(255.0)
+        if t.shape[-1] != size:
+            t = F.interpolate(t, size=(size, size), mode="bilinear",
+                              align_corners=False, antialias=True)
+        return t.mul_(2.0).sub_(1.0)
+
+
+# ---------------------------------------------------------------------------
 # 损失
 # ---------------------------------------------------------------------------
 def per_patch_gan_placeholder(x: torch.Tensor) -> torch.Tensor:
@@ -220,45 +282,66 @@ def fixed_eval_set(paths: Sequence[Path], size: int, device: torch.device,
 
 @torch.no_grad()
 def evaluate(vae: HybridVAE, x: torch.Tensor, *, w_lpips: float = 0.0) -> dict:
-    """固定集上的评估（**只报数字，不参与反向**）。"""
+    """留出集上的评估（**只报数字，不参与反向**）。
+
+    ⭐ 加了 `psnr`（2026-10-04）：`l1` 是**线性**的，人看着差不多的两张图 l1 可能差很多；
+    PSNR 是对数尺度，读起来更直观。
+    ⚠️ **但项目规范仍然成立**：逐像素指标**只可用于同一轨迹的横向比较**，
+    **不可判画质**。这里报它只是为了「A/B 同留出集」的相对比较。
+    """
     vae.eval()
     r = block_recon_loss(vae, x, w_lpips=w_lpips)
+    mse = ((r["rec"] - x) ** 2).mean().clamp_min(1e-12)
+    psnr = float(10.0 * torch.log10(4.0 / mse))       # 值域 [-1,1] ⇒ 峰值 2 ⇒ 峰值²=4
     vae.train()
-    return {"l1": r["l1"], "edge": r["edge"], "percep": r["percep"]}
+    return {"l1": r["l1"], "edge": r["edge"], "percep": r["percep"], "psnr": psnr}
 
 
 # ---------------------------------------------------------------------------
 # 训练
 # ---------------------------------------------------------------------------
-def train_vae(image_dirs, *, steps: int = 2000, batch: int = 4, size: int = 256,
+def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
+              cache: Optional[str] = None,
+              steps: int = 2000, batch: int = 4, size: int = 256,
               lr: float = 2e-3, base: int = 16, w_sem: float = 1.0, w_det: float = 1.0,
               w_lpips: float = 0.0, w_grad: float = 0.5,
               device: str = "cpu", seed: int = 0, out_path: Optional[str] = None,
-              log_every: int = 50) -> dict:
+              log_every: int = 50, n_eval: int = 256) -> dict:
     torch.manual_seed(seed)
     dev = torch.device(device)
-    paths = list_images(image_dirs)
-    if not paths:
-        raise FileNotFoundError(
-            f"没找到图片（扫了 {list(image_dirs)}）。⚠️ **不静默用合成数据替代** —�� "
-            f"请先确认数据路径，见补充11 的数据交付规范。")
-    print(f"  图片 {len(paths)} 张 · {size}² · batch {batch} · {steps} 步 · {dev}")
+    src = (_CacheSource(cache, size, dev) if cache
+           else _ImageDirSource(image_dirs or [], size, dev))
+    n = len(src)
+    print(f"  数据源 {src.kind} · {n} 张 · {size}² · batch {batch} · {steps} 步 · {dev}")
 
     vae = HybridVAE(base=base).to(dev)
     opt = torch.optim.AdamW(vae.parameters(), lr=lr, weight_decay=0.0)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps)
 
-    # ⭐ 固定评估集：与训练 batch **完全分离**，只用于判断收敛
-    x_eval = fixed_eval_set(paths, size, dev)
+    # ⭐⭐ 真·留出集（2026-10-04 改进）：评估集**不参与训练**。
+    #    旧行为是 `paths[:16]` —— 那 16 张**同时也在训练池里**（同源），
+    #    所以只能判断「是否还在学」，**不能**当泛化指标（代码里原本也标了这条）。
+    #    ⚠️ 数据太少（<64 张）时无法真正留出 ⇒ 退回旧行为并**如实标注**。
+    held_out = bool(n_eval > 0 and n >= 64)
+    perm = torch.randperm(n, generator=torch.Generator().manual_seed(seed)).tolist()
+    if held_out:
+        n_ev = min(n_eval, n // 5)
+        eval_idx, train_idx = perm[:n_ev], perm[n_ev:]
+    else:
+        eval_idx, train_idx = list(range(min(16, n))), list(range(n))
+    x_eval = src.get(eval_idx, size)
+    print(f"  留出评估集 {len(eval_idx)} 张"
+          + ("（⛔ 不参与训练）" if held_out else "（⚠️ 数据太少，无法真正留出 ⇒ 同源）")
+          + f" · 训练池 {len(train_idx)} 张")
     eval_every = max(1, steps // 10)
     hist = []
     evals = []
     best = {"l1": float("inf"), "step": -1}
     t0 = time.time()
+    gstep = torch.Generator().manual_seed(seed + 12345)
     for step in range(steps):
-        idx = torch.randint(0, len(paths), (batch,))
-        bp = [paths[i] for i in idx.tolist()]
-        x = load_batch(bp, size, dev)
+        sel = torch.randint(0, len(train_idx), (batch,), generator=gstep).tolist()
+        x = src.get([train_idx[i] for i in sel], size)
 
         r = block_recon_loss(vae, x, w_sem=w_sem, w_det=w_det,
                              w_lpips=w_lpips, w_grad=w_grad)
@@ -275,7 +358,7 @@ def train_vae(image_dirs, *, steps: int = 2000, batch: int = 4, size: int = 256,
             print(f"  step {step:5d}  loss {row['loss']:.4f}  l1 {row['l1']:.4f}  "
                   f"edge {row['edge']:.4f}"
                   + (f"  percep {row['percep']:.4f}" if w_lpips > 0 else ""))
-        # 固定集评估（⭐ 判断收敛只看这个，不看上面的随机 batch 日志）
+        # 留出集评估（⭐ 判断收敛只看这个，不看上面的随机 batch 日志）
         if step % eval_every == 0 or step == steps - 1:
             ev = evaluate(vae, x_eval, w_lpips=w_lpips)
             ev["step"] = step
@@ -284,14 +367,21 @@ def train_vae(image_dirs, *, steps: int = 2000, batch: int = 4, size: int = 256,
             if ev["l1"] < best["l1"]:
                 best = {"l1": ev["l1"], "step": step}
                 flag = "  ← best"
-            print(f"    [eval] l1 {ev['l1']:.4f}  edge {ev['edge']:.4f}{flag}")
+            print(f"    [eval] l1 {ev['l1']:.4f}  psnr {ev['psnr']:.2f}  "
+                  f"edge {ev['edge']:.4f}{flag}")
 
     out = {"steps": steps, "base": base, "size": size, "batch": batch,
-           "n_images": len(paths), "elapsed": round(time.time() - t0, 1),
+           "n_images": n, "data_source": src.kind, "cache": cache,
+           "n_train": len(train_idx), "n_eval": len(eval_idx),
+           "held_out_eval": held_out,
+           "elapsed": round(time.time() - t0, 1),
            "history": hist,
-           # ⭐ 固定集评估轨迹 —— 判断收敛**只看这条**，hist 是随机 batch 的噪声
+           # ⭐ 留出集评估轨迹 —— 判断收敛**只看这条**，hist 是随机 batch 的噪声
            "eval_history": evals, "best_eval_l1": best["l1"], "best_step": best["step"],
-           "⚠️_eval_caveat": ("固定集与训练集**同源**（小数据量下无法真正留出）"
+           "⚠️_eval_caveat": ("评估集**不参与训练**（真留出）⇒ 可作**相对**泛化指标；"
+                              "但仍与训练池**同一数据集**，绝对水平不代表画质"
+                              if held_out else
+                              "固定集与训练集**同源**（数据太少无法留出）"
                               "⇒ 只能判断是否还在学，**不能**当泛化指标"),
            "⚠️_limitations": [
                ("**无真 LPIPS / GAN loss** ⇒ 重建质量有上限（如实报告，非 bug）；"
@@ -315,6 +405,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="P1 · HybridVAE 训练器")
     ap.add_argument("--image-dir", action="append", default=[],
                     help="图片目录（可多次）。⛔ 没图会报错，不用合成数据替代。")
+    ap.add_argument("--cache", default=None,
+                    help="⭐ 预解码缓存基名（kp.data.predecode 的 <base>）。"
+                         "读取快 ~350×（AVIF 解码是训练瓶颈）。给了它就不用 --image-dir。")
+    ap.add_argument("--n-eval", type=int, default=256,
+                    help="⭐ 留出评估集张数（**不参与训练**）。<64 张数据时自动退回同源评估。")
     ap.add_argument("--steps", type=int, default=2000)
     ap.add_argument("--batch", type=int, default=4)
     ap.add_argument("--size", type=int, default=256)
@@ -331,17 +426,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--log-every", type=int, default=50)
     a = ap.parse_args(argv)
 
-    if not a.image_dir:
-        print("用法：--image-dir <目录>（可多次）。"
-              "\n⭐ 项目默认数据位置：data/characters/kokona/images")
+    if not a.image_dir and not a.cache:
+        print("用法：--image-dir <目录>（可多次） **或** --cache <预解码缓存基名>。"
+              "\n⭐ 项目默认数据位置：data/characters/kokona/images"
+              "\n⭐ 大数据量推荐：先 `python -m kp.data.predecode --shards ... --out <base>`，"
+              "再 `--cache <base>`（AVIF 解码是瓶颈，缓存快 ~350×）")
         return 2
     print("=" * 64)
     print("P1 · HybridVAE 训练（无 KL · 分块重建 · ⛔ 无 perceptual/GAN）")
     print("=" * 64)
-    train_vae(a.image_dir, steps=a.steps, batch=a.batch, size=a.size, lr=a.lr,
+    train_vae(a.image_dir, cache=a.cache,
+              steps=a.steps, batch=a.batch, size=a.size, lr=a.lr,
               base=a.base, w_sem=a.w_sem, w_det=a.w_det,
               w_lpips=a.w_lpips, w_grad=a.w_grad, device=a.device,
-              seed=a.seed, out_path=a.out, log_every=a.log_every)
+              seed=a.seed, out_path=a.out, log_every=a.log_every,
+              n_eval=a.n_eval)
     return 0
 
 
