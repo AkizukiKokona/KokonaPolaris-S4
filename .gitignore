@@ -60,6 +60,10 @@ out/*.log
 /HANDOFF_FOR_NEXT_AGENT.md
 /*.local.md
 
+# ---- 虚拟环境（含坏掉的留档副本）----
+/.venv*/
+/kp-venv/
+
 # ---------- 权重 / 大二进制 ----------
 *.safetensors
 *.ckpt

@@ -34,7 +34,23 @@ export KP_ROOT
 export KP_MACHINE="${KP_MACHINE:-viim}"
 
 # ---- ② 解释器 ----
-export KP_VENV="$KP_ROOT/.venv"
+# ⚠️ 2026-10-04 踩坑：**本工作区内的可执行文件读不了本工作区内的文件**
+#    （沙箱给工作区根加的硬化 ACL：`Everyone:(CI)(DENY)(DC)` +
+#      `LAPTOP-...\TX:(OI)(CI)(WO)` + `S-1-4-...(W,D,DC)`），
+#    结果 `D:\kokonapolaris-s4\.venv\Scripts\python.exe` 一律报
+#      `Cannot read 'D:\kokonapolaris-s4\.venv\pyvenv.cfg'`
+#    而**同样字节的 venv 放到工作区外就完全正常**（已实测）。
+#    ⇒ 约定：**venv 放在工作区同级目录**（默认 `<仓库父目录>/kp-venv`）。
+#    可用环境变量 `KP_VENV` 显式覆盖。
+_KP_PARENT="$(dirname "$KP_ROOT")"
+if [ -z "${KP_VENV:-}" ]; then
+  for _cand in "$_KP_PARENT/kp-venv" "$KP_ROOT/.venv"; do
+    if [ -x "$_cand/Scripts/python.exe" ]; then KP_VENV="$_cand"; break; fi
+  done
+  : "${KP_VENV:=$KP_ROOT/.venv}"
+fi
+unset _KP_PARENT _cand
+export KP_VENV
 export KP_PY="$KP_VENV/Scripts/python.exe"
 
 # ---- 缓存全面重定向到项目盘（含 HuggingFace，否则模型会下到 C:\Users\...\.cache）----

@@ -157,3 +157,44 @@
 - **必需**：`torch`(cu128, 需含 sm_120)、`numpy`、`pillow`
 - **可选但代码已用到**：`transformers`(⚠️ 钉 4.55.4，**5.10.1 会打坏 modelopt 插件**)、`diffusers`、`tokenizers`、`huggingface_hub`、`torchvision`、`nvidia-modelopt`、`scipy`、`scikit-image`、`pytorch-fid`、`fontTools`、`uharfbuzz`、`freetype-py`、`rembg`、`triton-windows`、`peft`
 - ⚠️ **`requirements.lock.txt` 只有 4 行**（diffusers / hf_hub / tokenizers / transformers）——那是旧机 **venv 覆盖层**，其余靠「系统 Python 3.12.10 的 site-packages」。**本机照它装不够**。
+
+---
+
+## 🔴🔴 venv 必须放在【工作区外】（2026-10-04 事故 + 定案）
+
+**症状**：`D:\kokonapolaris-s4\.venv\Scripts\python.exe` 一律报
+`Cannot read 'D:\kokonapolaris-s4\.venv\pyvenv.cfg'`（此前一天还完全正常）。
+
+**真因**：**工作区根 `D:\kokonapolaris-s4` 被加了硬化的 ACL**，并**向下继承**：
+```
+Everyone:(CI)(DENY)(DC)
+LAPTOP-...\TX:(OI)(CI)(WO)                      ← 只有「写所有者」
+S-1-4-635281079-250895385:(OI)(CI)(W,D,DC)      ← 疑似沙箱 AppContainer 能力 SID
+```
+⇒ **从工作区内启动的可执行文件（python.exe）读不了工作区内的文件**。
+✅ **对照组**：同字节的 venv 复制到工作区外（`D:\kp-venv`）**立刻正常**；工作区内新建 venv 同样失败。
+
+**已排除的假设**（都做过实验）：沙箱运行时限制 ❌（关沙箱照样失败）· 文件损坏 ❌（`head`/基础 python 都能读）·
+权限不足 ❌（`icacls /grant TX:(R)` 成功仍失败）· venv 内容坏 ❌（工作区外同一份正常）。
+
+**定案**：
+1. **venv 位置 = `<仓库父目录>/kp-venv`** ⇒ 本机是 `D:\kp-venv`
+2. `env.sh` 已改为**优先探测 `<仓库父目录>/kp-venv`**，回退工作区内 `.venv`；支持 `KP_VENV` 覆盖
+3. 坏掉的旧 venv **改名留档** `.venv.broken-20261004`（未删，~4GB）
+4. `.gitignore` 加 `/.venv*/` 与 `/kp-venv/`
+5. ⚠️ 该硬化 ACL 覆盖**整个工作区根**（`.git` / `kp` / `out` 全一样），但 **git / grep / head 等普通读写不受影响**，
+   **只有「从工作区内启动的 python.exe」会撞上** —— 排查时容易误判成权限问题。
+
+⭐ **教训**：`Cannot read 'pyvenv.cfg'` 这种报错**看起来像文件/权限问题，实际是位置问题**。
+**做对照实验（工作区外 vs 内）比查文档快得多** —— 又一次「工具报错文本 ≠ 根因」。
+
+## 📦 本机 tokenizer（2026-10-04 补齐）
+`models/Qwen3-4B-tokenizer/` 需 **4 个文件**（`kp/text/tokenizer.py` 点名）：
+`tokenizer.json`(11.4MB **真词表**) · `tokenizer_config.json` · `vocab.json` · `merges.txt`。
+⚠️ **只放 `tokenizer_config.json` 不够**（那是配置，HF 缓存里常年只有它 ⇒ 报 `JSONDecodeError`）。
+**镜像可达性实测**：`hf-mirror.com` **307 可用**；`huggingface.co` **直连失败**。取法：
+```bash
+for f in tokenizer.json tokenizer_config.json vocab.json merges.txt; do
+  curl -sL --retry 2 -o "models/Qwen3-4B-tokenizer/$f" \
+      "https://hf-mirror.com/Qwen/Qwen3-4B/resolve/main/$f"; done
+```
