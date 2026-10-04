@@ -45,7 +45,12 @@ import torch.nn.functional as F
 from ..config import LATENT
 from ..models.vae import HybridVAE
 
-IMG_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+#: 支持的图片扩展名。
+#: ⚠️ 必须与 `kp/data/augment.py::IMG_EXTS` **保持一致**（两处重复，改一处要改两处）。
+#: 🔴 2026-10-04：补 `.avif` / `.gif` —— `curated-danbooru-2026` 的图 **99.9% 是 AVIF**
+#:    （实测 `ext_counts={"avif":9991,"gif":9}`）。漏了它 ⇒ `_list_images` 找到 **0 张图**，
+#:    而且**不报错**（静默空转）—— 这是「白名单式过滤」最典型的失败模式。
+IMG_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".avif", ".gif")
 
 
 # ---------------------------------------------------------------------------

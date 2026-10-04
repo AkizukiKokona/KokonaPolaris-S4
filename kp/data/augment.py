@@ -47,7 +47,11 @@ from typing import List, Optional, Sequence
 import torch
 
 
-IMG_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+#: 支持的图片扩展名。
+#: ⚠️ 必须与 `kp/train/vae_pretrain.py::IMG_EXTS` **保持一致**（两处重复，改一处要改两处）。
+#: 🔴 2026-10-04：补 `.avif` / `.gif` —— `curated-danbooru-2026` 的图 **99.9% 是 AVIF**，
+#:    漏了它 ⇒ 找到 **0 张图**且**不报错**（白名单式过滤的典型静默失败）。
+IMG_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".avif", ".gif")
 
 
 # ---------------------------------------------------------------------------

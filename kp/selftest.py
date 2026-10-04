@@ -1876,10 +1876,24 @@ def main() -> int:
             ({"tag_string": "1boy, rating:explicit"}, "explicit"),
             ({"tag_string": "cat, rating:safe"}, "safe"),
             ({}, "unknown"),
+            # ---- 2026-10-04 实测新增 ----
+            # 背景：`aipracticecafe/curated-danbooru-2026` **没有 rating / is_explicit /
+            # tag_string 任何一列**，分级是 `prompt` 里的**裸 token**
+            # （`rating:` 前缀被去掉）。原版在这类集上 **100% 返回 unknown** ⇒ 管线空转。
+            ({"prompt": "1girl, general, solo"}, "safe"),
+            ({"prompt": "1girl, sensitive, solo"}, "sensitive"),
+            ({"prompt": "1girl, questionable, solo"}, "questionable"),
+            ({"prompt": "1girl, explicit, solo"}, "explicit"),
+            # ⚠️ 子串陷阱：必须**整 token 匹配**，不能被 sensitive_/general_ 前缀带偏
+            ({"prompt": "1girl, sensitive_hair, solo"}, "unknown"),
+            ({"prompt": "1girl, general_knowledge, solo"}, "unknown"),
+            # ⚠️ 多个分级 token 同时出现 ⇒ 取**最严**
+            ({"prompt": "1girl, general, explicit"}, "explicit"),
         ]
         wrong = [(r, classify_rating(r), w) for r, w in cases if classify_rating(r) != w]
         assert not wrong, f"分级判定错误：{wrong}"
-        return f"9/9 通过（含 unknown ⇒ 不默认放行）"
+        return (f"{len(cases)}/{len(cases)} 通过"
+                f"（含 unknown 不默认放行 + prompt 裸 token + 子串陷阱）")
     check("分级判定三级来源可靠（判不出不放行）", _rating_classify)
 
     def _rating_policy_default_strict():
@@ -1890,8 +1904,13 @@ def main() -> int:
         # 更严的档必须包含更严的（集合包含关系）
         assert POLICIES["sensitive_ok"] > POLICIES["strict"], "档位包含关系反了"
         assert POLICIES["explicit_ok"] >= POLICIES["sensitive_ok"], "档位包含关系反了"
+        # 🔴 2026-10-04 修：原版 explicit_ok 漏了 questionable ⇒ 宣称「全留」却静默丢 ~11%
+        assert POLICIES["explicit_ok"] == {"safe", "sensitive", "questionable",
+                                           "explicit"}, \
+            f"⚠️ explicit_ok 必须含 questionable（漏了 = 「全留」是假的）：{POLICIES['explicit_ok']}"
         return (f"默认 strict={sorted(POLICIES['strict'])}；"
-                f"三档包含关系正确（strict ⊂ sensitive_ok ⊂ explicit_ok）")
+                f"三档包含关系正确（strict ⊂ sensitive_ok ⊂ explicit_ok）；"
+                f"explicit_ok 四档齐全")
     check("默认最严（strict 只留 safe）+ 档位包含关系正确", _rating_policy_default_strict)
 
     # ---------------- 29. G5 语义层解算器（可插拔 + 质量尺子）----------------
