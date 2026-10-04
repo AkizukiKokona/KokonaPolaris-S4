@@ -150,6 +150,240 @@ class _CacheSource:
 
 
 # ---------------------------------------------------------------------------
+# ⭐ 多进程并行解码数据源（2026-10-04）—— 零磁盘、无分辨率上限
+# ---------------------------------------------------------------------------
+def _decode_one_u8(job):
+    """(bytes, size) → (size,size,3) uint8；失败返回 `None`。
+
+    ⚠️ **必须模块级**：`ProcessPoolExecutor` 要 pickle 它。
+    """
+    import io
+
+    import numpy as np
+    buf, size = job
+    if buf is None:
+        return None
+    try:
+        from PIL import Image
+        im = Image.open(io.BytesIO(buf)).convert("RGB")
+        if im.size != (size, size):
+            im = im.resize((size, size), Image.BILINEAR)
+        return np.asarray(im, dtype=np.uint8)
+    except Exception:                                        # noqa: BLE001
+        return None
+
+
+def _decode_batch_u8(args):
+    """进程池任务：(list[bytes], size) → (B,size,size,3) uint8。坏图填黑。"""
+    import numpy as np
+    bufs, size = args
+    out = np.zeros((len(bufs), size, size, 3), dtype=np.uint8)
+    for i, b in enumerate(bufs):
+        a = _decode_one_u8((b, size))
+        if a is not None:
+            out[i] = a
+    return out
+
+
+def _expand_shards(paths: Sequence[os.PathLike | str]) -> List[Path]:
+    """目录 → 其下所有 parquet；文件 → 自身。按名字排序（可复现）。"""
+    out: List[Path] = []
+    for s in paths:
+        p = Path(s)
+        if p.is_dir():
+            out.extend(sorted(p.glob("*.parquet")))
+        elif p.exists():
+            out.append(p)
+    return sorted(out, key=lambda x: x.name)
+
+
+class _ShardStreamSource:
+    """**多进程并行解码**数据源：直接从 parquet 分片流式读取。
+
+    ⭐⭐ 为什么要它（2026-10-04 实测驱动）：
+      1. 图片是 **AVIF**，解码 **35 ms/张（纯 CPU）** ⇒ 单线程取数会把 GPU 饿到 **0%**；
+      2. 预解码缓存（`kp.data.predecode`）能解，但它是 **uint8 原始数组**，
+         体积 = `N×H×W×3` ⇒ 338K 张：256² 要 **66.5GB**、512² 要 **266GB**、
+         1024² 要 **1.06TB** ⇒ **缓存撑不到 P1 的目标分辨率**；
+      3. 5.4× 的加速**本质来自「8 进程并行」，不是「缓存」** ⇒ 把并行搬到训练侧即可，
+         且 **零磁盘代价、无分辨率上限**。
+
+    ⚠️ 关键设计：**分片外循环、分片内乱序**（每个分片只有 1 个 row group，
+       随机跨片读会让 I/O 退化）。⇒ 一次只把一个分片的 image 列载入内存（~1.1GB）。
+    ⚠️ 留出评估集**必须从一个分片内取**（否则评估要载入多个分片 = 好几 GB）。
+    """
+
+    kind = "shard_stream"
+
+    def __init__(self, shards: Sequence[os.PathLike | str], size: int,
+                 device: torch.device, *, workers: int = 8, prefetch: int = 8,
+                 policy: str = "explicit_ok"):
+        import numpy as np
+
+        from ..data.rating import POLICIES, classify_rating
+
+        self.files = _expand_shards(shards)
+        if not self.files:
+            raise FileNotFoundError(
+                f"没找到 parquet 分片（扫了 {list(shards)}）。⚠️ **不静默用合成数据替代** —— "
+                f"请先确认数据路径，见补充11 的数据交付规范。")
+        self.workers, self.prefetch = int(workers), int(prefetch)
+        self.device, self.size = device, size
+        self.policy = policy
+        keep = POLICIES[policy]
+
+        # ---- 扫描合格行（只读文本列，实测 338K 行 34 片只需 ~6 秒）----
+        import pyarrow.parquet as pq
+        self.elig: List[np.ndarray] = []
+        counts: dict = {}
+        n_ok = 0
+        for f in self.files:
+            pf = pq.ParquetFile(f)
+            names = pf.schema_arrow.names
+            if "image" not in names:
+                self.elig.append(np.zeros(0, dtype=np.int64))
+                continue
+            cols = [c for c in ("prompt", "rating", "is_explicit", "tag_string",
+                                "tags", "caption") if c in names]
+            rows: List[int] = []
+            i = 0
+            for rb in pf.iter_batches(batch_size=4096, columns=cols):
+                for r in rb.to_pylist():
+                    c = classify_rating(r)
+                    counts[c] = counts.get(c, 0) + 1
+                    if c in keep:
+                        rows.append(i)
+                    i += 1
+            self.elig.append(np.asarray(rows, dtype=np.int64))
+            n_ok += len(rows)
+        self.rating_counts = counts
+        self.n = n_ok
+        if self.n == 0:
+            raise FileNotFoundError(
+                f"policy={policy} 下没有任何合格图。⚠️ **不静默用合成数据替代** —— "
+                f"判不出的分级一律不放行（fail-closed）。")
+        # 全局索引 → (分片, 片内行) 的前缀和
+        self._prefix = np.cumsum([0] + [len(e) for e in self.elig])[:-1]
+        self._cur_si, self._cur = None, None
+        print(f"  [shard_stream] {len(self.files)} 片 · policy={policy} · "
+              f"合格 {self.n:,} 张 · 分布 {counts}")
+
+    # ---- 随机访问（**只用于留出评估集**）----
+    def __len__(self) -> int:
+        return self.n
+
+    def _locate(self, g: int):
+        import bisect
+        si = bisect.bisect_right(self._prefix, g) - 1
+        return si, int(g - self._prefix[si])
+
+    def _shard_images(self, si: int) -> List[bytes]:
+        """载入一个分片的 image 列（LRU=1，~1.1GB）。⚠️ 分片内只有 1 个 row group。"""
+        if self._cur_si == si and self._cur is not None:
+            return self._cur
+        import pyarrow.parquet as pq
+        out: List[bytes] = []
+        pf = pq.ParquetFile(self.files[si])
+        for rb in pf.iter_batches(batch_size=1024, columns=["image"]):
+            for v in rb.column(0).to_pylist():
+                out.append(v.get("bytes") if isinstance(v, dict) else v)
+        self._cur_si, self._cur = si, out
+        return out
+
+    def get(self, idx: Sequence[int], size: int) -> torch.Tensor:
+        import numpy as np
+        want = [int(i) for i in idx]
+        groups: dict = {}
+        for k, g in enumerate(want):
+            si, ri = self._locate(g)
+            groups.setdefault(si, []).append((k, ri))
+        bufs: List = [None] * len(want)
+        for si in sorted(groups):
+            cols = self._shard_images(si)
+            for k, ri in groups[si]:
+                bufs[k] = cols[ri]
+        arr = np.zeros((len(bufs), size, size, 3), dtype=np.uint8)
+        for i, b in enumerate(bufs):
+            a = _decode_one_u8((b, size))
+            if a is not None:
+                arr[i] = a
+        t = torch.from_numpy(arr).to(self.device).permute(0, 3, 1, 2).float().div_(255.0)
+        return t.mul_(2.0).sub_(1.0)
+
+    # ---- 留出集划分（⚠️ 必须来自**单个分片**）----
+    def split(self, n_eval: int, seed: int):
+        """→ (eval_idx, train_idx, held_out)。
+
+        ⚠️ **留出集只从一个分片里取** —— 因为 `get()` 要按分片载入 image 列
+        （一个分片 ~1.1GB）；若留出集跨 34 片，评估一次就要读 **37GB**。
+        """
+        n = self.n
+        if n_eval <= 0 or n < 64:
+            idx = list(range(min(16, n)))
+            return idx, list(range(n)), False
+        si = int(seed) % len(self.elig)                       # 确定性选一个分片
+        rows = self.elig[si]
+        k = min(int(n_eval), max(1, len(rows) // 5))
+        g0 = int(self._prefix[si])
+        eval_idx = (g0 + rows[:k]).tolist()
+        ex = set(eval_idx)
+        return eval_idx, [g for g in range(n) if g not in ex], True
+
+    # ---- 流式训练取批（并行解码 + 预取，与 GPU 重叠）----
+    def _raw_batches(self, indices: Sequence[int], batch: int, seed: int):
+        """产出「一批原始字节」。分片外循环、分片内乱序（见类 docstring）。"""
+        import numpy as np
+        by_shard: dict = {}
+        for g in indices:
+            si, ri = self._locate(int(g))
+            by_shard.setdefault(si, []).append(ri)
+        rng = np.random.default_rng(seed)
+        shard_order = np.array(sorted(by_shard))
+        while True:                                   # 由调用方限步数
+            for si in rng.permutation(shard_order).tolist():
+                si = int(si)
+                cols = self._shard_images(si)
+                rows = np.asarray(by_shard[si])
+                perm = rng.permutation(len(rows))
+                for s in range(0, len(perm) - (len(perm) % batch), batch):
+                    yield [cols[rows[i]] for i in perm[s:s + batch]]
+
+    def stream_batches(self, indices: Sequence[int], steps: int, batch: int,
+                       size: int, seed: int):
+        """并行解码取批（有界预取，解码与训练重叠）。
+
+        ⚠️ **必须按「已产出」计数，不能按「已提交」计数**（2026-10-04 踩过）：
+        预取会**多提交最多 `prefetch-1` 批**，若用提交数当终止条件，
+        生成器会**提前 `prefetch-1` 批结束** ⇒ 消费方 `next()` 抛 `StopIteration`。
+        """
+        from collections import deque
+        from concurrent.futures import ProcessPoolExecutor
+        ex = ProcessPoolExecutor(max_workers=self.workers)
+        try:
+            inflight: deque = deque()
+            it = self._raw_batches(indices, batch, seed)
+            yielded = 0
+            while yielded < steps:
+                while len(inflight) < self.prefetch:
+                    try:
+                        bufs = next(it)
+                    except StopIteration:
+                        break
+                    inflight.append(ex.submit(_decode_batch_u8, (bufs, size)))
+                if not inflight:
+                    break
+                arr = inflight.popleft().result()
+                yielded += 1
+                t = torch.from_numpy(arr).to(self.device).permute(0, 3, 1, 2)
+                t = t.float().div_(255.0)
+                yield t.mul_(2.0).sub_(1.0)
+            for f in inflight:                      # 收尾：别白算剩下的预取
+                f.cancel()
+        finally:
+            ex.shutdown(wait=False)
+
+
+# ---------------------------------------------------------------------------
 # 损失
 # ---------------------------------------------------------------------------
 def per_patch_gan_placeholder(x: torch.Tensor) -> torch.Tensor:
@@ -302,6 +536,8 @@ def evaluate(vae: HybridVAE, x: torch.Tensor, *, w_lpips: float = 0.0) -> dict:
 # ---------------------------------------------------------------------------
 def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
               cache: Optional[str] = None,
+              shards: Optional[Sequence[os.PathLike | str]] = None,
+              workers: int = 8, prefetch: int = 8, policy: str = "explicit_ok",
               steps: int = 2000, batch: int = 4, size: int = 256,
               lr: float = 2e-3, base: int = 16, w_sem: float = 1.0, w_det: float = 1.0,
               w_lpips: float = 0.0, w_grad: float = 0.5,
@@ -309,8 +545,13 @@ def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
               log_every: int = 50, n_eval: int = 256) -> dict:
     torch.manual_seed(seed)
     dev = torch.device(device)
-    src = (_CacheSource(cache, size, dev) if cache
-           else _ImageDirSource(image_dirs or [], size, dev))
+    if shards:
+        src = _ShardStreamSource(shards, size, dev, workers=workers,
+                                 prefetch=prefetch, policy=policy)
+    elif cache:
+        src = _CacheSource(cache, size, dev)
+    else:
+        src = _ImageDirSource(image_dirs or [], size, dev)
     n = len(src)
     print(f"  数据源 {src.kind} · {n} 张 · {size}² · batch {batch} · {steps} 步 · {dev}")
 
@@ -322,13 +563,17 @@ def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
     #    旧行为是 `paths[:16]` —— 那 16 张**同时也在训练池里**（同源），
     #    所以只能判断「是否还在学」，**不能**当泛化指标（代码里原本也标了这条）。
     #    ⚠️ 数据太少（<64 张）时无法真正留出 ⇒ 退回旧行为并**如实标注**。
-    held_out = bool(n_eval > 0 and n >= 64)
-    perm = torch.randperm(n, generator=torch.Generator().manual_seed(seed)).tolist()
-    if held_out:
-        n_ev = min(n_eval, n // 5)
-        eval_idx, train_idx = perm[:n_ev], perm[n_ev:]
+    #    ⚠️ 流式源自带 `split()`：它的留出集必须来自**单个分片**（见该类 docstring）。
+    if hasattr(src, "split"):
+        eval_idx, train_idx, held_out = src.split(n_eval, seed)
     else:
-        eval_idx, train_idx = list(range(min(16, n))), list(range(n))
+        held_out = bool(n_eval > 0 and n >= 64)
+        perm = torch.randperm(n, generator=torch.Generator().manual_seed(seed)).tolist()
+        if held_out:
+            n_ev = min(n_eval, n // 5)
+            eval_idx, train_idx = perm[:n_ev], perm[n_ev:]
+        else:
+            eval_idx, train_idx = list(range(min(16, n))), list(range(n))
     x_eval = src.get(eval_idx, size)
     print(f"  留出评估集 {len(eval_idx)} 张"
           + ("（⛔ 不参与训练）" if held_out else "（⚠️ 数据太少，无法真正留出 ⇒ 同源）")
@@ -338,10 +583,20 @@ def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
     evals = []
     best = {"l1": float("inf"), "step": -1}
     t0 = time.time()
-    gstep = torch.Generator().manual_seed(seed + 12345)
+    if hasattr(src, "stream_batches"):
+        # 流水线：解码在进程池里并行做，与 GPU 训练重叠（解 AVIF 慢的手）
+        batch_iter = src.stream_batches(train_idx, steps, batch, size, seed)
+    else:
+        gstep = torch.Generator().manual_seed(seed + 12345)
+
+        def _gen():
+            for _ in range(steps):
+                sel = torch.randint(0, len(train_idx), (batch,),
+                                    generator=gstep).tolist()
+                yield src.get([train_idx[i] for i in sel], size)
+        batch_iter = _gen()
     for step in range(steps):
-        sel = torch.randint(0, len(train_idx), (batch,), generator=gstep).tolist()
-        x = src.get([train_idx[i] for i in sel], size)
+        x = next(batch_iter)
 
         r = block_recon_loss(vae, x, w_sem=w_sem, w_det=w_det,
                              w_lpips=w_lpips, w_grad=w_grad)
@@ -374,6 +629,9 @@ def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
 
     out = {"steps": steps, "base": base, "size": size, "batch": batch,
            "n_images": n, "data_source": src.kind, "cache": cache,
+           "n_shards": (len(src.files) if hasattr(src, "files") else None),
+           "workers": (workers if hasattr(src, "workers") else None),
+           "policy": (policy if hasattr(src, "stream_batches") else None),
            "n_train": len(train_idx), "n_eval": len(eval_idx),
            "held_out_eval": held_out,
            "elapsed": round(time.time() - t0, 1),
@@ -410,6 +668,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--cache", default=None,
                     help="⭐ 预解码缓存基名（kp.data.predecode 的 <base>）。"
                          "读取快 ~350×（AVIF 解码是训练瓶颈）。给了它就不用 --image-dir。")
+    ap.add_argument("--shards", nargs="*", default=None,
+                    help="⭐⭐ parquet 分片或目录 —— **多进程并行解码**，"
+                         "零磁盘缓存、**无分辨率上限**（缓存方案 512² 要 266GB 放不下）。")
+    ap.add_argument("--workers", type=int, default=8,
+                    help="并行解码进程数（仅 --shards 用）。AVIF 解码 35ms/张（纯 CPU）。")
+    ap.add_argument("--prefetch", type=int, default=8,
+                    help="预取批数（仅 --shards 用）：解码与 GPU 训练重叠。")
+    ap.add_argument("--policy", default="explicit_ok",
+                    choices=["strict", "sensitive_ok", "explicit_ok"],
+                    help="分级过滤（仅 --shards 用）。⚠️ 默认 explicit_ok = "
+                         "**项目 2026-10-04 决策**（消融实测：加不伤 safe、只小赚 ~2-3%）。"
+                         "库级默认仍是 fail-safe 的 strict（见 kp/data/rating.py）。")
     ap.add_argument("--n-eval", type=int, default=256,
                     help="⭐ 留出评估集张数（**不参与训练**）。<64 张数据时自动退回同源评估。")
     ap.add_argument("--steps", type=int, default=2000)
@@ -428,16 +698,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--log-every", type=int, default=50)
     a = ap.parse_args(argv)
 
-    if not a.image_dir and not a.cache:
-        print("用法：--image-dir <目录>（可多次） **或** --cache <预解码缓存基名>。"
+    if not a.image_dir and not a.cache and not a.shards:
+        print("用法：三选一 ——"
+              "\n  ① --shards <parquet分片或目录>  ⭐ 推荐：多进程并行解码，零磁盘、无分辨率上限"
+              "\n  ② --cache <预解码缓存基名>      快，但缓存体积 = N×H×W×3（512² 要 266GB）"
+              "\n  ③ --image-dir <目录>           小数据/调试用"
               "\n⭐ 项目默认数据位置：data/characters/kokona/images"
-              "\n⭐ 大数据量推荐：先 `python -m kp.data.predecode --shards ... --out <base>`，"
-              "再 `--cache <base>`（AVIF 解码是瓶颈，缓存快 ~350×）")
+              "\n⭐ parquet 数据位置：out/data/curated_danbooru/_shards")
         return 2
     print("=" * 64)
     print("P1 · HybridVAE 训练（无 KL · 分块重建 · ⛔ 无 perceptual/GAN）")
     print("=" * 64)
-    train_vae(a.image_dir, cache=a.cache,
+    train_vae(a.image_dir, cache=a.cache, shards=a.shards,
+              workers=a.workers, prefetch=a.prefetch, policy=a.policy,
               steps=a.steps, batch=a.batch, size=a.size, lr=a.lr,
               base=a.base, w_sem=a.w_sem, w_det=a.w_det,
               w_lpips=a.w_lpips, w_grad=a.w_grad, device=a.device,
