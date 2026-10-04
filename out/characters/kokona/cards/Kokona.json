@@ -87,6 +87,42 @@
     "bands": {},
     "identity_token": "PLACEHOLDER(zeros) —— 需 Character Fitter（跑管线时加 --fit）",
     "layers_source": "anatomical/segmenter（anatomical-prior-v1（几何+颜色先验，非 See-through））",
-    "semantic_layers": "解出 5 层：body_base、bottom、face、hair_front、top"
+    "semantic_layers": "解出 5 层：body_base、bottom、face、hair_front、top",
+    "depth_order_meta": {
+      "depth": {
+        "n_layers_used": 5,
+        "unknown_layers": [],
+        "order": [
+          "background",
+          "hair_back",
+          "body_base",
+          "bottom",
+          "top",
+          "outerwear",
+          "footwear",
+          "legwear",
+          "face",
+          "ear",
+          "eye_white",
+          "iris",
+          "eyelash",
+          "eyebrow",
+          "mouth",
+          "hair_side",
+          "hair_front",
+          "skirt",
+          "hat"
+        ]
+      },
+      "verify": {
+        "hat_above_hair_front": null,
+        "hair_front_above_face": true,
+        "face_above_body": true,
+        "background_is_zero": true,
+        "n_checked": 3,
+        "pass": true
+      },
+      "note": "伪深度 = **绘制序**（非真实 3D 深度）"
+    }
   }
 }

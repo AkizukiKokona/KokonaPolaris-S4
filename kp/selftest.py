@@ -2171,6 +2171,82 @@ def main() -> int:
                 f"｜{_os.path.basename(_os.path.dirname(_os.path.dirname(ck[0])))}")
     check("⭐ 换角色端到端（真权重→一次前向→token）", _identity_real_forward_works)
 
+    # ---------------- 29d. 伪深度绘制序（补上「只存不产」的字段）----------------
+    section("29d. 伪深度绘制序（⭐ occlusion/depth_order 曾只存不产）")
+
+    def _depth_order_real_and_falsifiable():
+        """⭐ 必须产出深度图**且**三条层序关系全部成立（可证伪，不是画出来好看就算）。"""
+        import numpy as _np
+        from kp.character.card import SEMANTIC_LAYERS
+        from kp.character.occlusion import depth_from_labels, verify_depth
+        idx = {n: i for i, n in enumerate(SEMANTIC_LAYERS)}
+        lab = _np.full((64, 64), -1, dtype=_np.int16)
+        lab[4:60, 4:60] = idx["body_base"]# 底
+        lab[20:44, 20:44] = idx["face"]        # 脸上
+        lab[14:24, 20:44] = idx["hair_front"]  # 前发压脸
+        lab[8:14, 20:44] = idx["hat"]          # 帽压发
+        d, meta = depth_from_labels(lab)
+        assert d.shape == lab.shape and d.dtype == _np.float32
+        assert float(d.min()) >= 0.0 and float(d.max()) <= 1.0, "深度未归一化到[0,1]"
+        assert meta["unknown_layers"] == [], f"这些层不在绘制序表里：{meta['unknown_layers']}"
+        v = verify_depth(d, lab)
+        assert v["pass"], f"层序关系不成立：{v}"
+        assert v["n_checked"] >= 3, f"只检查了 {v['n_checked']} 条 ⇒ 判据太弱"
+        return (f"层序 3 条全通（帽>前发>脸>身体）｜{meta['n_layers_used']} 层"
+                f"｜深度∈[{d.min():.2f},{d.max():.2f}]")
+    check("⭐ 伪深度绘制序正确 + 判据可证伪", _depth_order_real_and_falsifiable)
+
+    def _depth_background_must_be_zero():
+        """⛔ 背景深度恒为 0（否则 CharaBridge 会把背景当实体渲染）。"""
+        import numpy as _np
+        from kp.character.card import SEMANTIC_LAYERS
+        from kp.character.occlusion import depth_from_labels
+        idx = {n: i for i, n in enumerate(SEMANTIC_LAYERS)}
+        lab = _np.full((32, 32), -1, dtype=_np.int16)
+        lab[8:24, 8:24] = idx["top"]
+        d, _ = depth_from_labels(lab)
+        assert float(d[lab < 0].max()) == 0.0, "背景深度非 0"
+        return "背景深度恒 0"
+    check("⛔ 背景深度恒为 0", _depth_background_must_be_zero)
+
+    def _depth_reject_bad_labels():
+        """⛔ 标签超出 19 类 ⇒ **明确报错**，不静默出图。"""
+        import numpy as _np
+        from kp.character.occlusion import depth_from_labels
+        lab = _np.zeros((8, 8), dtype=_np.int16)
+        lab[0, 0] = 99                     # 远超 18
+        try:
+            depth_from_labels(lab)
+        except ValueError as e:
+            assert "19 类之外" in str(e) or "max 应" in str(e), f"报错信息没指引：{e}"
+            return "越界标签 ⇒ 明确报错"
+        raise AssertionError("⛔ 越界标签被静默接受了")
+    check("⛔ 深度图拒绝越界标签", _depth_reject_bad_labels)
+
+    def _depth_in_card_end_to_end():
+        """⭐ 端到端：产出的卡里**真的带** depth_order（不是只有接口）。"""
+        import glob
+        import os as _os
+        import torch as _t
+        from kp.paths import OUT
+        cs = sorted(glob.glob(str(OUT / "characters" / "*" / "cards" / "*.card")))
+        if not cs:
+            return "⚠️ 无角色卡，跳过"
+        d = _t.load(cs[0], weights_only=False)
+        dep = d.get("depth_order")
+        if dep is None:
+            # 允许「没有解算器时为空」，但那时必须如实说明
+            note = d.get("meta", {}).get("semantic_layers", "")
+            assert "未接语义层解算器" in note or "待See-through" in note, \
+                "卡里既无 depth_order 又没说明为什么 ⇒ 静默缺失"
+            return "✅ 无解算器时为空且已如实说明（符合预期）"
+        vm = d.get("meta", {}).get("depth_order_meta", {})
+        assert vm.get("verify"), "卡里有 depth_order 但没记判据结果 ⇒ 不可证伪"
+        assert vm["verify"]["pass"], f"层序判据未通过：{vm['verify']}"
+        return (f"卡带 depth_order{_os.path.basename(cs[0])}"
+                f"｜{tuple(dep.shape)}｜判据 {vm['verify']['n_checked']} 条全通")
+    check("⭐ 角色卡端到端带 depth_order + 判据", _depth_in_card_end_to_end)
+
     def _seg_predicts_on_real_image():
         """解算器必须能在**真图**上跑通（不只是接口存在）。"""
         import numpy as _np

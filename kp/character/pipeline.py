@@ -488,10 +488,29 @@ def stage_pack(entries: List[Entry], norm_dir: str, layer_info: Dict[str, dict],
         else:
             tokens = np.asarray(tok, dtype=np.float32)
             tok_src = "trained(Character Fitter, stage_fit)"
+        # ════ 伪深度绘制序（2026-10-05 补上「只存不产」的字段）════
+        depth_np = None
+        depth_meta: dict = {}
+        if "body_base" in layers:
+            try:
+                from .occlusion import depth_from_labels, verify_depth
+                _lab = np.full(np.asarray(layers["body_base"]).shape[:2], -1,
+                               dtype=np.int16)
+                for _n, _arr in layers.items():
+                    _a = np.asarray(_arr)
+                    if _n in SEMANTIC_LAYERS and _a.ndim == 3 and _a.shape[-1] == 4:
+                        _lab[_a[..., 3] > 0] = SEMANTIC_LAYERS.index(_n)
+                _depth, _dm = depth_from_labels(_lab)
+                depth_np = _depth
+                depth_meta = {"depth": _dm, "verify": verify_depth(_depth, _lab),
+                              "note": "伪深度 = **绘制序**（非真实 3D 深度）"}
+            except Exception as e:                                    # noqa: BLE001
+                depth_meta = {"depth_error": f"{type(e).__name__}: {e}"}
         card = CharacterCard(
             name=tag,
             identity_token=torch.from_numpy(tokens),
             layers=layers,
+            depth_order=depth_np,
             meta={"views": [e.file for e in es],
                   "front_ref": front.file,
                   "view_masks": {e.file: f"norm/{e.file}" for e in es},
@@ -509,7 +528,8 @@ def stage_pack(entries: List[Entry], norm_dir: str, layer_info: Dict[str, dict],
                             for e in es if "bands" in layer_info[e.file]},
                   "identity_token": tok_src,
                   "layers_source": layer_src,
-                  "semantic_layers": sem_note},
+                  "semantic_layers": sem_note,
+                  "depth_order_meta": depth_meta},
         )
         p = os.path.join(out_dir, f"{tag}.card")
         card.save(p)
