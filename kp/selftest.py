@@ -2113,6 +2113,53 @@ def main() -> int:
                 "③主干用中文 ⛔未开始 ⇒ 说'支持中文'必须指明是哪一件")
     check("⛔ 「支持中文」的三件事必须分开说", _distill_three_things_separated)
 
+    # ---------------- 33. GPU 支持（白天满载）----------------
+    section("33. GPU 支持（⭐ 白天放开满载的必查项）")
+
+    def _gpu_encode_matches_cpu():
+        """🔴 `encode_views` 的 GPU 路径必须与 CPU **判据层面一致**。
+
+        ⚠️ **判据用「相关系数」而非「逐位相等」** —— 我第一版用 `max|Δ| < 1e-3` 当门槛，
+        实测 CPU/GPU 差 1.82e-03 **误报红**，但**相关系数 = 1.00000000**。
+        根因：fp32 卷积在 CPU/GPU 上的浮点累加顺序不同 ⇒ 末位差异是**正常的**，
+        ⛔ **不该用逐位相等当判据**（那会把「设备差异」误判成「实现 bug」）。
+        """
+        import torch as _t
+        from kp.latent.real_separation import load_real_views, encode_views
+        if not _t.cuda.is_available():
+            return "⚠️ 无 GPU，跳过"
+        v = load_real_views(size=64, views_per_source=2, max_views=2)
+        _, b1 = encode_views(v, device="cpu")
+        _, b2 = encode_views(v, device="cuda")
+        c = float(_t.corrcoef(_t.stack([b1.z.flatten(), b2.z.flatten()]))[0, 1])
+        assert c > 0.9999, f"CPU/GPU 相关性仅 {c:.6f} ⇒ 不是浮点噪声，是实现不一致"
+        return f"相关系数 {c:.8f}（>0.9999）✔ 判据层面一致"
+    check("🔴 GPU 编码与 CPU 判据一致（用相关不用逐位）", _gpu_encode_matches_cpu)
+
+    def _gpu_latent_returns_cpu():
+        """⛔ latent 必须**搬回 CPU** —— 下游统计/判据都在 CPU 上做。"""
+        import torch as _t
+        from kp.latent.real_separation import load_real_views, encode_views
+        if not _t.cuda.is_available():
+            return "⚠️ 无 GPU，跳过"
+        v = load_real_views(size=64, views_per_source=2, max_views=2)
+        vae, b = encode_views(v, device="cuda")
+        assert b.z.device.type == "cpu", f"latent 在 {b.z.device}，应在 CPU"
+        assert next(vae.parameters()).device.type == "cpu", "vae 未搬回 CPU"
+        return "latent 与 vae 均已搬回 CPU ✔"
+    check("⛔ GPU 跑完把 latent/vae 搬回 CPU", _gpu_latent_returns_cpu)
+
+    def _gpu_run_g2_accepts_device():
+        """`run_real_g2` 必须接受 `device` 并透传（原先**只能跑 CPU**）。"""
+        import inspect
+        from kp.latent.real_separation import run_real_g2
+        sig = inspect.signature(run_real_g2)
+        assert "device" in sig.parameters, "run_real_g2 没有 device 参数 ⇒ GPU 用不了"
+        assert sig.parameters["device"].default is None, \
+            "device 默认应为 None（=CPU），不能默认 cuda（会变静默行为）"
+        return f"run_real_g2(device=...) ✅ 默认 {sig.parameters['device'].default}（=CPU）"
+    check("run_real_g2 支持 device 且默认 CPU", _gpu_run_g2_accepts_device)
+
     # ---------------- 汇总 ----------------
     return _summary()
 

@@ -444,22 +444,33 @@ def block_cross_r2(z: torch.Tensor) -> Dict[str, float]:
 
 
 def encode_views(views: RealViewSet, *, base: int = 16, seed: int = 0,
-                 batch: int = 0) -> Tuple[HybridVAE, LatentBundle]:
-    """真实图像 → `HybridVAE.encode` → 40ch 混合 latent（fp32 / 纯 CPU / 不做后验采样）。
+                 batch: int = 0, device: Optional[str] = None
+                 ) -> Tuple[HybridVAE, LatentBundle]:
+    """真实图像 → `HybridVAE.encode` → 40ch 混合 latent（fp32 / **不做后验采样**）。
 
     ⚠️ `HybridVAE.encode` **内部没有任何归一化**（`nn.Sequential` 直上直下），
        输入口径由调用方负责。本仓库的图像口径是 `[-1,1]`
        （见 `kp/character/dataset.py:load_image`），本模块沿用。
+
+    ⭐ **`device` 参数（2026-10-04 新增）**：原先本模块**只能跑 CPU**（384px 全量实测 651 秒），
+       而机器有 sm_120 GPU 可用 ⇒ 现在可 `device="cuda"` 提速。
+       ⚠️ **数值口径不变**：只是搬设备，`latent` 的定义/统计口径完全一致
+       （fp32、无归一化、无后验采样）⇒ **CPU 与 GPU 的结果应逐位接近**。
     """
     torch.manual_seed(seed)
     vae = HybridVAE(base=base)
     vae.eval()
+    dev = torch.device(device) if device else torch.device("cpu")
+    vae = vae.to(dev)
+    imgs = views.images.to(dev)
     z_parts = []
     with torch.no_grad():
         step = batch or views.n_views
-        for i in range(0, views.n_views, max(1, step)):
-            z_parts.append(vae.encode(views.images[i:i + step]))
-    z = torch.cat(z_parts, 0)
+        for i in range(0, imgs.shape[0], max(1, step)):
+            z_parts.append(vae.encode(imgs[i:i + step]))
+    # ⚠️ 搬回 CPU：下游的统计/判据都在 CPU 上做（`latent_stats` 等），避免多处设备不一致
+    z = torch.cat([p.cpu() for p in z_parts], 0)
+    vae = vae.to("cpu")
     return vae, LatentBundle(z=z, stats=latent_stats(z))
 
 
@@ -778,7 +789,8 @@ def run_real_g2(*, image_dir: Optional[str] = None, size: int = 384,
                 base: int = 16, seed: int = 0, max_dep: float = 0.20,
                 anchor_ablation: bool = True, frozen_arm: bool = True,
                 semantic_arm: bool = True, synth_control: bool = True,
-                synth_steps: int = 400, verbose: bool = False) -> dict:
+                synth_steps: int = 400, verbose: bool = False,
+                device: Optional[str] = None) -> dict:
     """真图版 G2 全流程：装载 → 编码 → 尺子 → 多臂对照 → 聚合判据。
 
     六个臂：
@@ -808,7 +820,7 @@ def run_real_g2(*, image_dir: Optional[str] = None, size: int = 384,
             print(f"  ⚠️ 缺口：{g}")
         print()
 
-    vae0, bundle = encode_views(views, base=base, seed=seed)
+    vae0, bundle = encode_views(views, base=base, seed=seed, device=device)
     if bundle.stats["collapsed"]:
         gaps.append("随机初始化编码器输出近似常数（未训编码器的预期行为）")
 
