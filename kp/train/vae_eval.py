@@ -174,11 +174,92 @@ def _fid_from_feats(f1: np.ndarray, f2: np.ndarray,
     return float(val)
 
 
+def _as_tensor(v):
+    """把 diffusers 可能返回的三种东西统一成**确定性张量**。
+
+    🔴 **本项目踩过的坑（重要，别再犯）**：判据原先写成
+    `v.mode() if hasattr(v, "mode") else v` ——
+    但 **`torch.Tensor` 本身就有 `.mode()` 方法**（求众数，返回 `return_types.mode`
+    而非张量！）⇒ 纯张量被误判成「分布对象」，于是 decode 收到
+    `torch.return_types.mode` 并报 `'torch.return_types.mode' object has no attribute 'shape'`。
+
+    ⇒ 正确判据：**先排除 Tensor**，再按「分布」处理。
+    """
+    if isinstance(v, torch.Tensor):
+        return v                                  # ⭐ 必须是第一分支
+    if hasattr(v, "mode"):
+        return v.mode()                           # DiagonalGaussianDistribution 等
+    if hasattr(v, "sample"):
+        return v.sample()
+    raise TypeError(f"无法把 {type(v)} 转成张量")
+
+
+class _DiffusersVAEAdapter(torch.nn.Module):
+    """把 diffusers VAE（`AutoencoderDC`）适配成本项目 `HybridVAE` 的接口。
+
+    为什么需要：我们的 `evaluate_model` 只用 `encode_latent` / `decode` 两个方法，
+    而 diffusers 的 `encode()` 返回 **`EncoderOutput`**（不是张量，字段名 `latent`）、
+    `decode()` 返回 **`DecoderOutput`**（字段名 `sample`）。⇒ 两者不同构，无法直接比。
+
+    ⚠️ **确定性**（实测确认）：`AutoencoderDC` 的 `encode()` 返回的 `latent` 是
+    **确定性张量**（shape `(1,32,8,8)`，**不是** `DiagonalGaussianDistribution`），
+    与本项目 HybridVAE 的确定性 latent 同性质 ⇒ **可直接对照，无需取 mode**。
+    保留 `latent_dist` 分支只为兼容别的 diffusers VAE。
+    """
+
+    def __init__(self, ae):
+        super().__init__()
+        self.ae = ae
+        # ⭐ 外部 VAE 的解码输出**本身就是 [-1,1] 附近**（实测 DC-AE 原始范围
+        #    [-1.315, 1.457]）⇒ 不该再套 tanh。声明自己的后处理，供调用方自动采用。
+        self.post = "clip"
+
+    def encode_latent(self, img: torch.Tensor) -> torch.Tensor:
+        out = self.ae.encode(img)
+        # ⚠️ 兼容三种形态：属性访问 / dict / 分布对象 —— 逐个显式试，不做静默假设
+        for k in ("latent", "latent_embeds"):
+            v = out.get(k) if isinstance(out, dict) else getattr(out, k, None)
+            if v is not None:
+                return _as_tensor(v)
+        ld = out.get("latent_dist") if isinstance(out, dict) \
+            else getattr(out, "latent_dist", None)
+        if ld is not None:
+            return _as_tensor(ld)
+        raise TypeError(f"无法从 {type(out)} 提取 latent")
+
+    def decode(self, z: torch.Tensor) -> torch.Tensor:
+        out = self.ae.decode(z)
+        return out.sample if hasattr(out, "sample") else out
+
+
+def _wrap_diffusers_vae(ae) -> _DiffusersVAEAdapter:
+    return _DiffusersVAEAdapter(ae)
+
+
 @torch.no_grad()
 def evaluate_model(vae: HybridVAE, x01: torch.Tensor, *, device: str,
-                   lpips_fn=None, batch: int = 32,
-                   want_rfid: bool = True) -> Dict[str, float]:
-    """在固化评估集上算全部指标。`x01` 是 [0,1] 的 (N,3,H,W)。"""
+                    lpips_fn=None, batch: int = 32,
+                    want_rfid: bool = True,
+                    post: str = "tanh") -> Dict[str, float]:
+    """在固化评估集上算全部指标。`x01` 是 [0,1] 的 (N,3,H,W)。
+
+    🔴 **`post` 参数（2026-10-04 实测踩坑，极重要）**：
+    我们自己的 `HybridVAE` 解码输出**无界**，训练时用 `tanh` 压回 [-1,1]，
+    所以评估时也套 `tanh` —— 对它是对的。
+    但**外部参照 VAE（如 Sana 的 DC-AE）输出本来就是 [-1,1] 附近**，
+    再套一次 `tanh` 会**把输出压扁**：
+
+    实测 DC-AE（8 张真图 @256²）：
+    | 后处理 | 输出范围 | 标准差 | L1 | PSNR |
+    |--------|---------|--------|-----|------|
+    | 原始 | [-1.315, 1.457] | 0.5672 | **0.0515** | **25.28** |
+    | 套 tanh | [-0.865, 0.897] | 0.4669（**−17.7%**） | 0.1265 | 21.73 |
+
+    ⛔ 这个混淆**会把方向搞反**：带着多余 tanh 评参照系，会得到「参照系的 L1
+    比我们差」这种**完全虚假**的结论（我们 0.1124 vs 参照系虚报 0.1474）。
+    ⇒ **跨模型比较时必须让 `post` 各自用合适的那个**：
+      本项目 VAE → `tanh`；外部已归一化的 VAE → `clip`（只夹范围，不改分布）。
+    """
     vae.eval()
     dev_t = torch.device(device)
     n = x01.shape[0]
@@ -187,7 +268,13 @@ def evaluate_model(vae: HybridVAE, x01: torch.Tensor, *, device: str,
     for s in range(0, n, batch):
         xb = x01[s:s + batch].to(dev_t)                 # ⚠️ x01 常驻 CPU，逐块上卡
         xin = xb.mul(2.0).sub_(1.0)                     # [-1,1]
-        rec = torch.tanh(vae.decode(vae.encode_latent(xin)))
+        raw = vae.decode(vae.encode_latent(xin))
+        if post == "tanh":
+            rec = torch.tanh(raw)
+        elif post in ("clip", "none"):
+            rec = raw if post == "none" else raw.clamp(-1, 1)
+        else:
+            raise ValueError(f"未知 post={post}（可选 tanh / clip / none）")
         e = (rec - xin).abs().mean(dim=(1, 2, 3))
         mse = ((rec - xin) ** 2).mean(dim=(1, 2, 3)).clamp_min(1e-12)
         l1s.extend(e.cpu().tolist())
@@ -231,11 +318,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--ckpt", nargs="*", default=[], help="要评的 .pt（可多个）")
     ap.add_argument("--include-untrained", action="store_true",
                     help="额外评一个随机初始化模型当**下限参照**")
+    ap.add_argument("--ref-vae", default=None,
+                    help="⭐ 外部真 VAE 的 diffusers 目录（如 Sana 自带的 DC-AE）"
+                         "当**参照系**。⚠️ 压缩率/通道可能不同 ⇒ **只作相对参照，"
+                         "不作等式对照**。用途：给「P1 的 VAE 够不够好」一把实证的尺子。")
     ap.add_argument("--size", type=int, default=256, help="评估分辨率（所有模型一致）")
     ap.add_argument("--batch", type=int, default=32)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--no-rfid", action="store_true", help="跳过 rFID（省时间）")
     ap.add_argument("--no-lpips", action="store_true", help="跳过 LPIPS")
+    ap.add_argument("--post", default="auto",
+                    choices=("auto", "tanh", "clip", "none"),
+                    help="⭐ 解码输出的后处理。**auto（默认）** = 参照系用 clip、"
+                         "本项目用 tanh。⛔ 跨模型比较时若对参照系误用 tanh，"
+                         "会把它的 L1 虚高 2.5 倍、结论完全搞反（实测 DC-AE "
+                         "0.0515→0.1265）")
     ap.add_argument("--out", default=None)
     a = ap.parse_args(argv)
 
@@ -267,11 +364,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     rows = []
     todo = [(Path(p).stem, p) for p in a.ckpt]
+    if a.ref_vae:
+        # ⭐ 参照系：外部**真训练充分**的 VAE（diffusers 格式）。
+        #    用途 = 给「P1 训出的 VAE 够不够好」一把有实证的尺子，
+        #    避免门线靠拍脑袋。本项目 VAE 与它压缩率/通道数不同（32×/40ch vs 32×/32ch），
+        #    所以**只作相对参照，不作等式对照**。
+        todo.append((f"ref:{Path(a.ref_vae).parent.name}", "ref:" + a.ref_vae))
     if a.include_untrained:
         todo.append(("untrained随机初始化", None))
     for tag, path in todo:
         if path is None:
             vae = HybridVAE(base=16).to(dev)
+        elif path.startswith("ref:"):
+            # ⚠️ diffusers 的 `AutoencoderDC.encode()` 返回 `EncoderOutput`，
+            #    不是张量；且 decode 返回 `DecoderOutput`。这里做一层**接口适配**，
+            #    让外部 VAE 与 HybridVAE 在 `evaluate_model` 眼里完全同构。
+            from diffusers import AutoencoderDC
+            vae = _wrap_diffusers_vae(
+                AutoencoderDC.from_pretrained(path[4:], variant="bf16").to(dev).eval())
         else:
             blob = torch.load(path, map_location="cpu", weights_only=False)
             base = int(blob.get("base", 16))
@@ -279,13 +389,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             vae.load_state_dict(blob["state_dict"])
             tag = f"{tag}(base{base})"
         t0 = time.time()
+        # ⭐ `post=auto`（默认）：**参照系用 clip，本项目用 tanh** ——
+        #    跨模型比较时后处理必须各自合适，否则结论会被搞反（见 evaluate_model docstring）
+        use_post = a.post
+        if use_post == "auto":
+            use_post = getattr(vae, "post", "tanh")
         m = evaluate_model(vae, x01, device=dev, lpips_fn=lpips_fn,
-                           batch=a.batch, want_rfid=not a.no_rfid)
+                           batch=a.batch, want_rfid=not a.no_rfid, post=use_post)
         m["ckpt"] = tag
+        m["post"] = use_post
         m["sec"] = round(time.time() - t0, 1)
         rows.append(m)
         print(f"  ✅ {tag:<34} L1 {m['l1']:.4f}  PSNR {m['psnr']:5.2f}  "
-              f"SSIM —  edge {m['edge']:.4f}"
+              f"SSIM {m.get('ssim', float('nan')):.4f}  edge {m['edge']:.4f}"
               + (f"  LPIPS {m['lpips']:.4f}" if "lpips" in m else "")
               + (f"  rFID {m['rfid']:.1f}" if "rfid" in m else "")
               + f"   ({m['sec']}s)")
