@@ -584,8 +584,76 @@ def constant_roi_provider(value: float = 0.0, side: int = 4) -> Callable:
     return provider
 
 
+def t0_glyph_roi_provider(texts: Optional[Sequence[str]] = None,
+                          font_path: Optional[str] = None,
+                          min_side: int = 8) -> Callable:
+    """⭐ **T0 真字形 provider**（2026-10-05）—— 把「真字」接进排版链路。
+
+    ═══ 为什么要它 ═══
+    `token_roi_provider` 产的是「高斯投影占位」⇒ **形状对、内容是噪声**。
+    它的 docstring 写「字形正确性由 T0 字形 provider 负责」—— 而 T0 当时不存在。
+    ⇒ 本provider 补上这一环：**ROI 里放的是真的汉字像素**。
+
+    ⭐ 逐字对应：第 i 个 ROI 放第 i 个字（`texts` 长度须= ROI 数；
+       不足则循环取，超出则最后一个 ROI 收剩下的字）。
+    ⚠️ 字形在**像素域**渲染后按 ROI 尺寸缩放 —— ROI 分支是**低压缩**的，
+       所以这个层级是对的（32× 压缩会把 40px 汉字抹成 1.25 格，那正是要开分支的原因）。
+    """
+    from .t0_glyph import GlyphBox, glyphs_to_roi_tensor, render_glyphs
+
+    def provider(image, rois, windows, channels: int, **_):
+        n = len(rois)
+        if not n:
+            return []
+        ts = list(texts) if texts else ["心夏北极星"]
+        # ⭐ 逐字切分：把整串拆成 n 份（第 i 个 ROI 该放哪几个字）
+        per: List[str] = [""] * n
+        chars = "".join(ts)
+        if chars:
+            # 按 ROI 宽度比例分配（宽的 ROI 多分字），至少每块1 个
+            widths = [max(1, int(r["x1"] - r["x0"])) for r in rois]
+            tot = sum(widths)
+            idx, prev = 0, 0
+            for i, w in enumerate(widths):
+                end = len(chars) if i == n - 1 else max(prev + 1,
+                                                          round(len(chars) * (prev + w) / tot))
+                end = min(len(chars), max(prev, end))
+                per[i] = chars[prev:end] or chars[prev:prev + 1]
+                prev = end
+        out = []
+        for i, s in enumerate(per):
+            if not s:
+                out.append(torch.zeros(int(image.shape[0]), channels,
+                                       min_side, min_side, dtype=image.dtype))
+                continue
+            # ⭐ ROI 在 latent 上的格数 → 字形像素边长（按格数给，缺字形态会糊）
+            wcell = getattr(windows[i], "cells", 0) if i < len(windows) else 0
+            side = max(min_side, min(64, int(wcell) or min_side))
+            boxes = render_glyphs(s, font_px=max(8, side), font_path=font_path,
+                                  canvas=(side * max(1, len(s)) + side, side * 2))
+            t = glyphs_to_roi_tensor(boxes, side, channels)       # (n_chars, C, side, side)
+            # ⭐ 多字**并排**放进同一格（不是叠加/平均 —— 那是信息论上的销毁）：
+            #    每个字占 side/len(s) 的宽度，整体高度不变 ⇒ 不变形、不糊。
+            k = len(boxes)
+            cell = max(1, side // k)
+            canvas_a = torch.zeros((int(image.shape[0]), channels, side, side),
+                                   dtype=image.dtype)          # (B,C,H,W) NCHW
+            for j, bx in enumerate(boxes):
+                #每个字占 cell×side 的竖长条（保持字形比例：字高=side，字宽=cell）
+                sub = glyphs_to_roi_tensor([bx], cell, channels)[0].to(image.dtype)
+                # sub: (C, cell, cell) → 缩放到 (C, side, cell) 铺满高度
+                sub = torch.nn.functional.interpolate(
+                    sub.unsqueeze(0), size=(side, cell), mode="bilinear",
+                    align_corners=False)[0]
+                x0 = min(side - cell, j * cell)
+                canvas_a[:, :, :, x0:x0 + cell] = sub
+            out.append(canvas_a)
+        return out
+
+    return provider
+
+
 def noise_roi_provider(seed: int = 1, side: int = 4) -> Callable:
-    """负对照 provider：ROI 载荷 = 固定种子随机噪声（形状与真 provider 一致）。"""
 
     def provider(image, rois, windows, channels: int, **_):
         g = torch.Generator().manual_seed(int(seed))
