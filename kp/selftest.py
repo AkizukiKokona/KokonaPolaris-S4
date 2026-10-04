@@ -2247,6 +2247,67 @@ def main() -> int:
                 f"｜{tuple(dep.shape)}｜判据 {vm['verify']['n_checked']} 条全通")
     check("⭐ 角色卡端到端带 depth_order + 判据", _depth_in_card_end_to_end)
 
+    # ---------------- 29e. T0 真字形合成（补上「T0 不存在」这个缺口）----------------
+    section("29e. T0 像素域真字形（⭐ 字形正确性曾是「由T0负责」但T0不存在）")
+
+    def _t0_renders_real_glyphs():
+        """⭐ 必须**真的画出汉字**（有墨水），不是画方块/噪声。"""
+        from kp.typography.t0_glyph import render_line
+        t, st = render_line("心夏北极星", 64)
+        assert t.dim() == 5, f"应是 (1,每字,C,side,side)，收到 {tuple(t.shape)}"
+        assert t.shape[1] == 5, f"5 个字应有5 块，收到 {t.shape[1]}"
+        assert t.shape[-1] == 64 and t.shape[-2] == 64
+        ink = float((t[0, :, 0] > 0).float().mean())
+        assert ink > 0.05, f"墨水占比仅{ink:.2%} ⇒ 字没画出来"
+        assert st["glyphs"] == list("心夏北极星"), f"字序错：{st['glyphs']}"
+        return (f"5 字全渲染｜ROI{tuple(t.shape)}｜墨水 {ink:.1%}"
+                f"｜字体 {st['font'].split(chr(92))[-1]}")
+    check("⭐ T0 渲染真汉字（不是方块/噪声）", _t0_renders_real_glyphs)
+
+    def _t0_different_chars_differ():
+        """⛔ 不同字必须**画出不同的像素**（否则等于在画同一个东西）。"""
+        import torch as _t
+        from kp.typography.t0_glyph import render_line
+        a, _ = render_line("心", 64)
+        b, _ = render_line("夏", 64)
+        # 逐字张量不可直接比（宽度归一后位置不同）⇒ 比墨水掩码的IoU
+        ma = a[0, 0, 0] > 0
+        mb = b[0, 0, 0] > 0
+        inter = float((ma & mb).sum())
+        union = float((ma | mb).sum())
+        iou = inter / max(1.0, union)
+        assert iou < 0.95, f"「心」与「夏」的掩码 IoU={iou:.3f} ⇒ 画的是同一个东西"
+        return f"「心」vs「夏」掩码 IoU={iou:.3f}（<0.95 ⇒ 字形确实不同）"
+    check("⛔ 不同汉字画出不同像素（不是同一张图）", _t0_different_chars_differ)
+
+    def _t0_missing_font_fails_loudly():
+        """⛔ 找不到中文字体 ⇒ **明确报错**，不静默画方块（那会产出乱码图）。"""
+        from kp.typography import t0_glyph
+        orig = t0_glyph.FONT_CANDIDATES
+        orig_g = t0_glyph.FONT_GLOBS
+        try:
+            t0_glyph.FONT_CANDIDATES = ("/nonexistent/xxx.ttf",)
+            t0_glyph.FONT_GLOBS = ("/nonexistent/*.ttf",)
+            try:
+                t0_glyph.find_font()
+            except t0_glyph.FontNotFound as e:
+                assert "不静默" in str(e) or "方块" in str(e), f"报错没说明：{e}"
+                return "无字体 ⇒ FontNotFound（不静默画方块）"
+            raise AssertionError("⛔ 无字体时没报错")
+        finally:
+            t0_glyph.FONT_CANDIDATES = orig
+            t0_glyph.FONT_GLOBS = orig_g
+    check("⛔ 缺字体时响亮失败（不产乱码图）", _t0_missing_font_fails_loudly)
+
+    def _t0_glyph_ascii_not_empty():
+        """⭐ 中文是重点但ASCII 也不能崩（角色名/英文标语）。"""
+        from kp.typography.t0_glyph import render_line
+        t, st = render_line("Kokona", 64)
+        ink = float((t[0, :, 0] > 0).float().mean())
+        assert ink > 0.02, f"ASCII 墨水占比 {ink:.2%} 过低"
+        return f"ASCII 6 字符｜墨水 {ink:.1%}"
+    check("⭐ T0 也能渲染 ASCII（不只中文）", _t0_glyph_ascii_not_empty)
+
     def _seg_predicts_on_real_image():
         """解算器必须能在**真图**上跑通（不只是接口存在）。"""
         import numpy as _np
