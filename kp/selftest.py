@@ -2041,6 +2041,79 @@ def main() -> int:
         return "stage_layers(segmenter=…) 已接通 + is_semantic 标记就位"
     check("⭐ 解算器已接进生产管线（不再只被测试调用）", _anat_registered_in_pipeline)
 
+    # ---------------- 29c. 换角色主线入口（审计 P2-1：make_identity 曾零调用）----------------
+    section("29c. 换角色主线（⭐ 「秒级换角色」曾只是个定义）")
+
+    def _identity_mainline_exists():
+        """`make_identity` 必须**真被调用**（审计发现它零调用 ⇒ 主线入口是空的）。"""
+        import kp.character.identity as _id
+        assert callable(_id.make_identity), "identity.make_identity 不存在"
+        for fn in ("load_views", "load_fitter", "save_fitter",
+                   "views_from_card", "attach_to_card", "probe_peak"):
+            assert callable(getattr(_id, fn, None)), f"identity.{fn}缺失"
+        #⭐ 关键：主线路径**真的调** fitter.make_identity（不是绕过它另写一套）
+        import inspect
+        src = inspect.getsource(_id.make_identity)
+        assert "fitter.make_identity" in src, "identity.make_identity 没调fitter 的那条路径"
+        return "identity 模块六件套齐全，且真的走 fitter.make_identity"
+    check("⭐ 换角色主线入口已接通（不再是空定义）", _identity_mainline_exists)
+
+    def _identity_no_geometry_deadparam():
+        """⛔ `use_geometry` 死参数必须删掉（训练侧恒 False ⇒ geo_enc 白建）。
+
+        与 2026-10-03 删 adaLN 第 7 段 `g_geo` 同一理由。
+        """
+        import inspect
+        from kp.character.fitter import CharacterFitter
+        sig = inspect.signature(CharacterFitter.__init__)
+        assert "use_geometry" not in sig.parameters, \
+            "⛔ use_geometry 还在（训练侧恒 False ⇒ 死参数，白建geo_enc）"
+        f = CharacterFitter(dim=32, n_tokens=8, view_dim=16, heads=2)
+        assert f.geo_enc is None, "默认不该建 geo_enc"
+        # ⭐ 但要能**显式**打开，且打开后真能用
+        f2 = CharacterFitter(dim=32, n_tokens=8, view_dim=16, heads=2).enable_geometry(16)
+        assert f2.geo_enc is not None, "enable_geometry() 没建geo_enc"
+        return f"默认无 geo_enc（省参数）｜显式开启后有（{sum(p.numel() for p in f2.geo_enc.parameters())} 参数）"
+    check("⛔ use_geometry 死参数已删（几何分支显式开启）", _identity_no_geometry_deadparam)
+
+    def _identity_geo_must_not_be_silently_dropped():
+        """⛔ 传了 `geo` 但分支没开 ⇒ **必须报错**，不许静默忽略。"""
+        import torch as _t
+        from kp.character.fitter import CharacterFitter
+        f = CharacterFitter(dim=32, n_tokens=8, view_dim=16, heads=2)
+        v = _t.zeros(1, 2, 3, 32, 32)
+        g = _t.zeros(1, 2, 3, 32, 32)
+        try:
+            f(v, g)
+        except ValueError as e:
+            assert "enable_geometry" in str(e), f"报错信息没指引：{e}"
+            return "传 geo 但未开分支 ⇒ 明确报错（不静默丢几何信息）"
+        raise AssertionError("⛔ 传了 geo 却静默忽略了 ⇒ 几何信息悄悄消失")
+    check("⛔ 几何信息不会被静默丢弃", _identity_geo_must_not_be_silently_dropped)
+
+    def _identity_real_forward_works():
+        """⭐ 端到端：真权重 → 一次前向 → 身份 token（真跑，不是只查函数存在）。"""
+        import glob
+        import os as _os                      # ⚠️ 顶层没 import os（见文件头）
+        import torch as _t
+        from kp.paths import OUT
+        ck = sorted(glob.glob(str(OUT / "characters" / "*" / "fitter" / "fitter.pt")))
+        if not ck:
+            return "⚠️ 无已训 Fitter 权重，跳过（跑 pipeline --fit 生成）"
+        import kp.character.identity as _id
+        f = _id.load_fitter(ck[0], device="cpu")
+        norm = _os.path.join(_os.path.dirname(_os.path.dirname(ck[0])), "norm")
+        imgs = sorted(glob.glob(_os.path.join(norm, "*.png")))
+        if len(imgs) < 2:
+            return f"⚠️ 视图不足2 张（{len(imgs)}），跳过"
+        v = _id.load_views(imgs, size=128, device="cpu")
+        r = _id.make_identity(f, v, device="cpu")
+        assert len(r["shape"]) == 3 and r["shape"][1] == 256, f"token 形状异常：{r['shape']}"
+        assert r["seconds"] < 5.0, f"换角色耗时 {r['seconds']}s ⇒ 不满足「秒级」"
+        return (f"token{r['shape']}｜{r['seconds']:.3f}s（< 5s ⇒ 秒级 ✅）"
+                f"｜{_os.path.basename(_os.path.dirname(_os.path.dirname(ck[0])))}")
+    check("⭐ 换角色端到端（真权重→一次前向→token）", _identity_real_forward_works)
+
     def _seg_predicts_on_real_image():
         """解算器必须能在**真图**上跑通（不只是接口存在）。"""
         import numpy as _np

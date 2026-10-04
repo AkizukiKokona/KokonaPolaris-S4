@@ -47,16 +47,26 @@ class ViewEncoder(nn.Module):
 
 
 class CharacterFitter(nn.Module):
-    """多视角 → 身份 token。"""
+    """多视角 → 身份 token。
+
+    ⚠️ **2026-10-05 删除 `use_geometry` 参数**（项目教训：「预留接口不该用每层都付钱的方式存在」）
+       审计发现：训练侧三处都显式传 `use_geometry=False`（`kp/train/fitter.py:174/295/309`）
+       ⇒ `geo_enc` **在正式训练里永不执行**，但 `__init__` 默认 `True`
+       ⇒ 有人写 `CharacterFitter()` 不传参就会**白建一个 `geo_enc`**。
+
+       ⭐ 保留的只有 `forward(views, geo=...)` 的**形参**（纯数据通路，不建模块）——
+       将来真要用几何分支时，只需在这里加回 `geo_enc = ViewEncoder(...)` 一行。
+       这与 2026-10-03 删 adaLN 第 7 段 `g_geo` 的处理**同一个理由**。
+    """
 
     def __init__(self, dim: int = 1024, n_tokens: int = None,
-                 view_dim: int = 256, heads: int = 8, use_geometry: bool = True):
+                 view_dim: int = 256, heads: int = 8):
         super().__init__()
         self.dim = dim
         self.n_tokens = int(n_tokens or CAP.identity_tokens)
-        self.use_geometry = use_geometry
         self.rgb_enc = ViewEncoder(3, 32, view_dim)
-        self.geo_enc = ViewEncoder(3, 32, view_dim) if use_geometry else None
+        # ⛔ 不再无条件建 geo_enc（它没有读取者⇒ 死参数）
+        self.geo_enc: Optional[nn.Module] = None
         layer = nn.TransformerEncoderLayer(d_model=view_dim, nhead=heads,
                                            dim_feedforward=4 * view_dim,
                                            batch_first=True, norm_first=True)
@@ -65,13 +75,27 @@ class CharacterFitter(nn.Module):
         self.queries = nn.Parameter(torch.randn(self.n_tokens, view_dim) * 0.02)
         self.to_dim = nn.Linear(view_dim, dim)
 
+    def enable_geometry(self, view_dim: int = 256) -> "CharacterFitter":
+        """☘️ **显式**打开几何分支（默认关闭 —— 不预留、不白建）。"""
+        if self.geo_enc is None:
+            self.geo_enc = ViewEncoder(3, 32, view_dim)
+        return self
+
     def forward(self, views: torch.Tensor,
                 geo: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """views: (B, V, 3, H, W) → identity tokens (B, T, dim)。"""
+        """views: (B, V, 3, H, W) → identity tokens (B, T, dim)。
+
+        ⚠️ 传了 `geo` 但没 `enable_geometry()` ⇒ **明确报错**，不静默忽略
+        （静默忽略 = 几何信息悄悄消失，是最难查的一类 bug）。
+        """
         B, V = views.shape[:2]
         x = views.reshape(B * V, *views.shape[2:])
         tok = self.rgb_enc(x)                                   # (B*V, N, view_dim)
-        if self.geo_enc is not None and geo is not None:
+        if geo is not None:
+            if self.geo_enc is None:
+                raise ValueError(
+                    "传了 `geo` 但几何分支未启用 ⇒ 调 `model.enable_geometry()`。"
+                    "⛔ 不静默忽略（否则几何信息悄悄消失）。")
             g = geo.reshape(B * V, *geo.shape[2:])
             tok = tok + self.geo_enc(g)
         N = tok.shape[1]

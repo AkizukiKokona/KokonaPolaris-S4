@@ -170,8 +170,7 @@ def train_fitter(loader: PairViewLoader, fitter: Optional[CharacterFitter] = Non
 
     if fitter is None:
         # 用图像尺寸推断（合成数据常是 48²，比默认 256² 快得多）
-        fitter = CharacterFitter(dim=64, n_tokens=16, view_dim=32, heads=4,
-                                 use_geometry=False).to(device)
+        fitter = CharacterFitter(dim=64, n_tokens=16, view_dim=32, heads=4).to(device)
     fitter = fitter.to(device)
     set_dropout(fitter, dropout)
 
@@ -291,8 +290,7 @@ def run_closed_loop(*, n_identities: int = 8, n_train_views: int = 3, n_holdout:
     loader, holdout, refs = PairViewLoader.synthetic_split(
         n_identities=n_identities, n_train_views=n_train_views, n_holdout=n_holdout,
         size=size, seed=seed)
-    fitter = CharacterFitter(dim=64, n_tokens=16, view_dim=32, heads=4,
-                             use_geometry=False)
+    fitter = CharacterFitter(dim=64, n_tokens=16, view_dim=32, heads=4)
     res = train_fitter(loader, fitter, steps=steps, seed=seed, margin=margin, **kw)
     ho = holdout_invariance(fitter, holdout, refs)
 
@@ -305,8 +303,7 @@ def run_closed_loop(*, n_identities: int = 8, n_train_views: int = 3, n_holdout:
     ok_ctrl = False
     if control:
         bad = shuffle_positives(loader, seed=seed)
-        cfit = CharacterFitter(dim=64, n_tokens=16, view_dim=32, heads=4,
-                               use_geometry=False)
+        cfit = CharacterFitter(dim=64, n_tokens=16, view_dim=32, heads=4)
         cfit = train_fitter(bad, cfit, steps=steps, seed=seed, margin=margin, **kw).fitter
         # 用**同一套指标**量测被破坏的模型（训练视角 inv 与留出视角 inv）
         cta = _tokens(cfit, bad.to_tensors()["anchor"])

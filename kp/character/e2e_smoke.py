@@ -68,8 +68,8 @@ def run(n_tokens: Optional[int] = None, size: int = 256,
     # ---------- ① Fitter：正/背 → 身份 token ----------
     nt = n_tokens or CAP.identity_tokens
     # ⚠️ `view_dim` 是**构造参数**（不是 CAP 字段）⇒ 用 Fitter 自己的默认值，别猜
-    fitter = CharacterFitter(dim=CAP.identity_token_dim, n_tokens=nt,
-                             use_geometry=True)
+    # ⚠️ 2026-10-05：几何分支改为**显式开启**（不再默认建一个无人读取的 geo_enc）
+    fitter = CharacterFitter(dim=CAP.identity_token_dim, n_tokens=nt)
     t0 = time.time()
     with torch.no_grad():
         id_ctx = fitter(views)
