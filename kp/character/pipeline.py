@@ -41,10 +41,23 @@ MAX_FIT_PIXELS = 20000
 _active_segmenter: Optional[object] = None
 
 
-def _layer_palette() -> np.ndarray:
-    """19 类语义层的**固定**调色板（同一层跨图同色⇒ 肉眼可比）。
+def _downscale_labels(rgba: np.ndarray, lab: np.ndarray, target: int = 128):
+    """把 (RGBA, 标签) 一起等比缩到 `target` 边长（**最近邻**保标签不串）。
 
-    ⭐ 确定性生成（不用随机）：给定 seed 的黄金角散列 ⇒ 每次跑颜色一致。
+    ⭐ 为什么用最近邻：双线性会把标签 id插值成不存在的值
+    （如 3.5 ⇒ 落到别的层）⇒ 那是"静默串层"，比慢更糟。
+    """
+    h, w = lab.shape
+    k = max(1, min(h, w) // max(1, target))
+    if k == 1:
+        return rgba, lab
+    return rgba[::k, ::k], lab[::k, ::k]
+
+
+def _layer_palette() -> np.ndarray:
+    """19 类语义层的**固定**调色板（同一层跨图同色 ⇒ 肉眼可比）。
+
+    ⭐ 确定性生成（不用随机）：黄金角散列 ⇒ 每次跑颜色一致。
     """
     pal = np.zeros((len(SEMANTIC_LAYERS), 3), dtype=np.uint8)
     golden = 0.61803398875
@@ -491,9 +504,12 @@ def stage_pack(entries: List[Entry], norm_dir: str, layer_info: Dict[str, dict],
         # ════ 伪深度绘制序（2026-10-05 补上「只存不产」的字段）════
         depth_np = None
         depth_meta: dict = {}
+        occ_np = None
+        occ_meta: dict = {}
         if "body_base" in layers:
             try:
-                from .occlusion import depth_from_labels, verify_depth
+                from .occlusion import (depth_from_labels, verify_depth,
+                                        occlusion_fill)
                 _lab = np.full(np.asarray(layers["body_base"]).shape[:2], -1,
                                dtype=np.int16)
                 for _n, _arr in layers.items():
@@ -504,6 +520,14 @@ def stage_pack(entries: List[Entry], norm_dir: str, layer_info: Dict[str, dict],
                 depth_np = _depth
                 depth_meta = {"depth": _dm, "verify": verify_depth(_depth, _lab),
                               "note": "伪深度 = **绘制序**（非真实 3D 深度）"}
+                # ---- 遮挡补全（2026-10-05 启用）----
+                # ⚠️ 逐像素 for 循环在 1024² 上会慢 ⇒ 先**下采样到 128** 再做。
+                #    ⭐ 标签用**最近邻**（双线性会插出不存在的层 id ⇒ 静默串层）。
+                #    ⚠️ 因此 occlusion 是**低分辨率推断值**，meta 里如实标注。
+                _rs, _ls = _downscale_labels(img, _lab, target=128)
+                # ⚠️ `depth` 形参在 occlusion_fill 里目前**未被使用**（实现走的是
+                #    局部窗口众数）⇒ 传 None。不要传 1024² 的 depth（尺寸不符）。
+                occ_np, occ_meta = occlusion_fill(_rs, _ls, None)
             except Exception as e:                                    # noqa: BLE001
                 depth_meta = {"depth_error": f"{type(e).__name__}: {e}"}
         card = CharacterCard(
@@ -511,6 +535,7 @@ def stage_pack(entries: List[Entry], norm_dir: str, layer_info: Dict[str, dict],
             identity_token=torch.from_numpy(tokens),
             layers=layers,
             depth_order=depth_np,
+            occlusion=occ_np,
             meta={"views": [e.file for e in es],
                   "front_ref": front.file,
                   "view_masks": {e.file: f"norm/{e.file}" for e in es},
@@ -529,7 +554,8 @@ def stage_pack(entries: List[Entry], norm_dir: str, layer_info: Dict[str, dict],
                   "identity_token": tok_src,
                   "layers_source": layer_src,
                   "semantic_layers": sem_note,
-                  "depth_order_meta": depth_meta},
+                  "depth_order_meta": depth_meta,
+                  "occlusion_meta": occ_meta},
         )
         p = os.path.join(out_dir, f"{tag}.card")
         card.save(p)
