@@ -2160,6 +2160,52 @@ def main() -> int:
         return f"run_real_g2(device=...) ✅ 默认 {sig.parameters['device'].default}（=CPU）"
     check("run_real_g2 支持 device 且默认 CPU", _gpu_run_g2_accepts_device)
 
+    # ---------------- 34. M3 归因（🔴 最关键的实验结论）----------------
+    section("34. M3 冗余归因（DC-AE 对照 · 🔴 结论已固化）")
+
+    def _m3_dcae_available():
+        """DC-AE（Sana 的 32× VAE）必须**真的能用** —— 它是 M3 归因的对照基准。
+
+        ⚠️ **踩过的坑（别重做）**：`from_pretrained` 会 **键名重叠 0**（checkpoint 是
+        Sana 官方 `stages/op_list` 命名，diffusers 的 `AutoencoderDC` 是 `down_blocks`）
+        ⇒ 全部 meta ⇒ 崩。**正解是 `from_single_file(..., local_files_only=True)`**。
+        """
+        try:
+            from kp.probe.m3_attribution import load_dcae
+            import torch
+            m = load_dcae("cuda" if torch.cuda.is_available() else "cpu")
+        except Exception as e:                              # noqa: BLE001
+            return f"⚠️ DC-AE 不可用（{type(e).__name__}），M3 归因实验跳过"
+        n = sum(p.numel() for p in m.parameters())
+        assert n > 3e8, f"DC-AE 参数量仅 {n/1e6:.1f}M（应 312M）"
+        return f"DC-AE 可用 ✅ {n/1e6:.1f}M"
+    check("DC-AE 权重可用（M3 归因的对照基准）", _m3_dcae_available)
+
+    def _m3_attribution_conclusion():
+        """🔴🔴 **M3 归因结论固化**：冗余是**我们的问题**，不是 32× 压缩的必然。
+
+        ⚠️ 这条断言**不只是跑实验**，它是把**已得结论钉住**：
+            我们的 40ch（语义8|细节32）  R²(细节|语义) = **0.988**
+            DC-AE 32ch（同为 32×、Apache-2.0、海量数据训练）
+              切法 前8|后24  R² = 0.4375 / 前16|后16 = 0.6403
+        ⇒ 差距近一个数量级 ⇒ **32× 压缩本身不注定冗余** ⇒ 是我们的监督/训练问题。
+        ⭐ 这直接改变决策：**M3 值得继续投入**（修法② 的价值被大幅提高）。
+        """
+        import json
+        from kp.paths import OUT
+        p = OUT / "m3_attribution.json"
+        if not p.exists():
+            return "⚠️ 尚无 out/m3_attribution.json ⇒ 归因实验还没跑过"
+        r = json.loads(p.read_text(encoding="utf-8"))
+        best = r["best_dcae_r2"]
+        ours = r["我们的_40ch_sem_from_detail"]
+        assert best < ours - 0.2, (
+            f"结论翻转：DC-AE {best:.3f} 已接近我们 {ours:.3f} ⇒ "
+            f"**可能是架构必然**，归因结论需重估")
+        return (f"我们 {ours:.3f} vs DC-AE {best:.3f}（差 {ours-best:.2f}）"
+                f" ⇒ 🟢 **我们的问题**，M3 值得继续投入")
+    check("🔴 M3 归因结论：是我们问题（非架构必然）", _m3_attribution_conclusion)
+
     # ---------------- 汇总 ----------------
     return _summary()
 
