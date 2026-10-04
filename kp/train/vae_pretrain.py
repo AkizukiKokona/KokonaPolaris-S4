@@ -107,8 +107,9 @@ class _ImageDirSource:
     def __len__(self) -> int:
         return len(self.paths)
 
-    def get(self, idx: Sequence[int], size: int) -> torch.Tensor:
-        return load_batch([self.paths[i] for i in idx], size, self.device)
+    def get(self, idx: Sequence[int], size: int,
+            device: Optional[torch.device] = None) -> torch.Tensor:
+        return load_batch([self.paths[i] for i in idx], size, device or self.device)
 
 
 class _CacheSource:
@@ -139,10 +140,12 @@ class _CacheSource:
     def __len__(self) -> int:
         return int(self.arr.shape[0])
 
-    def get(self, idx: Sequence[int], size: int) -> torch.Tensor:
+    def get(self, idx: Sequence[int], size: int,
+            device: Optional[torch.device] = None) -> torch.Tensor:
         import numpy as np
+        dev = device or self.device
         u8 = np.ascontiguousarray(self.arr[np.asarray(idx)])
-        t = torch.from_numpy(u8).to(self.device).permute(0, 3, 1, 2).float().div_(255.0)
+        t = torch.from_numpy(u8).to(dev).permute(0, 3, 1, 2).float().div_(255.0)
         if t.shape[-1] != size:
             t = F.interpolate(t, size=(size, size), mode="bilinear",
                               align_corners=False, antialias=True)
@@ -290,8 +293,10 @@ class _ShardStreamSource:
         self._cur_si, self._cur = si, out
         return out
 
-    def get(self, idx: Sequence[int], size: int) -> torch.Tensor:
+    def get(self, idx: Sequence[int], size: int,
+            device: Optional[torch.device] = None) -> torch.Tensor:
         import numpy as np
+        dev = device or self.device
         want = [int(i) for i in idx]
         groups: dict = {}
         for k, g in enumerate(want):
@@ -307,27 +312,31 @@ class _ShardStreamSource:
             a = _decode_one_u8((b, size))
             if a is not None:
                 arr[i] = a
-        t = torch.from_numpy(arr).to(self.device).permute(0, 3, 1, 2).float().div_(255.0)
+        t = torch.from_numpy(arr).to(dev).permute(0, 3, 1, 2).float().div_(255.0)
         return t.mul_(2.0).sub_(1.0)
 
     # ---- 留出集划分（⚠️ 必须来自**单个分片**）----
-    def split(self, n_eval: int, seed: int):
-        """→ (eval_idx, train_idx, held_out)。
+    def holdout_index(self, n_eval: int, seed: int):
+        """→ (eval_idx, held_out)。**确定性**；⚠️ 只来自**单个分片**。
 
-        ⚠️ **留出集只从一个分片里取** —— 因为 `get()` 要按分片载入 image 列
-        （一个分片 ~1.1GB）；若留出集跨 34 片，评估一次就要读 **37GB**。
+        ⭐ 训练用的 `split()` 与评估装置用的「固化评估集」**共用本方法**
+        ⇒ 保证「评估集 == 训练留出集」，**不可能污染**。
+        ⚠️ 一个分片最多留出 `len(rows)//2`（留一半给训练）。
         """
         n = self.n
         if n_eval <= 0 or n < 64:
-            idx = list(range(min(16, n)))
-            return idx, list(range(n)), False
+            return list(range(min(16, n))), False
         si = int(seed) % len(self.elig)                       # 确定性选一个分片
         rows = self.elig[si]
-        k = min(int(n_eval), max(1, len(rows) // 5))
+        k = min(int(n_eval), max(1, len(rows) // 2))
         g0 = int(self._prefix[si])
-        eval_idx = (g0 + rows[:k]).tolist()
+        return (g0 + rows[:k]).tolist(), True
+
+    def split(self, n_eval: int, seed: int):
+        """→ (eval_idx, train_idx, held_out)。评估集**不参与训练**。"""
+        eval_idx, held = self.holdout_index(n_eval, seed)
         ex = set(eval_idx)
-        return eval_idx, [g for g in range(n) if g not in ex], True
+        return eval_idx, [g for g in range(self.n) if g not in ex], held
 
     # ---- 流式训练取批（并行解码 + 预取，与 GPU 重叠）----
     def _raw_batches(self, indices: Sequence[int], batch: int, seed: int):
@@ -515,20 +524,39 @@ def fixed_eval_set(paths: Sequence[Path], size: int, device: torch.device,
 
 
 @torch.no_grad()
-def evaluate(vae: HybridVAE, x: torch.Tensor, *, w_lpips: float = 0.0) -> dict:
+def evaluate(vae: HybridVAE, x: torch.Tensor, *, w_lpips: float = 0.0,
+             batch: int = 64) -> dict:
     """留出集上的评估（**只报数字，不参与反向**）。
 
     ⭐ 加了 `psnr`（2026-10-04）：`l1` 是**线性**的，人看着差不多的两张图 l1 可能差很多；
     PSNR 是对数尺度，读起来更直观。
     ⚠️ **但项目规范仍然成立**：逐像素指标**只可用于同一轨迹的横向比较**，
     **不可判画质**。这里报它只是为了「A/B 同留出集」的相对比较。
+
+    🔴 **必须分批**（2026-10-04 实测 OOM）：`--n-eval 2000` 时若一次性前向，
+    256² 下要申请 **7.81 GiB** ⇒ 8GB 卡直接 `CUDA out of memory`。
+    这里按 `batch` 切块，`x` **放在 CPU**、逐块搬到模型所在 device。
     """
     vae.eval()
-    r = block_recon_loss(vae, x, w_lpips=w_lpips)
-    mse = ((r["rec"] - x) ** 2).mean().clamp_min(1e-12)
-    psnr = float(10.0 * torch.log10(4.0 / mse))       # 值域 [-1,1] ⇒ 峰值 2 ⇒ 峰值²=4
+    dev = next(vae.parameters()).device
+    n = int(x.shape[0])
+    tot = 0
+    acc = {"l1": 0.0, "edge": 0.0, "percep": 0.0, "mse": 0.0}
+    for s in range(0, n, batch):
+        xb = x[s:s + batch].to(dev)
+        r = block_recon_loss(vae, xb, w_lpips=w_lpips)
+        k = int(xb.shape[0])
+        acc["l1"] += r["l1"] * k
+        acc["edge"] += r["edge"] * k
+        acc["percep"] += r["percep"] * k
+        acc["mse"] += float(((r["rec"] - xb) ** 2).mean()) * k
+        tot += k
     vae.train()
-    return {"l1": r["l1"], "edge": r["edge"], "percep": r["percep"], "psnr": psnr}
+    tot = max(tot, 1)
+    mse = max(acc["mse"] / tot, 1e-12)
+    psnr = float(10.0 * torch.log10(torch.tensor(4.0 / mse)))   # 值域[-1,1] ⇒ 峰值²=4
+    return {"l1": acc["l1"] / tot, "edge": acc["edge"] / tot,
+            "percep": acc["percep"] / tot, "psnr": psnr, "n": n}
 
 
 # ---------------------------------------------------------------------------
@@ -542,7 +570,9 @@ def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
               lr: float = 2e-3, base: int = 16, w_sem: float = 1.0, w_det: float = 1.0,
               w_lpips: float = 0.0, w_grad: float = 0.5,
               device: str = "cpu", seed: int = 0, out_path: Optional[str] = None,
-              log_every: int = 50, n_eval: int = 256) -> dict:
+              log_every: int = 50, n_eval: int = 256,
+              ckpt_dir: Optional[str] = None, ckpt_every: int = 0,
+              resume: bool = False) -> dict:
     torch.manual_seed(seed)
     dev = torch.device(device)
     if shards:
@@ -559,6 +589,34 @@ def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
     opt = torch.optim.AdamW(vae.parameters(), lr=lr, weight_decay=0.0)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps)
 
+    # ⏱️ 可中断训练（项目约定：长任务必须「停不丢 / 接着能续」）
+    # 🔴 2026-10-04 实测教训：120k 步长跑在 ~100k 步崩于 `MemoryError`
+    #    （当时**只在结束时存盘**）⇒ **56 分钟训练全丢**。
+    #    ⇒ 长跑必须周期性存；且**同时不要跑其它吃内存的活**
+    #      （本机总内存 33.7GB，实际可用常只有 ~10GB）。
+    ck = None
+    start_step = 0
+    if ckpt_dir:
+        from .checkpoint import Ckpt
+        ck = Ckpt(ckpt_dir, every=max(1, ckpt_every or max(1000, steps // 20)))
+        if resume:
+            st = ck.load()
+            if st and "model" in st:
+                vae.load_state_dict(st["model"])
+                if "opt" in st:
+                    try:
+                        opt.load_state_dict(st["opt"])
+                    except Exception:                        # noqa: BLE001
+                        pass
+                start_step = int(st.get("step", -1)) + 1
+                try:
+                    sched.last_epoch = start_step          # cosine 从断点继续
+                except Exception:                            # noqa: BLE001
+                    pass
+                print(f"  ⏩ 从检查点续跑：step {start_step}/{steps}（{ck.status()}）")
+            else:
+                print(f"  ℹ️ 无可续检查点，从头跑（{ck.status()}）")
+
     # ⭐⭐ 真·留出集（2026-10-04 改进）：评估集**不参与训练**。
     #    旧行为是 `paths[:16]` —— 那 16 张**同时也在训练池里**（同源），
     #    所以只能判断「是否还在学」，**不能**当泛化指标（代码里原本也标了这条）。
@@ -574,7 +632,10 @@ def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
             eval_idx, train_idx = perm[:n_ev], perm[n_ev:]
         else:
             eval_idx, train_idx = list(range(min(16, n))), list(range(n))
-    x_eval = src.get(eval_idx, size)
+    # ⚠️ 评估集**直接建在 CPU**（`evaluate()` 逐块搬上 device）——
+    #    2000 张 256² float32 = 1.57GB；若先在 GPU 上生成再搬回，峰值会多占 ~2GB 显存，
+    #    而 8GB 卡在 256² 训练时余量本就不多（实测一次性前向 2000 张要 7.81GiB ⇒ OOM）。
+    x_eval = src.get(eval_idx, size, device=torch.device("cpu"))
     print(f"  留出评估集 {len(eval_idx)} 张"
           + ("（⛔ 不参与训练）" if held_out else "（⚠️ 数据太少，无法真正留出 ⇒ 同源）")
           + f" · 训练池 {len(train_idx)} 张")
@@ -583,19 +644,20 @@ def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
     evals = []
     best = {"l1": float("inf"), "step": -1}
     t0 = time.time()
+    n_run = max(0, steps - start_step)
     if hasattr(src, "stream_batches"):
         # 流水线：解码在进程池里并行做，与 GPU 训练重叠（解 AVIF 慢的手）
-        batch_iter = src.stream_batches(train_idx, steps, batch, size, seed)
+        batch_iter = src.stream_batches(train_idx, n_run, batch, size, seed + start_step)
     else:
-        gstep = torch.Generator().manual_seed(seed + 12345)
+        gstep = torch.Generator().manual_seed(seed + 12345 + start_step)
 
         def _gen():
-            for _ in range(steps):
+            for _ in range(n_run):
                 sel = torch.randint(0, len(train_idx), (batch,),
                                     generator=gstep).tolist()
                 yield src.get([train_idx[i] for i in sel], size)
         batch_iter = _gen()
-    for step in range(steps):
+    for step in range(start_step, steps):
         x = next(batch_iter)
 
         r = block_recon_loss(vae, x, w_sem=w_sem, w_det=w_det,
@@ -605,6 +667,18 @@ def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
         torch.nn.utils.clip_grad_norm_(vae.parameters(), 1.0)
         opt.step()
         sched.step()
+
+        # ⏱️ 周期性存盘 —— 长跑崩溃/断电**不丢进度**（见上面 120k 步的教训）
+        if ck is not None:
+            payload = {"model": vae.state_dict(), "opt": opt.state_dict(),
+                       "base": base, "size": size, "batch": batch,
+                       "steps": steps, "seed": seed}
+            saved = ck.maybe_save(step, payload)
+            if step == steps - 1 and not saved:            # 末步必存
+                ck.save(step, payload, reason="final")
+                saved = True
+            if saved:
+                print(f"    💾 自动存盘 · {ck.status(step)}")
 
         # ⚠️ `log_every=0` 必须表示「不打印逐步日志」，而不是 `step % 0` 崩掉
         #    （2026-10-04 实测踩到：`ZeroDivisionError`，而且被 grep 吞了看不见）
@@ -629,6 +703,8 @@ def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
 
     out = {"steps": steps, "base": base, "size": size, "batch": batch,
            "n_images": n, "data_source": src.kind, "cache": cache,
+           "ckpt_dir": ckpt_dir, "ckpt_every": (ck.every if ck else None),
+           "resumed_from_step": start_step,
            "n_shards": (len(src.files) if hasattr(src, "files") else None),
            "workers": (workers if hasattr(src, "workers") else None),
            "policy": (policy if hasattr(src, "stream_batches") else None),
@@ -682,6 +758,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                          "库级默认仍是 fail-safe 的 strict（见 kp/data/rating.py）。")
     ap.add_argument("--n-eval", type=int, default=256,
                     help="⭐ 留出评估集张数（**不参与训练**）。<64 张数据时自动退回同源评估。")
+    ap.add_argument("--ckpt-dir", default=None,
+                    help="⏱️ 周期存盘目录（可中断训练）。⚠️ 长跑**必须**给，否则崩了全丢。")
+    ap.add_argument("--ckpt-every", type=int, default=0,
+                    help="每多少步存一次（0=自动：max(1000, steps//20)）")
+    ap.add_argument("--resume", action="store_true", help="从 --ckpt-dir 续跑")
     ap.add_argument("--steps", type=int, default=2000)
     ap.add_argument("--batch", type=int, default=4)
     ap.add_argument("--size", type=int, default=256)
@@ -715,7 +796,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
               base=a.base, w_sem=a.w_sem, w_det=a.w_det,
               w_lpips=a.w_lpips, w_grad=a.w_grad, device=a.device,
               seed=a.seed, out_path=a.out, log_every=a.log_every,
-              n_eval=a.n_eval)
+              n_eval=a.n_eval, ckpt_dir=a.ckpt_dir,
+              ckpt_every=a.ckpt_every, resume=a.resume)
     return 0
 
 
