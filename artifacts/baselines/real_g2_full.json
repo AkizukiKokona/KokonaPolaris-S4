@@ -1,0 +1,1466 @@
+{
+ "config": {
+  "image_dir": "默认：data/characters/kokona/images + out/e5b/g1/bf16",
+  "size": 384,
+  "background": "white",
+  "bg_sensitivity": true,
+  "views_per_source": 2,
+  "max_views": 24,
+  "n_perm": 8,
+  "steps": 200,
+  "lr_vae": 0.001,
+  "w_inv": 1.0,
+  "w_anchor": 1.0,
+  "base": 16,
+  "seed": 0,
+  "max_dep": 0.2,
+  "synth_steps": 400,
+  "gate_policy": "沿用 G2 门线 0.20，**未做任何放松**；判定取 n_perm 个独立置换里的 max（最坏置换）"
+ },
+ "data": {
+  "n_views": 16,
+  "n_sources": 8,
+  "n_independent_stems": 5,
+  "dirs": [
+   "D:\\model\\data\\characters\\kokona\\images",
+   "D:\\model\\out\\e5b\\g1\\bf16"
+  ],
+  "sources": [
+   "bf16/01_en_scene_s100.png",
+   "bf16/01_en_scene_s101.png",
+   "bf16/02_zh_text_s100.png",
+   "bf16/02_zh_text_s101.png",
+   "bf16/03_anime_s100.png",
+   "bf16/03_anime_s101.png",
+   "images/back.png",
+   "images/front.png"
+  ],
+  "variants": [
+   "z0.94_dx+0.00_dy+0.00",
+   "z1.00_dx+0.00_dy+0.00"
+  ],
+  "size": 384,
+  "background": "white",
+  "alpha_policy": "alpha>8 裁本体界框 → over 合成到 white 底（透明区不参与编码）",
+  "body_ratio": 0.8,
+  "range": "[-1,1]（kp/character/dataset.py:load_image 的仓库口径）",
+  "gaps": []
+ },
+ "random_encoder_latent": {
+  "shape": [
+   16,
+   40,
+   12,
+   12
+  ],
+  "semantic_ch": 8,
+  "detail_ch": 32,
+  "latent_side": 12,
+  "abs_mean": 0.24275678396224976,
+  "per_view_std": 0.3566904366016388,
+  "inter_view_std": 0.2309257686138153,
+  "view_sensitivity": 0.6474122794356605,
+  "sem_abs_mean": 0.22421367466449738,
+  "det_abs_mean": 0.24739255011081696,
+  "sem_over_det_energy": 0.9063072800636292,
+  "mi_penalty": 0.037974484264850616,
+  "collapsed": false,
+  "degenerate": false,
+  "cross_r2_detail_from_sem": 0.24741575178812159,
+  "cross_r2_sem_from_detail": 0.47126384831932133
+ },
+ "rulers": {
+  "oracle": {
+   "max_dep": 0.2,
+   "n_perm": 8,
+   "overall_pass": true,
+   "rows": [
+    {
+     "mode": "shuffle_detail",
+     "which_side_perturbed": "semantic",
+     "dep_semantic": {
+      "mean": 0.0,
+      "max": 0.0,
+      "std": 0.0,
+      "n": 8
+     },
+     "dep_detail": {
+      "mean": 0.0,
+      "max": 0.0,
+      "std": 0.0,
+      "n": 8
+     },
+     "perm_energy_semantic": {
+      "mean": 0.0,
+      "max": 0.0,
+      "std": 0.0,
+      "n": 8
+     },
+     "perm_energy_detail": {
+      "mean": 1.0487201735377312,
+      "max": 1.1640874147415161,
+      "std": 0.08873869933342265,
+      "n": 8
+     },
+     "liveness_semantic": 0.9999999999955399,
+     "liveness_detail": 0.9999999999959578,
+     "worst_dep": 0.0,
+     "sem_pass": true,
+     "det_pass": true,
+     "liveness_ok": true,
+     "pass": true
+    },
+    {
+     "mode": "shuffle_semantic",
+     "which_side_perturbed": "detail",
+     "dep_semantic": {
+      "mean": 0.0,
+      "max": 0.0,
+      "std": 0.0,
+      "n": 8
+     },
+     "dep_detail": {
+      "mean": 0.0,
+      "max": 0.0,
+      "std": 0.0,
+      "n": 8
+     },
+     "perm_energy_semantic": {
+      "mean": 1.081510305404663,
+      "max": 1.2045097351074219,
+      "std": 0.09105879432419957,
+      "n": 8
+     },
+     "perm_energy_detail": {
+      "mean": 0.0,
+      "max": 0.0,
+      "std": 0.0,
+      "n": 8
+     },
+     "liveness_semantic": 0.9999999999955399,
+     "liveness_detail": 0.9999999999959578,
+     "worst_dep": 0.0,
+     "sem_pass": true,
+     "det_pass": true,
+     "liveness_ok": true,
+     "pass": true
+    },
+    {
+     "mode": "reverse",
+     "which_side_perturbed": "both",
+     "dep_semantic": {
+      "mean": 0.0,
+      "max": 0.0,
+      "std": 0.0,
+      "n": 8
+     },
+     "dep_detail": {
+      "mean": 0.0,
+      "max": 0.0,
+      "std": 0.0,
+      "n": 8
+     },
+     "perm_energy_semantic": {
+      "mean": 1.1893134117126465,
+      "max": 1.1893134117126465,
+      "std": 0.0,
+      "n": 8
+     },
+     "perm_energy_detail": {
+      "mean": 1.1576354503631592,
+      "max": 1.1576354503631592,
+      "std": 0.0,
+      "n": 8
+     },
+     "liveness_semantic": 0.9999999999955399,
+     "liveness_detail": 0.9999999999959578,
+     "worst_dep": 0.0,
+     "sem_pass": true,
+     "det_pass": true,
+     "liveness_ok": true,
+     "pass": true
+    }
+   ]
+  },
+  "leaky": {
+   "max_dep": 0.2,
+   "n_perm": 8,
+   "overall_pass": false,
+   "rows": [
+    {
+     "mode": "shuffle_detail",
+     "which_side_perturbed": "semantic",
+     "dep_semantic": {
+      "mean": 0.5117929010626618,
+      "max": 0.5392180517309042,
+      "std": 0.021870694167847253,
+      "n": 8
+     },
+     "dep_detail": {
+      "mean": 0.0,
+      "max": 0.0,
+      "std": 0.0,
+      "n": 8
+     },
+     "perm_energy_semantic": {
+      "mean": 0.0,
+      "max": 0.0,
+      "std": 0.0,
+      "n": 8
+     },
+     "perm_energy_detail": {
+      "mean": 1.0487201735377312,
+      "max": 1.1640874147415161,
+      "std": 0.08873869933342265,
+      "n": 8
+     },
+     "liveness_semantic": 3.1625231404034944,
+     "liveness_detail": 0.9999999999959578,
+     "worst_dep": 0.5392180517309042,
+     "sem_pass": false,
+     "det_pass": true,
+     "liveness_ok": true,
+     "pass": false
+    },
+    {
+     "mode": "shuffle_semantic",
+     "which_side_perturbed": "detail",
+     "dep_semantic": {
+      "mean": 0.5117929010626618,
+      "max": 0.5392180517309042,
+      "std": 0.021870694167847253,
+      "n": 8
+     },
+     "dep_detail": {
+      "mean": 0.0,
+      "max": 0.0,
+      "std": 0.0,
+      "n": 8
+     },
+     "perm_energy_semantic": {
+      "mean": 1.081510305404663,
+      "max": 1.2045097351074219,
+      "std": 0.09105879432419957,
+      "n": 8
+     },
+     "perm_energy_detail": {
+      "mean": 0.0,
+      "max": 0.0,
+      "std": 0.0,
+      "n": 8
+     },
+     "liveness_semantic": 3.1625231404034944,
+     "liveness_detail": 0.9999999999959578,
+     "worst_dep": 0.5392180517309042,
+     "sem_pass": false,
+     "det_pass": true,
+     "liveness_ok": true,
+     "pass": false
+    },
+    {
+     "mode": "reverse",
+     "which_side_perturbed": "both",
+     "dep_semantic": {
+      "mean": 0.5117929010626618,
+      "max": 0.5392180517309042,
+      "std": 0.021870694167847253,
+      "n": 8
+     },
+     "dep_detail": {
+      "mean": 0.0,
+      "max": 0.0,
+      "std": 0.0,
+      "n": 8
+     },
+     "perm_energy_semantic": {
+      "mean": 1.1893134117126465,
+      "max": 1.1893134117126465,
+      "std": 0.0,
+      "n": 8
+     },
+     "perm_energy_detail": {
+      "mean": 1.1576354503631592,
+      "max": 1.1576354503631592,
+      "std": 0.0,
+      "n": 8
+     },
+     "liveness_semantic": 3.1625231404034944,
+     "liveness_detail": 0.9999999999959578,
+     "worst_dep": 0.5392180517309042,
+     "sem_pass": false,
+     "det_pass": true,
+     "liveness_ok": true,
+     "pass": false
+    }
+   ]
+  },
+  "oracle_pass": true,
+  "leaky_fails": true,
+  "sanity_ok": true
+ },
+ "arms": {
+  "frozen_random_encoder": {
+   "tag": "Arm A · 冻结随机编码器（无信息量，仅作对照）",
+   "report": {
+    "max_dep": 0.2,
+    "n_perm": 8,
+    "overall_pass": true,
+    "rows": [
+     {
+      "mode": "shuffle_detail",
+      "which_side_perturbed": "semantic",
+      "dep_semantic": {
+       "mean": 0.023169681563779986,
+       "max": 0.025289381718371345,
+       "std": 0.0017613180952223263,
+       "n": 8
+      },
+      "dep_detail": {
+       "mean": 0.01080826805272678,
+       "max": 0.012038058843627466,
+       "std": 0.0009294038777391731,
+       "n": 8
+      },
+      "perm_energy_semantic": {
+       "mean": 0.0,
+       "max": 0.0,
+       "std": 0.0,
+       "n": 8
+      },
+      "perm_energy_detail": {
+       "mean": 1.0487201735377312,
+       "max": 1.1640874147415161,
+       "std": 0.08873869933342265,
+       "n": 8
+      },
+      "liveness_semantic": 1.002548062779955,
+      "liveness_detail": 0.9323109728635559,
+      "worst_dep": 0.025289381718371345,
+      "sem_pass": true,
+      "det_pass": true,
+      "liveness_ok": true,
+      "pass": true
+     },
+     {
+      "mode": "shuffle_semantic",
+      "which_side_perturbed": "detail",
+      "dep_semantic": {
+       "mean": 0.023169681563779986,
+       "max": 0.025289381718371345,
+       "std": 0.0017613180952223263,
+       "n": 8
+      },
+      "dep_detail": {
+       "mean": 0.01080826805272678,
+       "max": 0.012038058843627466,
+       "std": 0.0009294038777391731,
+       "n": 8
+      },
+      "perm_energy_semantic": {
+       "mean": 1.081510305404663,
+       "max": 1.2045097351074219,
+       "std": 0.09105879432419957,
+       "n": 8
+      },
+      "perm_energy_detail": {
+       "mean": 0.0,
+       "max": 0.0,
+       "std": 0.0,
+       "n": 8
+      },
+      "liveness_semantic": 1.002548062779955,
+      "liveness_detail": 0.9323109728635559,
+      "worst_dep": 0.025289381718371345,
+      "sem_pass": true,
+      "det_pass": true,
+      "liveness_ok": true,
+      "pass": true
+     },
+     {
+      "mode": "reverse",
+      "which_side_perturbed": "both",
+      "dep_semantic": {
+       "mean": 0.023169681563779986,
+       "max": 0.025289381718371345,
+       "std": 0.0017613180952223263,
+       "n": 8
+      },
+      "dep_detail": {
+       "mean": 0.01080826805272678,
+       "max": 0.012038058843627466,
+       "std": 0.0009294038777391731,
+       "n": 8
+      },
+      "perm_energy_semantic": {
+       "mean": 1.1893134117126465,
+       "max": 1.1893134117126465,
+       "std": 0.0,
+       "n": 8
+      },
+      "perm_energy_detail": {
+       "mean": 1.1576354503631592,
+       "max": 1.1576354503631592,
+       "std": 0.0,
+       "n": 8
+      },
+      "liveness_semantic": 1.002548062779955,
+      "liveness_detail": 0.9323109728635559,
+      "worst_dep": 0.025289381718371345,
+      "sem_pass": true,
+      "det_pass": true,
+      "liveness_ok": true,
+      "pass": true
+     }
+    ]
+   },
+   "note": "编码器随机初始化且冻结 ⇒ latent 无图像语义；此臂只说明「随机投影当然可分」，不能当作真图结论",
+   "latent": {
+    "abs_mean": 0.24275678396224976,
+    "per_view_std": 0.3566904366016388,
+    "inter_view_std": 0.2309257686138153,
+    "view_sensitivity": 0.6474122794356605,
+    "sem_abs_mean": 0.22421367466449738,
+    "det_abs_mean": 0.24739255011081696,
+    "sem_over_det_energy": 0.9063072800636292,
+    "mi_penalty": 0.037974484264850616,
+    "collapsed": false,
+    "degenerate": false,
+    "cross_r2_detail_from_sem": 0.24741575178812159,
+    "cross_r2_sem_from_detail": 0.47126384831932133,
+    "probe_r2": 0.6185062386451523
+   },
+   "train_loss": {
+    "sem": 0.0002783513336908072,
+    "det": 0.018321337178349495,
+    "inv": 9.003965533338487e-05,
+    "anchor": 0.040735796093940735
+   },
+   "worst_dep": 0.025289381718371345,
+   "verdict": "PASS"
+  },
+  "joint_supervised": {
+   "tag": "Arm B · joint 训练 w_inv=1.0 w_anchor=1.0（主实验）",
+   "report": {
+    "max_dep": 0.2,
+    "n_perm": 8,
+    "overall_pass": true,
+    "rows": [
+     {
+      "mode": "shuffle_detail",
+      "which_side_perturbed": "semantic",
+      "dep_semantic": {
+       "mean": 0.04483892440831653,
+       "max": 0.049789319225209114,
+       "std": 0.003164222758447823,
+       "n": 8
+      },
+      "dep_detail": {
+       "mean": 0.029988460811634275,
+       "max": 0.03432902735803309,
+       "std": 0.002850016933806584,
+       "n": 8
+      },
+      "perm_energy_semantic": {
+       "mean": 0.0,
+       "max": 0.0,
+       "std": 0.0,
+       "n": 8
+      },
+      "perm_energy_detail": {
+       "mean": 0.5333261974155903,
+       "max": 0.619005024433136,
+       "std": 0.07149314004091911,
+       "n": 8
+      },
+      "liveness_semantic": 1.003925151833617,
+      "liveness_detail": 0.9960822848456797,
+      "worst_dep": 0.049789319225209114,
+      "sem_pass": true,
+      "det_pass": true,
+      "liveness_ok": true,
+      "pass": true
+     },
+     {
+      "mode": "shuffle_semantic",
+      "which_side_perturbed": "detail",
+      "dep_semantic": {
+       "mean": 0.04483892440831653,
+       "max": 0.049789319225209114,
+       "std": 0.003164222758447823,
+       "n": 8
+      },
+      "dep_detail": {
+       "mean": 0.029988460811634275,
+       "max": 0.03432902735803309,
+       "std": 0.002850016933806584,
+       "n": 8
+      },
+      "perm_energy_semantic": {
+       "mean": 0.41144150123000145,
+       "max": 0.46600982546806335,
+       "std": 0.04199296424929481,
+       "n": 8
+      },
+      "perm_energy_detail": {
+       "mean": 0.0,
+       "max": 0.0,
+       "std": 0.0,
+       "n": 8
+      },
+      "liveness_semantic": 1.003925151833617,
+      "liveness_detail": 0.9960822848456797,
+      "worst_dep": 0.049789319225209114,
+      "sem_pass": true,
+      "det_pass": true,
+      "liveness_ok": true,
+      "pass": true
+     },
+     {
+      "mode": "reverse",
+      "which_side_perturbed": "both",
+      "dep_semantic": {
+       "mean": 0.04483892440831653,
+       "max": 0.049789319225209114,
+       "std": 0.003164222758447823,
+       "n": 8
+      },
+      "dep_detail": {
+       "mean": 0.029988460811634275,
+       "max": 0.03432902735803309,
+       "std": 0.002850016933806584,
+       "n": 8
+      },
+      "perm_energy_semantic": {
+       "mean": 0.4462365508079529,
+       "max": 0.4462365508079529,
+       "std": 0.0,
+       "n": 8
+      },
+      "perm_energy_detail": {
+       "mean": 0.567023754119873,
+       "max": 0.567023754119873,
+       "std": 0.0,
+       "n": 8
+      },
+      "liveness_semantic": 1.003925151833617,
+      "liveness_detail": 0.9960822848456797,
+      "worst_dep": 0.049789319225209114,
+      "sem_pass": true,
+      "det_pass": true,
+      "liveness_ok": true,
+      "pass": true
+     }
+    ]
+   },
+   "latent": {
+    "abs_mean": 0.108444444835186,
+    "per_view_std": 0.13872723281383514,
+    "inter_view_std": 0.05027336627244949,
+    "view_sensitivity": 0.36239003151999283,
+    "sem_abs_mean": 0.08716747164726257,
+    "det_abs_mean": 0.11376368999481201,
+    "sem_over_det_energy": 0.7662152051925659,
+    "mi_penalty": 0.4199589490890503,
+    "collapsed": false,
+    "degenerate": false,
+    "cross_r2_detail_from_sem": 0.7343195642663698,
+    "cross_r2_sem_from_detail": 0.9880945500786694,
+    "probe_r2": 0.9828425606572079
+   },
+   "train_loss": {
+    "sem": 6.772604683646932e-05,
+    "det": 0.00013195125211495906,
+    "inv": 7.38765302230604e-05,
+    "anchor": 0.003416868159547448
+   },
+   "worst_dep": 0.049789319225209114,
+   "verdict": "PASS"
+  },
+  "joint_negative": {
+   "tag": "Arm C · joint 负对照 w_inv=0（关掉交叉不变性）",
+   "report": {
+    "max_dep": 0.2,
+    "n_perm": 8,
+    "overall_pass": false,
+    "rows": [
+     {
+      "mode": "shuffle_detail",
+      "which_side_perturbed": "semantic",
+      "dep_semantic": {
+       "mean": 0.19673205563856166,
+       "max": 0.22150869928442557,
+       "std": 0.02016836833153106,
+       "n": 8
+      },
+      "dep_detail": {
+       "mean": 0.1297707117830751,
+       "max": 0.14918999092253296,
+       "std": 0.01469358493648127,
+       "n": 8
+      },
+      "perm_energy_semantic": {
+       "mean": 0.0,
+       "max": 0.0,
+       "std": 0.0,
+       "n": 8
+      },
+      "perm_energy_detail": {
+       "mean": 0.5607453733682632,
+       "max": 0.650918185710907,
+       "std": 0.07370235362199667,
+       "n": 8
+      },
+      "liveness_semantic": 1.0011121797958793,
+      "liveness_detail": 0.9935923940280751,
+      "worst_dep": 0.22150869928442557,
+      "sem_pass": false,
+      "det_pass": true,
+      "liveness_ok": true,
+      "pass": false
+     },
+     {
+      "mode": "shuffle_semantic",
+      "which_side_perturbed": "detail",
+      "dep_semantic": {
+       "mean": 0.19673205563856166,
+       "max": 0.22150869928442557,
+       "std": 0.02016836833153106,
+       "n": 8
+      },
+      "dep_detail": {
+       "mean": 0.1297707117830751,
+       "max": 0.14918999092253296,
+       "std": 0.01469358493648127,
+       "n": 8
+      },
+      "perm_energy_semantic": {
+       "mean": 0.44762394204735756,
+       "max": 0.5236587524414062,
+       "std": 0.05942363348678056,
+       "n": 8
+      },
+      "perm_energy_detail": {
+       "mean": 0.0,
+       "max": 0.0,
+       "std": 0.0,
+       "n": 8
+      },
+      "liveness_semantic": 1.0011121797958793,
+      "liveness_detail": 0.9935923940280751,
+      "worst_dep": 0.22150869928442557,
+      "sem_pass": false,
+      "det_pass": true,
+      "liveness_ok": true,
+      "pass": false
+     },
+     {
+      "mode": "reverse",
+      "which_side_perturbed": "both",
+      "dep_semantic": {
+       "mean": 0.19673205563856166,
+       "max": 0.22150869928442557,
+       "std": 0.02016836833153106,
+       "n": 8
+      },
+      "dep_detail": {
+       "mean": 0.1297707117830751,
+       "max": 0.14918999092253296,
+       "std": 0.01469358493648127,
+       "n": 8
+      },
+      "perm_energy_semantic": {
+       "mean": 0.4948529005050659,
+       "max": 0.4948529005050659,
+       "std": 0.0,
+       "n": 8
+      },
+      "perm_energy_detail": {
+       "mean": 0.5930100679397583,
+       "max": 0.5930100679397583,
+       "std": 0.0,
+       "n": 8
+      },
+      "liveness_semantic": 1.0011121797958793,
+      "liveness_detail": 0.9935923940280751,
+      "worst_dep": 0.22150869928442557,
+      "sem_pass": false,
+      "det_pass": true,
+      "liveness_ok": true,
+      "pass": false
+     }
+    ]
+   },
+   "latent": {
+    "abs_mean": 0.10769786685705185,
+    "per_view_std": 0.13943570852279663,
+    "inter_view_std": 0.05290382355451584,
+    "view_sensitivity": 0.37941373923945076,
+    "sem_abs_mean": 0.09484556317329407,
+    "det_abs_mean": 0.11091094464063644,
+    "sem_over_det_energy": 0.8551506400108337,
+    "mi_penalty": 0.46855807304382324,
+    "collapsed": false,
+    "degenerate": false,
+    "cross_r2_detail_from_sem": 0.9787018430805798,
+    "cross_r2_sem_from_detail": 0.9930142589167524,
+    "probe_r2": 0.9862585778654618
+   },
+   "train_loss": {
+    "sem": 7.130107405828312e-05,
+    "det": 0.00019270031771156937,
+    "inv": 0.0023517461959272623,
+    "anchor": 0.0029350738041102886
+   },
+   "worst_dep": 0.22150869928442557,
+   "verdict": "FAIL"
+  },
+  "joint_no_anchor": {
+   "tag": "Arm D · 塌缩体检 w_anchor=0（去掉信息锚，看会不会假过）",
+   "report": {
+    "max_dep": 0.2,
+    "n_perm": 8,
+    "overall_pass": true,
+    "rows": [
+     {
+      "mode": "shuffle_detail",
+      "which_side_perturbed": "semantic",
+      "dep_semantic": {
+       "mean": 0.032065030456309984,
+       "max": 0.03532378670671835,
+       "std": 0.0029861090647397997,
+       "n": 8
+      },
+      "dep_detail": {
+       "mean": 0.028676984342884803,
+       "max": 0.03165918975414453,
+       "std": 0.00257346148716881,
+       "n": 8
+      },
+      "perm_energy_semantic": {
+       "mean": 0.0,
+       "max": 0.0,
+       "std": 0.0,
+       "n": 8
+      },
+      "perm_energy_detail": {
+       "mean": 0.6003929190337658,
+       "max": 0.6673604249954224,
+       "std": 0.07275146160892146,
+       "n": 8
+      },
+      "liveness_semantic": 1.0009007748543348,
+      "liveness_detail": 1.001946781759836,
+      "worst_dep": 0.03532378670671835,
+      "sem_pass": true,
+      "det_pass": true,
+      "liveness_ok": true,
+      "pass": true
+     },
+     {
+      "mode": "shuffle_semantic",
+      "which_side_perturbed": "detail",
+      "dep_semantic": {
+       "mean": 0.032065030456309984,
+       "max": 0.03532378670671835,
+       "std": 0.0029861090647397997,
+       "n": 8
+      },
+      "dep_detail": {
+       "mean": 0.028676984342884803,
+       "max": 0.03165918975414453,
+       "std": 0.00257346148716881,
+       "n": 8
+      },
+      "perm_energy_semantic": {
+       "mean": 0.21864314563572407,
+       "max": 0.24215462803840637,
+       "std": 0.024291123861348702,
+       "n": 8
+      },
+      "perm_energy_detail": {
+       "mean": 0.0,
+       "max": 0.0,
+       "std": 0.0,
+       "n": 8
+      },
+      "liveness_semantic": 1.0009007748543348,
+      "liveness_detail": 1.001946781759836,
+      "worst_dep": 0.03532378670671835,
+      "sem_pass": true,
+      "det_pass": true,
+      "liveness_ok": true,
+      "pass": true
+     },
+     {
+      "mode": "reverse",
+      "which_side_perturbed": "both",
+      "dep_semantic": {
+       "mean": 0.032065030456309984,
+       "max": 0.03532378670671835,
+       "std": 0.0029861090647397997,
+       "n": 8
+      },
+      "dep_detail": {
+       "mean": 0.028676984342884803,
+       "max": 0.03165918975414453,
+       "std": 0.00257346148716881,
+       "n": 8
+      },
+      "perm_energy_semantic": {
+       "mean": 0.249004065990448,
+       "max": 0.249004065990448,
+       "std": 0.0,
+       "n": 8
+      },
+      "perm_energy_detail": {
+       "mean": 0.6759368777275085,
+       "max": 0.6759368777275085,
+       "std": 0.0,
+       "n": 8
+      },
+      "liveness_semantic": 1.0009007748543348,
+      "liveness_detail": 1.001946781759836,
+      "worst_dep": 0.03532378670671835,
+      "sem_pass": true,
+      "det_pass": true,
+      "liveness_ok": true,
+      "pass": true
+     }
+    ]
+   },
+   "latent": {
+    "abs_mean": 0.053790848702192307,
+    "per_view_std": 0.07160238176584244,
+    "inter_view_std": 0.026667695492506027,
+    "view_sensitivity": 0.3724414584328154,
+    "sem_abs_mean": 0.050570737570524216,
+    "det_abs_mean": 0.05459587648510933,
+    "sem_over_det_energy": 0.9262739419937134,
+    "mi_penalty": 0.2378726601600647,
+    "collapsed": false,
+    "degenerate": false,
+    "cross_r2_detail_from_sem": 0.5743067639181185,
+    "cross_r2_sem_from_detail": 0.9359949384248242,
+    "probe_r2": 0.7491028865278082
+   },
+   "train_loss": {
+    "sem": 1.2193264410598204e-05,
+    "det": 3.2046802516561e-05,
+    "inv": 1.4997317521192599e-05,
+    "anchor": 0.5742840766906738
+   },
+   "worst_dep": 0.03532378670671835,
+   "verdict": "PASS"
+  },
+  "semantic_routed": {
+   "tag": "Arm E · 结构/纹理代理监督（真图上「强制路由」的直接检验）",
+   "report": {
+    "max_dep": 0.2,
+    "n_perm": 8,
+    "overall_pass": false,
+    "rows": [
+     {
+      "mode": "shuffle_detail",
+      "which_side_perturbed": "semantic",
+      "dep_semantic": {
+       "mean": 0.009892120069269063,
+       "max": 0.011059447129212625,
+       "std": 0.0008623678197644503,
+       "n": 8
+      },
+      "dep_detail": {
+       "mean": 0.31021767632353564,
+       "max": 0.33689509724221206,
+       "std": 0.016250469771216546,
+       "n": 8
+      },
+      "perm_energy_semantic": {
+       "mean": 0.0,
+       "max": 0.0,
+       "std": 0.0,
+       "n": 8
+      },
+      "perm_energy_detail": {
+       "mean": 0.47301795706152916,
+       "max": 0.5446572303771973,
+       "std": 0.05964769486456813,
+       "n": 8
+      },
+      "liveness_semantic": 1.6394601877375898,
+      "liveness_detail": 0.027330271768025396,
+      "worst_dep": 0.33689509724221206,
+      "sem_pass": true,
+      "det_pass": false,
+      "liveness_ok": true,
+      "pass": false
+     },
+     {
+      "mode": "shuffle_semantic",
+      "which_side_perturbed": "detail",
+      "dep_semantic": {
+       "mean": 0.009892120069269063,
+       "max": 0.011059447129212625,
+       "std": 0.0008623678197644503,
+       "n": 8
+      },
+      "dep_detail": {
+       "mean": 0.31021767632353564,
+       "max": 0.33689509724221206,
+       "std": 0.016250469771216546,
+       "n": 8
+      },
+      "perm_energy_semantic": {
+       "mean": 0.482501108199358,
+       "max": 0.5575820207595825,
+       "std": 0.0642288066687012,
+       "n": 8
+      },
+      "perm_energy_detail": {
+       "mean": 0.0,
+       "max": 0.0,
+       "std": 0.0,
+       "n": 8
+      },
+      "liveness_semantic": 1.6394601877375898,
+      "liveness_detail": 0.027330271768025396,
+      "worst_dep": 0.33689509724221206,
+      "sem_pass": true,
+      "det_pass": false,
+      "liveness_ok": true,
+      "pass": false
+     },
+     {
+      "mode": "reverse",
+      "which_side_perturbed": "both",
+      "dep_semantic": {
+       "mean": 0.009892120069269063,
+       "max": 0.011059447129212625,
+       "std": 0.0008623678197644503,
+       "n": 8
+      },
+      "dep_detail": {
+       "mean": 0.31021767632353564,
+       "max": 0.33689509724221206,
+       "std": 0.016250469771216546,
+       "n": 8
+      },
+      "perm_energy_semantic": {
+       "mean": 0.5159910917282104,
+       "max": 0.5159910917282104,
+       "std": 0.0,
+       "n": 8
+      },
+      "perm_energy_detail": {
+       "mean": 0.5103641152381897,
+       "max": 0.5103641152381897,
+       "std": 0.0,
+       "n": 8
+      },
+      "liveness_semantic": 1.6394601877375898,
+      "liveness_detail": 0.027330271768025396,
+      "worst_dep": 0.33689509724221206,
+      "sem_pass": true,
+      "det_pass": false,
+      "liveness_ok": true,
+      "pass": false
+     }
+    ]
+   },
+   "note": "目标是结构/纹理代理，**不是** DINOv3 语义；结论口径限于「结构 vs 纹理这条粗分界」",
+   "latent": {
+    "abs_mean": 0.24796175956726074,
+    "per_view_std": 0.37827569246292114,
+    "inter_view_std": 0.10757401585578918,
+    "view_sensitivity": 0.2843799324114628,
+    "sem_abs_mean": 0.45053374767303467,
+    "det_abs_mean": 0.19731876254081726,
+    "sem_over_det_energy": 2.283278703689575,
+    "mi_penalty": 0.42466074228286743,
+    "collapsed": false,
+    "degenerate": false,
+    "cross_r2_detail_from_sem": 0.9857437904514547,
+    "cross_r2_sem_from_detail": 0.9998469453162174,
+    "probe_r2": 0.9729171752206902
+   },
+   "train_loss": {
+    "sem": 0.0006464144680649042,
+    "det": 5.4343530791811645e-05,
+    "inv": 0.00012046276242472231,
+    "sem_r2": 0.9946471060910592,
+    "tex_r2": 0.12289790102586318
+   },
+   "worst_dep": 0.33689509724221206,
+   "verdict": "FAIL"
+  }
+ },
+ "background_sensitivity": {
+  "background": "black",
+  "report": {
+   "max_dep": 0.2,
+   "n_perm": 8,
+   "overall_pass": true,
+   "rows": [
+    {
+     "mode": "shuffle_detail",
+     "which_side_perturbed": "semantic",
+     "dep_semantic": {
+      "mean": 0.0487008498116338,
+      "max": 0.05510085315352932,
+      "std": 0.003450916358650869,
+      "n": 8
+     },
+     "dep_detail": {
+      "mean": 0.040105450364794695,
+      "max": 0.04550039603686446,
+      "std": 0.002506305534118496,
+      "n": 8
+     },
+     "perm_energy_semantic": {
+      "mean": 0.0,
+      "max": 0.0,
+      "std": 0.0,
+      "n": 8
+     },
+     "perm_energy_detail": {
+      "mean": 0.8305636495351791,
+      "max": 0.9644318222999573,
+      "std": 0.06729041691201566,
+      "n": 8
+     },
+     "liveness_semantic": 0.996584490858782,
+     "liveness_detail": 1.0009034045789769,
+     "worst_dep": 0.05510085315352932,
+     "sem_pass": true,
+     "det_pass": true,
+     "liveness_ok": true,
+     "pass": true
+    },
+    {
+     "mode": "shuffle_semantic",
+     "which_side_perturbed": "detail",
+     "dep_semantic": {
+      "mean": 0.0487008498116338,
+      "max": 0.05510085315352932,
+      "std": 0.003450916358650869,
+      "n": 8
+     },
+     "dep_detail": {
+      "mean": 0.040105450364794695,
+      "max": 0.04550039603686446,
+      "std": 0.002506305534118496,
+      "n": 8
+     },
+     "perm_energy_semantic": {
+      "mean": 0.9185263812541962,
+      "max": 1.0262683629989624,
+      "std": 0.05869197493021106,
+      "n": 8
+     },
+     "perm_energy_detail": {
+      "mean": 0.0,
+      "max": 0.0,
+      "std": 0.0,
+      "n": 8
+     },
+     "liveness_semantic": 0.996584490858782,
+     "liveness_detail": 1.0009034045789769,
+     "worst_dep": 0.05510085315352932,
+     "sem_pass": true,
+     "det_pass": true,
+     "liveness_ok": true,
+     "pass": true
+    },
+    {
+     "mode": "reverse",
+     "which_side_perturbed": "both",
+     "dep_semantic": {
+      "mean": 0.0487008498116338,
+      "max": 0.05510085315352932,
+      "std": 0.003450916358650869,
+      "n": 8
+     },
+     "dep_detail": {
+      "mean": 0.040105450364794695,
+      "max": 0.04550039603686446,
+      "std": 0.002506305534118496,
+      "n": 8
+     },
+     "perm_energy_semantic": {
+      "mean": 1.0455344915390015,
+      "max": 1.0455344915390015,
+      "std": 0.0,
+      "n": 8
+     },
+     "perm_energy_detail": {
+      "mean": 1.0264989137649536,
+      "max": 1.0264989137649536,
+      "std": 0.0,
+      "n": 8
+     },
+     "liveness_semantic": 0.996584490858782,
+     "liveness_detail": 1.0009034045789769,
+     "worst_dep": 0.05510085315352932,
+     "sem_pass": true,
+     "det_pass": true,
+     "liveness_ok": true,
+     "pass": true
+    }
+   ]
+  },
+  "verdict": "PASS",
+  "latent": {
+   "abs_mean": 0.07773598283529282,
+   "per_view_std": 0.10561127960681915,
+   "inter_view_std": 0.057099293917417526,
+   "view_sensitivity": 0.5406552607775624,
+   "sem_abs_mean": 0.06548771262168884,
+   "det_abs_mean": 0.08079805970191956,
+   "sem_over_det_energy": 0.8105109333992004,
+   "mi_penalty": 0.34109652042388916,
+   "collapsed": false,
+   "degenerate": false,
+   "cross_r2_detail_from_sem": 0.6782943139600666,
+   "cross_r2_sem_from_detail": 0.9308642465003923
+  }
+ },
+ "synthetic_control": {
+  "config": {
+   "n": 32,
+   "side": 32,
+   "steps": 400,
+   "seed": 0,
+   "w_inv": 1.0,
+   "max_dep": 0.2,
+   "mix": 0.6,
+   "mix_baseline": 0.0
+  },
+  "oracle_sanity": {
+   "max_dep": 0.2,
+   "overall_pass": true,
+   "redundancy": {
+    "cross_r2_detail_from_sem": 0.9999999999999972,
+    "cross_r2_sem_from_detail": 0.999999999999997,
+    "sem_abs_mean": 0.42707687616348267,
+    "det_abs_mean": 0.388327032327652,
+    "sem_over_det_energy": 1.1931352368011394
+   },
+   "redundancy_pass": null,
+   "max_cross_corr": 0.9,
+   "rows": [
+    {
+     "mode": "shuffle_detail",
+     "dep_semantic": 0.0,
+     "delta_semantic": 0.0,
+     "scale_semantic": 0.42707787616348264,
+     "dep_detail": 0.0,
+     "delta_detail": 0.0,
+     "scale_detail": 0.38832803232765195,
+     "sem_pass": true,
+     "det_pass": true,
+     "pass": true
+    },
+    {
+     "mode": "shuffle_semantic",
+     "dep_semantic": 0.0,
+     "delta_semantic": 0.0,
+     "scale_semantic": 0.42707787616348264,
+     "dep_detail": 0.0,
+     "delta_detail": 0.0,
+     "scale_detail": 0.38832803232765195,
+     "sem_pass": true,
+     "det_pass": true,
+     "pass": true
+    },
+    {
+     "mode": "reverse",
+     "dep_semantic": 0.0,
+     "delta_semantic": 0.0,
+     "scale_semantic": 0.42707787616348264,
+     "dep_detail": 0.0,
+     "delta_detail": 0.0,
+     "scale_detail": 0.38832803232765195,
+     "sem_pass": true,
+     "det_pass": true,
+     "pass": true
+    }
+   ]
+  },
+  "leaky_sanity": {
+   "max_dep": 0.2,
+   "overall_pass": false,
+   "redundancy": {
+    "cross_r2_detail_from_sem": 0.9999999999999972,
+    "cross_r2_sem_from_detail": 0.999999999999997,
+    "sem_abs_mean": 0.42707687616348267,
+    "det_abs_mean": 0.388327032327652,
+    "sem_over_det_energy": 1.1931352368011394
+   },
+   "redundancy_pass": null,
+   "max_cross_corr": 0.9,
+   "rows": [
+    {
+     "mode": "shuffle_detail",
+     "dep_semantic": 0.592155173846018,
+     "delta_semantic": 1.2731895446777344,
+     "scale_semantic": 2.15009443624115,
+     "dep_detail": 0.0,
+     "delta_detail": 0.0,
+     "scale_detail": 0.38832803232765195,
+     "sem_pass": false,
+     "det_pass": true,
+     "pass": false
+    },
+    {
+     "mode": "shuffle_semantic",
+     "dep_semantic": 0.592155173846018,
+     "delta_semantic": 1.2731895446777344,
+     "scale_semantic": 2.15009443624115,
+     "dep_detail": 0.0,
+     "delta_detail": 0.0,
+     "scale_detail": 0.38832803232765195,
+     "sem_pass": false,
+     "det_pass": true,
+     "pass": false
+    },
+    {
+     "mode": "reverse",
+     "dep_semantic": 0.592155173846018,
+     "delta_semantic": 1.2731895446777344,
+     "scale_semantic": 2.15009443624115,
+     "dep_detail": 0.0,
+     "delta_detail": 0.0,
+     "scale_detail": 0.38832803232765195,
+     "sem_pass": false,
+     "det_pass": true,
+     "pass": false
+    }
+   ]
+  },
+  "mix0_baseline": {
+   "supervised": {
+    "max_dep": 0.2,
+    "overall_pass": true,
+    "redundancy": {
+     "cross_r2_detail_from_sem": 0.01085994710812288,
+     "cross_r2_sem_from_detail": 0.01426463430608449,
+     "sem_abs_mean": 0.07992152869701385,
+     "det_abs_mean": 0.3857899308204651,
+     "sem_over_det_energy": 0.0748684567413179
+    },
+    "redundancy_pass": null,
+    "max_cross_corr": 0.9,
+    "rows": [
+     {
+      "mode": "shuffle_detail",
+      "dep_semantic": 0.049761386984133696,
+      "delta_semantic": 0.004253488965332508,
+      "scale_semantic": 0.08547770114785433,
+      "dep_detail": 0.0046255419490094166,
+      "delta_detail": 0.0018151821568608284,
+      "scale_detail": 0.39242583396083114,
+      "sem_pass": true,
+      "det_pass": true,
+      "pass": true
+     },
+     {
+      "mode": "shuffle_semantic",
+      "dep_semantic": 0.049761386984133696,
+      "delta_semantic": 0.004253488965332508,
+      "scale_semantic": 0.08547770114785433,
+      "dep_detail": 0.0046255419490094166,
+      "delta_detail": 0.0018151821568608284,
+      "scale_detail": 0.39242583396083114,
+      "sem_pass": true,
+      "det_pass": true,
+      "pass": true
+     },
+     {
+      "mode": "reverse",
+      "dep_semantic": 0.049761386984133696,
+      "delta_semantic": 0.004253488965332508,
+      "scale_semantic": 0.08547770114785433,
+      "dep_detail": 0.0046255419490094166,
+      "delta_detail": 0.0018151821568608284,
+      "scale_detail": 0.39242583396083114,
+      "sem_pass": true,
+      "det_pass": true,
+      "pass": true
+     }
+    ]
+   },
+   "negative_control": {
+    "max_dep": 0.2,
+    "overall_pass": true,
+    "redundancy": {
+     "cross_r2_detail_from_sem": 0.010859947110970825,
+     "cross_r2_sem_from_detail": 0.01426463430608449,
+     "sem_abs_mean": 0.07992152869701385,
+     "det_abs_mean": 0.3857899308204651,
+     "sem_over_det_energy": 0.0748684567413179
+    },
+    "redundancy_pass": null,
+    "max_cross_corr": 0.9,
+    "rows": [
+     {
+      "mode": "shuffle_detail",
+      "dep_semantic": 0.07523143758202856,
+      "delta_semantic": 0.006588635500520468,
+      "scale_semantic": 0.08757822144946456,
+      "dep_detail": 0.012165538815605313,
+      "delta_detail": 0.004623396322131157,
+      "scale_detail": 0.38004040694034097,
+      "sem_pass": true,
+      "det_pass": true,
+      "pass": true
+     },
+     {
+      "mode": "shuffle_semantic",
+      "dep_semantic": 0.07523143758202856,
+      "delta_semantic": 0.006588635500520468,
+      "scale_semantic": 0.08757822144946456,
+      "dep_detail": 0.012165538815605313,
+      "delta_detail": 0.004623396322131157,
+      "scale_detail": 0.38004040694034097,
+      "sem_pass": true,
+      "det_pass": true,
+      "pass": true
+     },
+     {
+      "mode": "reverse",
+      "dep_semantic": 0.07523143758202856,
+      "delta_semantic": 0.006588635500520468,
+      "scale_semantic": 0.08757822144946456,
+      "dep_detail": 0.012165538815605313,
+      "delta_detail": 0.004623396322131157,
+      "scale_detail": 0.38004040694034097,
+      "sem_pass": true,
+      "det_pass": true,
+      "pass": true
+     }
+    ]
+   }
+  },
+  "mix_main": {
+   "supervised": {
+    "max_dep": 0.2,
+    "overall_pass": true,
+    "redundancy": {
+     "cross_r2_detail_from_sem": 0.9999999999999972,
+     "cross_r2_sem_from_detail": 0.999999999999997,
+     "sem_abs_mean": 0.42707687616348267,
+     "det_abs_mean": 0.388327032327652,
+     "sem_over_det_energy": 1.1931352368011394
+    },
+    "redundancy_pass": null,
+    "max_cross_corr": 0.9,
+    "rows": [
+     {
+      "mode": "shuffle_detail",
+      "dep_semantic": 0.05687777957444135,
+      "delta_semantic": 0.025478022173047066,
+      "scale_semantic": 0.4479433332959413,
+      "dep_detail": 0.03609102754659762,
+      "delta_detail": 0.014593762345612049,
+      "scale_detail": 0.40435984613543746,
+      "sem_pass": true,
+      "det_pass": true,
+      "pass": true
+     },
+     {
+      "mode": "shuffle_semantic",
+      "dep_semantic": 0.05687777957444135,
+      "delta_semantic": 0.025478022173047066,
+      "scale_semantic": 0.4479433332959413,
+      "dep_detail": 0.03609102754659762,
+      "delta_detail": 0.014593762345612049,
+      "scale_detail": 0.40435984613543746,
+      "sem_pass": true,
+      "det_pass": true,
+      "pass": true
+     },
+     {
+      "mode": "reverse",
+      "dep_semantic": 0.05687777957444135,
+      "delta_semantic": 0.025478022173047066,
+      "scale_semantic": 0.4479433332959413,
+      "dep_detail": 0.03609102754659762,
+      "delta_detail": 0.014593762345612049,
+      "scale_detail": 0.40435984613543746,
+      "sem_pass": true,
+      "det_pass": true,
+      "pass": true
+     }
+    ]
+   },
+   "negative_control": {
+    "max_dep": 0.2,
+    "overall_pass": false,
+    "redundancy": {
+     "cross_r2_detail_from_sem": 0.9999999999999972,
+     "cross_r2_sem_from_detail": 0.999999999999997,
+     "sem_abs_mean": 0.42707687616348267,
+     "det_abs_mean": 0.388327032327652,
+     "sem_over_det_energy": 1.1931352368011394
+    },
+    "redundancy_pass": null,
+    "max_cross_corr": 0.9,
+    "rows": [
+     {
+      "mode": "shuffle_detail",
+      "dep_semantic": 0.5353040852291904,
+      "delta_semantic": 0.4920235276222229,
+      "scale_semantic": 0.9191477165946961,
+      "dep_detail": 0.27526298460824034,
+      "delta_detail": 0.14903469383716583,
+      "scale_detail": 0.541426570845604,
+      "sem_pass": false,
+      "det_pass": false,
+      "pass": false
+     },
+     {
+      "mode": "shuffle_semantic",
+      "dep_semantic": 0.5353040852291904,
+      "delta_semantic": 0.4920235276222229,
+      "scale_semantic": 0.9191477165946961,
+      "dep_detail": 0.27526298460824034,
+      "delta_detail": 0.14903469383716583,
+      "scale_detail": 0.541426570845604,
+      "sem_pass": false,
+      "det_pass": false,
+      "pass": false
+     },
+     {
+      "mode": "reverse",
+      "dep_semantic": 0.5353040852291904,
+      "delta_semantic": 0.4920235276222229,
+      "scale_semantic": 0.9191477165946961,
+      "dep_detail": 0.27526298460824034,
+      "delta_detail": 0.14903469383716583,
+      "scale_detail": 0.541426570845604,
+      "sem_pass": false,
+      "det_pass": false,
+      "pass": false
+     }
+    ]
+   }
+  },
+  "gap": {
+   "worst_dep_supervised": 0.05687777957444135,
+   "worst_dep_negative": 0.5353040852291904,
+   "improvement_x": 9.411480005624817
+  },
+  "verdict": "PASS",
+  "sanity_ok": true
+ },
+ "gap": {
+  "worst_dep_supervised": 0.049789319225209114,
+  "worst_dep_negative": 0.22150869928442557,
+  "improvement_x": 4.448920024041466
+ },
+ "gaps": [
+  "[Arm E] 两个探针对**各自目标**的线性可读出 R² 相差过大（语义 0.995 vs 纹理 0.123） ⇒ 弱侧（纹理）基本没学到东西，该侧的依赖度数字**不可解释**，不能算作「细节侧分不开」"
+ ],
+ "verdict": "PASS",
+ "sanity_ok": true,
+ "conclusion_strength": "OK"
+}

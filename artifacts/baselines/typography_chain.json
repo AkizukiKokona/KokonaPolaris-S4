@@ -1,0 +1,482 @@
+{
+  "acceptance": {
+    "ok": true,
+    "n_cases": 12,
+    "n_failed": 0,
+    "cases": [
+      {
+        "name": "正样本（ROIBranch 载荷）",
+        "kind": "positive",
+        "expect": "框内逐位来自 ROI 块、框外逐位不变、载荷非零",
+        "ok": true,
+        "verify": {
+          "ok": true,
+          "reasons": [],
+          "full_bit_equal": true,
+          "outside_changed": 0,
+          "inside_changed": 0,
+          "inside_match_rate": 1.0,
+          "written_cells": 155,
+          "changed_cells": 155,
+          "roi_energy": 1451.779648,
+          "inside_cells": 155,
+          "outside_cells": 869
+        },
+        "report": {
+          "policy": "first",
+          "align": "center",
+          "scale": 32,
+          "latent_shape": [
+            32,
+            32
+          ],
+          "channels": 40,
+          "n_windows": 3,
+          "written_cells": 155,
+          "total_cells": 1024,
+          "roi_fraction": 0.151367,
+          "contested_cells": 0,
+          "resampled_patches": 3,
+          "windows": [
+            {
+              "index": 0,
+              "cells": "(2,6)×(8,23)",
+              "n_cells": 60,
+              "px": [
+                272.0,
+                64.0,
+                752.0,
+                184.0
+              ],
+              "coverage": 0.9062,
+              "edge_cells": 18
+            },
+            {
+              "index": 1,
+              "cells": "(7,10)×(2,29)",
+              "n_cells": 81,
+              "px": [
+                64.0,
+                212.0,
+                932.0,
+                312.0
+              ],
+              "coverage": 0.9167,
+              "edge_cells": 27
+            },
+            {
+              "index": 2,
+              "cells": "(10,17)×(28,30)",
+              "n_cells": 14,
+              "px": [
+                890.0,
+                324.0,
+                960.0,
+                548.0
+              ],
+              "coverage": 0.9821,
+              "edge_cells": 2
+            }
+          ],
+          "gaps": [],
+          "notes": []
+        },
+        "note": "✅ 通过",
+        "reasons": []
+      },
+      {
+        "name": "负对照 A（ROI 全零）",
+        "kind": "negative",
+        "expect": "判据必须判不合格（既要比不出真 ROI，也要比得出「空写」）",
+        "ok": true,
+        "verify_vs_true": {
+          "ok": false,
+          "reasons": [
+            "① 逐位比对失败：6200 个元素与应有结果不同",
+            "③ 框内内容与 ROI 分支输出不一致：6200 个元素对不上"
+          ],
+          "full_bit_equal": false,
+          "outside_changed": 0,
+          "inside_changed": 6200,
+          "inside_match_rate": 0.0,
+          "written_cells": 155,
+          "changed_cells": 155,
+          "roi_energy": 1451.779648,
+          "inside_cells": 155,
+          "outside_cells": 869
+        },
+        "verify_vs_zero": {
+          "ok": false,
+          "reasons": [
+            "⑤ ROI 载荷能量为 0（给定的 ROI 块全是 0 ⇒ 框内没有任何文字信息可写）"
+          ],
+          "full_bit_equal": true,
+          "outside_changed": 0,
+          "inside_changed": 0,
+          "inside_match_rate": 1.0,
+          "written_cells": 155,
+          "changed_cells": 155,
+          "roi_energy": 0.0,
+          "inside_cells": 155,
+          "outside_cells": 869
+        },
+        "note": "✅ 判据能分辨",
+        "reasons": [
+          "① 逐位比对失败：6200 个元素与应有结果不同",
+          "③ 框内内容与 ROI 分支输出不一致：6200 个元素对不上",
+          "⑤ ROI 载荷能量为 0（给定的 ROI 块全是 0 ⇒ 框内没有任何文字信息可写）"
+        ]
+      },
+      {
+        "name": "负对照 B（ROI 随机噪声）",
+        "kind": "negative",
+        "expect": "判据必须判不合格（框内 ≠ 真 ROI）",
+        "ok": true,
+        "verify": {
+          "ok": false,
+          "reasons": [
+            "① 逐位比对失败：6200 个元素与应有结果不同",
+            "③ 框内内容与 ROI 分支输出不一致：6200 个元素对不上"
+          ],
+          "full_bit_equal": false,
+          "outside_changed": 0,
+          "inside_changed": 6200,
+          "inside_match_rate": 0.0,
+          "written_cells": 155,
+          "changed_cells": 155,
+          "roi_energy": 1451.779648,
+          "inside_cells": 155,
+          "outside_cells": 869
+        },
+        "note": "✅ 判据能分辨",
+        "reasons": [
+          "① 逐位比对失败：6200 个元素与应有结果不同",
+          "③ 框内内容与 ROI 分支输出不一致：6200 个元素对不上"
+        ]
+      },
+      {
+        "name": "负对照 C（ROI 平移 1 格 ⇒ 坐标换算差一格）",
+        "kind": "negative",
+        "expect": "框外出现改动 ⇒ 判据必须抓出来（证明「框外逐位不变」不是空话）",
+        "ok": true,
+        "verify": {
+          "ok": false,
+          "reasons": [
+            "① 逐位比对失败：6078 个元素与应有结果不同",
+            "② 框外背景被改动：560 个元素不再与原 latent 相同",
+            "③ 框内内容与 ROI 分支输出不一致：5518 个元素对不上"
+          ],
+          "full_bit_equal": false,
+          "outside_changed": 560,
+          "inside_changed": 5518,
+          "inside_match_rate": 0.11,
+          "written_cells": 155,
+          "changed_cells": 141,
+          "roi_energy": 1451.779648,
+          "inside_cells": 155,
+          "outside_cells": 869
+        },
+        "note": "✅ 判据能分辨",
+        "reasons": [
+          "① 逐位比对失败：6078 个元素与应有结果不同",
+          "② 框外背景被改动：560 个元素不再与原 latent 相同",
+          "③ 框内内容与 ROI 分支输出不一致：5518 个元素对不上"
+        ]
+      },
+      {
+        "name": "退化 1：空 Layout（无 boxes 键）",
+        "kind": "degenerate",
+        "expect": "必须抛 DegenerateLayoutError",
+        "ok": true,
+        "note": "✅ 显式报缺口",
+        "detail": {
+          "raised": "layout 必须含 'boxes' 键，收到 dict"
+        }
+      },
+      {
+        "name": "退化 2：零个文字框",
+        "kind": "degenerate",
+        "expect": "必须抛 DegenerateLayoutError",
+        "ok": true,
+        "note": "✅ 显式报缺口",
+        "detail": {
+          "raised": "layout 里一个文字框都没有（canvas=[1024, 1024]） ⇒ 没有可写的 ROI，拼回是空操作。"
+        }
+      },
+      {
+        "name": "退化 3：框完全落在画布外",
+        "kind": "degenerate",
+        "expect": "必须抛 DegenerateLayoutError",
+        "ok": true,
+        "note": "✅ 显式报缺口",
+        "detail": {
+          "raised": "ROI #0 退化，宽/高 ≤ 0：x0=1536.0 y0=1536.0 x1=1024.0 y1=1024.0（框完全落在画布外：roi_boxes 已裁剪 ⇒ x0 ≥ x1）"
+        }
+      },
+      {
+        "name": "退化 4：strict=False 仍需在报告里列出缺口",
+        "kind": "degenerate",
+        "expect": "报告.gaps 非空，且输出 == 原 latent（确认是空操作而非乱写）",
+        "ok": true,
+        "note": "✅ 显式报缺口",
+        "detail": {
+          "gaps": [
+            "ROI #0 退化，宽/高 ≤ 0：x0=1536.0 y0=1536.0 x1=1024.0 y1=1024.0（框完全落在画布外：roi_boxes 已裁剪 ⇒ x0 ≥ x1）"
+          ],
+          "unchanged": true
+        }
+      },
+      {
+        "name": "退化 5：框比一个 latent 格还薄",
+        "kind": "degenerate",
+        "expect": "必须抛 DegenerateLayoutError",
+        "ok": true,
+        "note": "✅ 显式报缺口",
+        "detail": {
+          "raised": "ROI #0 太小：align='center' 下没有任何 latent 格被覆盖（px 高/宽 = 11/192 < 一个格 32px） ⇒ 这个框的文字在 latent 里**无处可放**，请调大字号或改 align='cover'",
+          "n_patches": 2
+        }
+      },
+      {
+        "name": "退化 5b：同一输入在 align='cover' 下可写（对照组）",
+        "kind": "degenerate",
+        "expect": "必须无缺口且窗口非空",
+        "ok": true,
+        "note": "✅ 对照通过：缺口来自「格心判定」，不是几何算错",
+        "detail": {
+          "n_windows": 2,
+          "gaps": [],
+          "cells": [
+            6,
+            12
+          ]
+        }
+      },
+      {
+        "name": "重叠 D：像素级合法、latent 级抢格（align=cover）",
+        "kind": "overlap",
+        "expect": "layout.validate 判合法，但贴回时必须报出争夺格数并仍逐位可判",
+        "ok": true,
+        "pixel_valid": true,
+        "verify": {
+          "ok": true,
+          "reasons": [],
+          "full_bit_equal": true,
+          "outside_changed": 0,
+          "inside_changed": 0,
+          "inside_match_rate": 1.0,
+          "written_cells": 6,
+          "changed_cells": 6,
+          "roi_energy": 229.413208,
+          "inside_cells": 6,
+          "outside_cells": 1018
+        },
+        "detail": {
+          "contested_cells": 6,
+          "written_cells": 6,
+          "notes": [
+            "框 #1 的格已被前序框全部占走 ⇒ 未写入任何内容",
+            "有 6 个格被多框覆盖，已按 policy=first 裁决（相邻文字框距离 < 1 个 latent 格就会发生 —— 像素级 validate 判不出来）"
+          ],
+          "gaps": []
+        },
+        "note": "✅ 像素级判据漏掉的冲突被这里抓住并裁决",
+        "reasons": []
+      },
+      {
+        "name": "重叠 E：像素级相交（policy=first/last/blend/error）",
+        "kind": "overlap",
+        "expect": "三种 policy 都要给出逐位可复核的确定结果；policy=error 必须抛 ROIConflictError",
+        "ok": true,
+        "per_policy": {
+          "first": {
+            "contested": 8,
+            "verify_ok": true,
+            "reasons": []
+          },
+          "last": {
+            "contested": 8,
+            "verify_ok": true,
+            "reasons": []
+          },
+          "blend": {
+            "contested": 8,
+            "verify_ok": true,
+            "reasons": []
+          }
+        },
+        "error_raised": "latent 级重叠：框 #1 的窗口与前序框争夺 8 个格（像素级 validate 看不到这种冲突）",
+        "note": "✅ 冲突有确定裁决",
+        "reasons": []
+      }
+    ]
+  },
+  "api_demo": {
+    "零个文字框": "layout 里一个文字框都没有（canvas=[1024, 1024]） ⇒ 没有可写的 ROI，拼回是空操作。",
+    "框完全落在画布外": "ROI #0 退化，宽/高 ≤ 0：x0=1123.0 y0=1123.0 x1=1024.0 y1=1024.0（框完全落在画布外：roi_boxes 已裁剪 ⇒ x0 ≥ x1）",
+    "strict_false_unchanged": true,
+    "ok": true
+  },
+  "demo": {
+    "layout": {
+      "canvas": [
+        1024,
+        1024
+      ],
+      "margin": 64,
+      "boxes": [
+        {
+          "text": "心夏北极星",
+          "x": 272.0,
+          "y": 64.0,
+          "w": 480,
+          "h": 120.0,
+          "font_px": 96,
+          "align": "center",
+          "direction": "h",
+          "lines": [
+            "心夏北极星"
+          ]
+        },
+        {
+          "text": "排版链路闭环：Layout Planner → ROI 分支 → 拼回 latent。",
+          "x": 64.0,
+          "y": 212.8,
+          "w": 868.0,
+          "h": 100.0,
+          "font_px": 40,
+          "align": "left",
+          "direction": "h",
+          "lines": [
+            "排版链路闭环：Layout Planner → ROI 分支 → 拼",
+            "回 latent。"
+          ]
+        },
+        {
+          "text": "竖排也走同一条路",
+          "x": 890.0,
+          "y": 324.8,
+          "w": 70.0,
+          "h": 224.0,
+          "font_px": 56,
+          "align": "right",
+          "direction": "v",
+          "columns": [
+            "竖排也走同一条路"
+          ]
+        }
+      ],
+      "warnings": [],
+      "valid": true
+    },
+    "report": {
+      "policy": "first",
+      "align": "center",
+      "scale": 32,
+      "latent_shape": [
+        32,
+        32
+      ],
+      "channels": 40,
+      "n_windows": 3,
+      "written_cells": 155,
+      "total_cells": 1024,
+      "roi_fraction": 0.151367,
+      "contested_cells": 0,
+      "resampled_patches": 3,
+      "windows": [
+        {
+          "index": 0,
+          "cells": "(2,6)×(8,23)",
+          "n_cells": 60,
+          "px": [
+            272.0,
+            64.0,
+            752.0,
+            184.0
+          ],
+          "coverage": 0.9062,
+          "edge_cells": 18
+        },
+        {
+          "index": 1,
+          "cells": "(7,10)×(2,29)",
+          "n_cells": 81,
+          "px": [
+            64.0,
+            212.0,
+            932.0,
+            312.0
+          ],
+          "coverage": 0.9167,
+          "edge_cells": 27
+        },
+        {
+          "index": 2,
+          "cells": "(10,17)×(28,30)",
+          "n_cells": 14,
+          "px": [
+            890.0,
+            324.0,
+            960.0,
+            548.0
+          ],
+          "coverage": 0.9821,
+          "edge_cells": 2
+        }
+      ],
+      "gaps": [],
+      "notes": []
+    },
+    "verify": {
+      "ok": true,
+      "reasons": [],
+      "full_bit_equal": true,
+      "outside_changed": 0,
+      "inside_changed": 0,
+      "inside_match_rate": 1.0,
+      "written_cells": 155,
+      "changed_cells": 155,
+      "roi_energy": 1451.779648,
+      "inside_cells": 155,
+      "outside_cells": 869
+    }
+  },
+  "glyph_demo": {
+    "available": true,
+    "verify": {
+      "ok": true,
+      "reasons": [],
+      "full_bit_equal": true,
+      "outside_changed": 0,
+      "inside_changed": 0,
+      "inside_match_rate": 1.0,
+      "written_cells": 155,
+      "changed_cells": 155,
+      "roi_energy": 212.412186,
+      "inside_cells": 155,
+      "outside_cells": 869
+    },
+    "font": "C:\\Windows\\Fonts\\msyh.ttc",
+    "roi_compression": 4,
+    "artifacts": [
+      "04_roi_branch_input.png",
+      "02_latent_bg_ch012.png",
+      "03_latent_composite_ch012.png"
+    ]
+  },
+  "args": {
+    "image_size": 1024,
+    "scale": 32,
+    "channels": 40,
+    "text": "心夏北极星",
+    "policy": "first",
+    "align": "center",
+    "pad": 0,
+    "seed": 0,
+    "roi_compression": 4,
+    "no_render": false,
+    "out_dir": null,
+    "json": "D:\\model\\out\\typography_chain.json"
+  }
+}
