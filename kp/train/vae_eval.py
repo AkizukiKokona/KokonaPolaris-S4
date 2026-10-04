@@ -90,18 +90,32 @@ def make_eval_set(shards: Sequence[str], n: int, size: int, out_base: str,
     return meta
 
 
-def load_eval_set(base: str | Path, size: int, device: torch.device) -> torch.Tensor:
-    """读固化评估集 → (N,size,size,3) uint8 张量（放到 device，只缩放一次）。"""
+def load_eval_set(base: str | Path, size: int,
+                  device: Optional[torch.device] = None) -> torch.Tensor:
+    """读固化评估集 → (N,3,size,size) float ∈[0,1]。
+
+    🔴 **顺序很重要（2026-10-04 实测 OOM）**：存盘是 **512²**，若先搬上 GPU 再转 float，
+    2000 张要 **5.86 GiB** ⇒ 8GB 卡直接 OOM。
+    ⇒ **先在 CPU 上分块缩放到目标分辨率，再转 float**；默认**留在 CPU**，
+    由 `evaluate_model` 逐块搬到 device（与训练侧 `x_eval` 的处理一致）。
+    """
     b = Path(base).with_suffix("")
     npy, js = b.with_suffix(".npy"), b.with_suffix(".json")
     if not npy.exists():
         raise FileNotFoundError(f"评估集不存在：{npy}（先 --make-eval-set）")
     arr = np.load(npy)
-    t = torch.from_numpy(arr).to(device).permute(0, 3, 1, 2).float().div_(255.0)
+    t = torch.from_numpy(arr).permute(0, 3, 1, 2).contiguous()      # uint8 (N,3,H,W)
     if t.shape[-1] != size:
-        t = F.interpolate(t, size=(size, size), mode="bilinear",
-                          align_corners=False, antialias=True)
-    return t                                            # [0,1]，(N,3,size,size)
+        outs = []
+        for s in range(0, t.shape[0], 128):                          # 分块，峰值 ~0.4GB
+            outs.append(F.interpolate(t[s:s + 128].float(), size=(size, size),
+                                      mode="bilinear", align_corners=False,
+                                      antialias=True))
+        t = torch.cat(outs)
+    t = t.clamp_(0, 255).div_(255.0)
+    if device is not None:
+        t = t.to(device)
+    return t
 
 
 # ---------------------------------------------------------------------------
@@ -131,11 +145,33 @@ def _inception_feats(batches, device: str, dim: int = 2048) -> np.ndarray:
     return np.concatenate(out, axis=0)
 
 
-def _fid_from_feats(f1: np.ndarray, f2: np.ndarray) -> float:
-    from pytorch_fid.fid_score import calculate_frechet_distance
-    mu1, s1 = f1.mean(0), np.cov(f1, rowvar=False)
-    mu2, s2 = f2.mean(0), np.cov(f2, rowvar=False)
-    return float(calculate_frechet_distance(mu1, s1, mu2, s2))
+def _psd_sqrt(a: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
+    """半正定矩阵的平方根（GPU float64，`eigh`）。"""
+    evals, evecs = torch.linalg.eigh(a)
+    evals = evals.clamp_min(eps)
+    return (evecs * evals.sqrt()) @ evecs.T
+
+
+def _fid_from_feats(f1: np.ndarray, f2: np.ndarray,
+                    device: str = "cuda") -> float:
+    """Frechet 距离（FID）。
+
+    🔴 **不能用 `pytorch_fid.fid_score.calculate_frechet_distance`**（2026-10-04 实测崩）：
+    它内部调 `scipy.linalg.sqrtm(..., disp=False)`，而**本机 SciPy 已移除 `disp` 参数**
+    ⇒ `TypeError: sqrtm() got an unexpected keyword argument 'disp'`。
+    ⇒ 这里自己算，用**对称形式** `Tr((s2½ · s1 · s2½)½)`（只需 eigh，GPU float64 秒回），
+    顺带避开 CPU 上 2048×2048 `sqrtm` 的 O(n³) 慢算。
+    """
+    a1 = torch.as_tensor(np.asarray(f1), dtype=torch.float64, device=device)
+    a2 = torch.as_tensor(np.asarray(f2), dtype=torch.float64, device=device)
+    mu1, mu2 = a1.mean(0), a2.mean(0)
+    s1, s2 = torch.cov(a1.T), torch.cov(a2.T)
+    s2_half = _psd_sqrt(s2)
+    tr_covmean = _psd_sqrt(s2_half @ s1 @ s2_half).diagonal().sum()
+    diff = mu1 - mu2
+    val = (diff.dot(diff) + s1.diagonal().sum() + s2.diagonal().sum()
+           - 2.0 * tr_covmean)
+    return float(val)
 
 
 @torch.no_grad()
@@ -144,11 +180,12 @@ def evaluate_model(vae: HybridVAE, x01: torch.Tensor, *, device: str,
                    want_rfid: bool = True) -> Dict[str, float]:
     """在固化评估集上算全部指标。`x01` 是 [0,1] 的 (N,3,H,W)。"""
     vae.eval()
+    dev_t = torch.device(device)
     n = x01.shape[0]
     l1s, psnrs, edges, lp, ss = [], [], [], [], []
-    recs: List[np.ndarray] = []
+    recs: List[torch.Tensor] = []
     for s in range(0, n, batch):
-        xb = x01[s:s + batch]
+        xb = x01[s:s + batch].to(dev_t)                 # ⚠️ x01 常驻 CPU，逐块上卡
         xin = xb.mul(2.0).sub_(1.0)                     # [-1,1]
         rec = torch.tanh(vae.decode(vae.encode_latent(xin)))
         e = (rec - xin).abs().mean(dim=(1, 2, 3))
@@ -170,8 +207,11 @@ def evaluate_model(vae: HybridVAE, x01: torch.Tensor, *, device: str,
         out["lpips"] = float(np.mean(lp))
     if want_rfid:
         rec_all = torch.cat(recs, 0)
-        f_orig = _inception_feats((x01[s:s + batch] for s in range(0, n, batch)), device)
-        f_rec = _inception_feats((rec_all[s:s + batch] for s in range(0, n, batch)), device)
+        # ⚠️ x01 / recs 都在 CPU（省显存）⇒ Inception 前逐块上卡
+        f_orig = _inception_feats((x01[s:s + batch].to(dev_t)
+                                   for s in range(0, n, batch)), device)
+        f_rec = _inception_feats((rec_all[s:s + batch].to(dev_t)
+                                  for s in range(0, n, batch)), device)
         out["rfid"] = _fid_from_feats(f_orig, f_rec)
     return out
 
@@ -213,7 +253,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
 
     dev = a.device
-    x01 = load_eval_set(a.eval_set, a.size, torch.device(dev))
+    # ⚠️ 评估集**留在 CPU**（逐块上卡）—— 2000 张 256² float = 1.57GB，
+    #    全塞进 8GB 卡会把余量吃光（实测 512² 存盘直接 5.86GiB ⇒ OOM）
+    x01 = load_eval_set(a.eval_set, a.size, device=None)
     print("=" * 74)
     print(f"P1 · VAE 评估   评估集 {tuple(x01.shape)}  评估分辨率 {a.size}²")
     print("=" * 74)
