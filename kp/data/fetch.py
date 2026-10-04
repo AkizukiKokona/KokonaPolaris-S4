@@ -218,8 +218,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 print(f"      {v.get('status') or v.get('error','')}")
         if r["dead"]:
             print(f"  ⛔ 已确认不存在: {r['dead']}")
-        json.dump(r, open(Path(a.out or "out") / "data_probe" / "probe.json", "w",
-                           encoding="utf-8"), ensure_ascii=False, indent=1)
+        # ⚠️ 2026-10-05 修：原先直接 open 写盘、**不建目录** ⇒ 换机/清空后首跑
+        #    会 FileNotFoundError（本机没踩到只是因为 out/data_probe/ 已存在）。
+        _probe_path = Path(a.out or "out") / "data_probe" / "probe.json"
+        _probe_path.parent.mkdir(parents=True, exist_ok=True)
+        json.dump(r, open(_probe_path, "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=1)
         return 0
     if a.sample:
         if not a.out:

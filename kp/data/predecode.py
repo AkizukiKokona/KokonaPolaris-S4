@@ -86,10 +86,29 @@ def predecode(shards: Sequence[os.PathLike | str], out_base: str, *,
     if not files:
         raise FileNotFoundError(f"没找到 parquet 分片（扫了 {list(shards)}）")
 
+    # ⚠️⚠️ 2026-10-05 修（实测复现）：原实现用 `Path.with_suffix("")`规范化基名，
+    #    而 `with_suffix` 会把**最后一个点后的一切当扩展名删掉**：
+    #       'out/cache/danbooru.20k_256' -> 'out/cache/danbooru'  （`.20k_256` 被吃掉）
+    #       'out/cache/v1.0_512'         -> 'out/cache/v1'
+    #    ⇒ 两个只在点号后不同的数据集基名会**塌成同一个 .npy，静默互相覆盖**。
+    #✅ 改用字符串拼接：只认「最后一个点右边没有多余的点」才当扩展名。
     out_npy = Path(out_base)
-    out_base_p = out_npy.with_suffix("")
-    out_npy = out_base_p.with_suffix(".npy")
-    out_json = out_base_p.with_suffix(".json")
+    stem = out_npy.name
+    if "." in stem:
+        head, _, tail = stem.rpartition(".")
+        # 尾部像扩展名（短且无点）才剥掉；否则整段当名字的一部分
+        if head and len(tail) <= 5 and "/" not in tail:
+            stem = head
+    base = out_npy.with_name(stem)
+    out_npy = Path(str(base) + ".npy")
+    out_json = Path(str(base) + ".json")
+    # ⭐⭐ `size` 进键（审计 P2-4）：docstring 承诺 npy 形状是 (N,size,size,3)，
+    #    但**缓存文件名与 size 无关** ⇒ 同基名跑 --size 256 和 --size 512 会覆盖，
+    #    且 `_CacheSource` 读时不校验 ⇒ 静默读到错分辨率的缓存。
+    #✅ 统一加 `_s{size}` 后缀，**消除撞键**。
+    if a_size_suffix := size:
+        out_npy = Path(str(base) + f"_s{a_size_suffix}" + ".npy")
+        out_json = Path(str(base) + f"_s{a_size_suffix}" + ".json")
     out_npy.parent.mkdir(parents=True, exist_ok=True)
 
     # ---- ① 先扫一遍拿总行数（préallocation 用） ----
@@ -116,17 +135,27 @@ def predecode(shards: Sequence[os.PathLike | str], out_base: str, *,
                 print(f"  ⚠️ 跳过 {f.name}（没有 image 列）")
                 continue
             stem = f.stem
+            src_row = 0                      # ⭐ 分片内行号（跨 batch 累加）
             for rb in pf.iter_batches(batch_size=batch, columns=cols):
                 rows = rb.to_pylist()
                 jobs = [(r.get("image"), size) for r in rows]
                 for r, im in zip(rows, ex.map(_decode_one, jobs, chunksize=_CHUNK)):
                     rating = classify_rating(r)
                     rating_counts[rating] = rating_counts.get(rating, 0) + 1
+                    my_row = src_row
+                    src_row += 1
                     if im is None:
                         failed += 1
                         continue
                     arr[w] = im
-                    items.append({"shard": stem, "row": len(items), "rating": rating})
+                    # ⚠️ 2026-10-05 修语义陷阱：原代码 `"row": len(items)`
+                    #    记的是**跨分片累加的全局序号**，但字段名 `row` 在
+                    #    `_ShardStreamSource` 里指的是「**分片内**行号」⇒ 同名不同义。
+                    #⇒ 改名 `out_index`（缓存内下标，可靠）+ 显式记 `src_row`（**分片内**行号）。
+                    items.append({"shard": stem,
+                                  "out_index": len(items),   # ⭐ 本npy 里的下标（可靠）
+                                  "src_row": my_row,  # 分片内行号（-1=未知）
+                                  "rating": rating})
                     w += 1
                 if w and w % progress_every < batch:
                     el = time.time() - t0

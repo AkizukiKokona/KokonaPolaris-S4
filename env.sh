@@ -27,11 +27,39 @@ fi
 export KP_ROOT
 
 # ---- ①b ⭐ 机器名（**两台开发机必须分开记，否则实测数字会串味**）----
-#   kokona = 旧机 RTX 5050 Laptop / 20 SM / 驱动 610.74  （已迁出，数字只作历史快照）
-#   viim   = 本机 RTX 5070 Laptop GPU / 36 SM / 8GB / sm_120 / 驱动 591.91
-#            （界面显示名为「RTX 5070 Laptop GPU」，PCI ID 0x2D58；宿主名 LAPTOP-SQ8UPAUC）
-# ⚠️ 任何「TFLOPS / 功耗 / SM 数」都必须带机器名，**禁止跨机比较或拼接**。
-export KP_MACHINE="${KP_MACHINE:-viim}"
+# 🔴🔴 2026-10-05 改为**自动探测**（审计 P0-1）
+#   旧版写死 `KP_MACHINE="${KP_MACHINE:-viim}"` + 注释说 kokona「已迁出」，
+#   但**实际有第三种情况**：人带着仓库换机器，而环境变量还留着上一台的值。
+#   ⇒ 实测（本机）host=Kokona / GPU=RTX 5050 Laptop / 20 SM
+#      而env.sh 却说 kokona 已迁出、默认 viim ⇒ **会静默把本机数字记成 viim 的。**
+#⭐ 修法：**默认走自动探测**（hostname + GPU 型号），探测不到才回落到 KP_MACHINE 传入值。
+#   ⚠️ 仍可外部覆盖：`KP_MACHINE=xxx source env.sh`。
+_kp_auto_machine() {
+  local host gpu
+  host="$(hostname 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+  # ⭐ 优先用 GPU 型号判定（比 hostname 可靠：主机名可能改）
+  gpu=""
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    gpu="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
+  fi
+  local gl="$(printf '%s' "$gpu" | tr '[:upper:]' '[:lower:]')"
+  # 已知机器对照表（**只认 GPU 型号**，这是绑死的那部分）
+  case "$gl" in
+    *"rtx 5050"*)                echo "kokona";;   # 20 SM / sm_120
+    *"rtx 5070"*|*"rtx 5080"*|*"rtx 5090"*) echo "viim";;  # 36+ SM / sm_120
+    *)# 探测不到 ⇒ 退回 hostname 关键字
+      case "$host" in
+        *kokona*) echo "kokona";;
+        *viim*)echo "viim";;
+        *)           echo "${host:-unknown}";;
+      esac;;
+  esac
+}
+export KP_MACHINE="${KP_MACHINE:-$(_kp_auto_machine)}"
+unset -f _kp_auto_machine
+
+# ⚠️ 任何「TFLOPS / 功耗 / SM 数 / 训练耗时」都必须带机器名，**禁止跨机比较或拼接**。
+#    ⚠️ 特别提醒：**训练耗时与 SM 数成正比** ⇒ 换机后「3万步 33 分钟」这类数字**直接作废**。
 
 # ---- ② 解释器 ----
 # ⚠️ 2026-10-04 踩坑：**本工作区内的可执行文件读不了本工作区内的文件**
@@ -111,7 +139,7 @@ export PYTHONUNBUFFERED=1
 mkdir -p "$PIP_CACHE_DIR" "$HF_HUB_CACHE" "$TORCH_HOME" "$KP_MODELS" "$KP_DATA" "$KP_OUT" 2>/dev/null
 
 echo "[KP] root   : $KP_ROOT"
-echo "[KP] machine: $KP_MACHINE  (kokona=5050 旧机 / viim=5070 本机 —— 实测数字禁止跨机拼接)"
+echo "[KP] machine: $KP_MACHINE  （自动探测；kokona=5050 20SM / viim=5070+ 36SM —— 实测数字禁止跨机拼接）"
 echo "[KP] venv   : $KP_VENV"
 if [ -x "$KP_PY" ]; then
   echo "[KP] python : $("$KP_PY" -c 'import sys;print(sys.version.split()[0])' 2>/dev/null)"
