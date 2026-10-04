@@ -524,8 +524,33 @@ def fixed_eval_set(paths: Sequence[Path], size: int, device: torch.device,
 
 
 @torch.no_grad()
+def _auto_eval_batch(size: int, budget_mib: int = 0,
+                     free_mib: float = 7657.0) -> int:
+    """按「**当前真正可用的显存**」挑评估块大小（公式来自实测，不是估算）。
+
+    🔴 2026-10-04 连续踩了三次 OOM 才做对：
+      ① `--n-eval 2000` 一次性前向 ⇒ 256² 申请 **7.81 GiB** ⇒ 8GB 卡 OOM；
+      ② 改成硬编码 `batch=64` ⇒ 512² × 64 直接 OOM（连 1 张都试不进循环）；
+      ③ 块大小改成随分辨率缩放后仍 OOM ⇒ 因为**预算按「空闲显存」算**，
+         但评估发生在**训练态**，此时 reserved 已占 6406 MiB，只剩 ~1.2GB。
+
+    ⇒ ⭐ 正确的口径：**评估预算 = 卡总量 − 训练态 reserved**，
+      不是「卡的空闲显存」。这条对任何「训练中穿插评估」的场景都成立。
+
+    实测（base=128，8bit Adam，512² bs2）：训练后 reserved **6406 MiB**。
+    实测每张图的增量：512² **391.5 MiB** / 256² **98.25 MiB**（∝ 分辨率²）。
+    """
+    total = float(free_mib)
+    if torch.cuda.is_available():                      # 训练中：扣掉已 reserved 的
+        total = free_mib - torch.cuda.memory_reserved() / 2 ** 20
+    budget = budget_mib if budget_mib > 0 else max(total * 0.55, 256.0)
+    mib = 391.5 * (int(size) / 512.0) ** 2            # 每张图的增量（实测拟合）
+    n = int(budget / max(mib, 1e-6))
+    return max(1, min(64, n))
+
+
 def evaluate(vae: HybridVAE, x: torch.Tensor, *, w_lpips: float = 0.0,
-             batch: int = 64) -> dict:
+             batch: int = 0) -> dict:
     """留出集上的评估（**只报数字，不参与反向**）。
 
     ⭐ 加了 `psnr`（2026-10-04）：`l1` 是**线性**的，人看着差不多的两张图 l1 可能差很多；
@@ -533,18 +558,40 @@ def evaluate(vae: HybridVAE, x: torch.Tensor, *, w_lpips: float = 0.0,
     ⚠️ **但项目规范仍然成立**：逐像素指标**只可用于同一轨迹的横向比较**，
     **不可判画质**。这里报它只是为了「A/B 同留出集」的相对比较。
 
-    🔴 **必须分批**（2026-10-04 实测 OOM）：`--n-eval 2000` 时若一次性前向，
-    256² 下要申请 **7.81 GiB** ⇒ 8GB 卡直接 `CUDA out of memory`。
-    这里按 `batch` 切块，`x` **放在 CPU**、逐块搬到模型所在 device。
+    🔴 **必须分批**（2026-10-04 实测 OOM 两次）：
+      ① `--n-eval 2000` 一次性前向 ⇒ 256² 下申请 **7.81 GiB** ⇒ 8GB 卡 OOM；
+      ② 修成分批后，块大小又硬编码为 64 ⇒ 512² × 64 = **8.00 GiB 仍 OOM**。
+    ⇒ `batch=0` 表示**按分辨率自动定块**（见 `_auto_eval_batch`）。
+    `x` 始终留在 **CPU**，逐块搬到模型所在 device。
     """
     vae.eval()
     dev = next(vae.parameters()).device
     n = int(x.shape[0])
+    if batch <= 0:
+        batch = _auto_eval_batch(int(x.shape[-1]))
     tot = 0
     acc = {"l1": 0.0, "edge": 0.0, "percep": 0.0, "mse": 0.0}
     for s in range(0, n, batch):
         xb = x[s:s + batch].to(dev)
-        r = block_recon_loss(vae, xb, w_lpips=w_lpips)
+        # 🔴 兜底：块大小是按公式算的，公式可能对某个组合估高。
+        #    逐级减半重试（最多 3 次），宁可慢也不让整个长跑崩在这里。
+        r = None
+        for attempt in range(3):
+            try:
+                r = block_recon_loss(vae, xb, w_lpips=w_lpips)
+                break
+            except torch.cuda.OutOfMemoryError:
+                torch.cuda.empty_cache()
+                if xb.shape[0] == 1 or attempt == 2:
+                    print(f"    ⚠️ 评估块降到 {xb.shape[0]} 张仍 OOM，跳过该块"
+                          f"（评估集将从 {n} 降为 {tot}）")
+                    r = None
+                    break
+                xb = xb[:max(1, xb.shape[0] // 2)]
+                batch = xb.shape[0]
+                print(f"    ⚠️ 评估 OOM ⇒ 块大小降至 {batch}")
+        if r is None:
+            break
         k = int(xb.shape[0])
         acc["l1"] += r["l1"] * k
         acc["edge"] += r["edge"] * k
@@ -562,6 +609,39 @@ def evaluate(vae: HybridVAE, x: torch.Tensor, *, w_lpips: float = 0.0,
 # ---------------------------------------------------------------------------
 # 训练
 # ---------------------------------------------------------------------------
+def make_optimizer(model: torch.nn.Module, name: str, lr: float):
+    """构造优化器。⛔ **显存受限环境（本机 8GB）下 `adamw8bit` 是关键杠杆。**
+
+    实测（base=128 = 279.7M；8GB 卡，可用 7538 MiB，峰值 = `max_memory_allocated`）：
+
+    | 优化器      | 256²bs4  | 256²bs8  | 512²bs2  | 512²bs4  |
+    |-------------|----------|----------|----------|----------|
+    | `adamw`     | 5928M ✅ | **OOM**  | **OOM**  | **OOM**  |
+    | `adamw8bit` | 4337M ✅ | 5994M ✅ | 5993M ✅ | **OOM**  |
+    | `sgd`       | 4860M ✅ | 6517M ✅ | 6518M ✅ | **OOM**  |
+
+    根因：AdamW 的两个矩是 **fp32** ⇒ 参数量 × 16 bytes（权重 4 + 梯度 4 + 两矩 8）。
+    base=128 时光**优化器状态**就 4268 MiB，独吞 8GB 卡的一半以上。
+    8-bit 把两矩降到 2 bytes/param ⇒ 省约 2.2GB，**把 512² 从不可能变成可能**。
+
+    ⚠️ 代价：8-bit 矩会损失一些优化精度。**判据是「能不能训动」而非「训多优雅」**
+    —— 精度不够可以用更多 epoch 补，OOM 是硬墙。
+    """
+    if name == "adamw":
+        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.0)
+    if name == "adamw8bit":
+        try:
+            import bitsandbytes as bnb
+        except ImportError as e:                       # noqa: BLE001
+            raise RuntimeError(
+                "--opt adamw8bit 需要 bitsandbytes（pip install bitsandbytes）。"
+                "⛔ 8GB 卡上用 fp32 AdamW 会 OOM —— 这不是能靠调参绕过的。") from e
+        return bnb.optim.AdamW8bit(model.parameters(), lr=lr, weight_decay=0.0)
+    if name == "sgd":
+        return torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+    raise ValueError(f"未知优化器：{name}（可选 adamw / adamw8bit / sgd）")
+
+
 def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
               cache: Optional[str] = None,
               shards: Optional[Sequence[os.PathLike | str]] = None,
@@ -569,6 +649,7 @@ def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
               steps: int = 2000, batch: int = 4, size: int = 256,
               lr: float = 2e-3, base: int = 16, w_sem: float = 1.0, w_det: float = 1.0,
               w_lpips: float = 0.0, w_grad: float = 0.5,
+              opt_name: str = "adamw8bit",
               device: str = "cpu", seed: int = 0, out_path: Optional[str] = None,
               log_every: int = 50, n_eval: int = 256,
               ckpt_dir: Optional[str] = None, ckpt_every: int = 0,
@@ -586,7 +667,7 @@ def train_vae(image_dirs: Optional[Sequence[os.PathLike | str]] = None, *,
     print(f"  数据源 {src.kind} · {n} 张 · {size}² · batch {batch} · {steps} 步 · {dev}")
 
     vae = HybridVAE(base=base).to(dev)
-    opt = torch.optim.AdamW(vae.parameters(), lr=lr, weight_decay=0.0)
+    opt = make_optimizer(vae, opt_name, lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps)
 
     # ⏱️ 可中断训练（项目约定：长任务必须「停不丢 / 接着能续」）
@@ -773,6 +854,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--w-lpips", type=float, default=0.0,
                     help="多尺度感知权重（零依赖 LPIPS 替代）。0=关闭")
     ap.add_argument("--w-grad", type=float, default=0.5, help="边缘项权重")
+    ap.add_argument("--opt", default="adamw8bit",
+                    choices=("adamw", "adamw8bit", "sgd"),
+                    help="⭐ 优化器。⛔ 8GB 卡必须 adamw8bit —— fp32 AdamW 的状态在 "
+                         "base128 下就要 4268MiB，512² 直接 OOM（实测）")
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default=None, help="保存 .pt 路径")
@@ -795,6 +880,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
               steps=a.steps, batch=a.batch, size=a.size, lr=a.lr,
               base=a.base, w_sem=a.w_sem, w_det=a.w_det,
               w_lpips=a.w_lpips, w_grad=a.w_grad, device=a.device,
+              opt_name=a.opt,
               seed=a.seed, out_path=a.out, log_every=a.log_every,
               n_eval=a.n_eval, ckpt_dir=a.ckpt_dir,
               ckpt_every=a.ckpt_every, resume=a.resume)
