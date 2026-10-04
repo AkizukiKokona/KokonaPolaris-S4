@@ -2301,6 +2301,41 @@ def main() -> int:
         return f"结果 {r}（非全 1.0，可用）"
     check("⛔ M3 预研无效结论留档（三组全 1.0 是判据饱和）", _m3_vae_fix_result_is_unusable)
 
+    # ---------------- 37. safe-only 影响实验（只出数字·不看图）----------------
+    section("37. safe-only 训练影响（⭐ 只出标量，不渲染图片）")
+
+    def _safe_impact_no_images():
+        """🔴 「只出数字不看图」这个方法论必须被守住 —— 它是本项目的**红线之一**。
+
+        ⭐ 用户的问题：「你不生成敏感产物 ⇒ 我看不出对比结果 ⇒ 怎么办？」
+        ✅ 解法（本项目采用）：**「测量」与「看图」是两件事**——
+            · 重建 L1 / PSNR / latent 统计 都是**客观标量** ⇒ 不看图也能得到结论
+            · ⛔ 本模块**不打开、不渲染、不保存任何图片**
+            · 👁️ **图若要肉眼确认，由用户自己看**（本模块不参与）
+        ⇒ 这样既不回避问题（用数据回答），也不越线。
+        """
+        import inspect
+        from kp.probe import safe_impact
+        src = inspect.getsource(safe_impact)
+        # ⛔ 硬断言：模块里不得出现保存图片的调用
+        for banned in ("savefig", "imsave", "Image.fromarray", "to_pil"):
+            assert banned not in src, (
+                f"`safe_impact` 里出现 {banned} ⇒ 它开始产出图片了，"
+                f"**违反『只出数字』的约定**")
+        assert "⛔" in src and "不看图" in src, "缺少『不出图』的显式声明"
+        return "✅ 无保存图片的调用 · 显式声明『只出标量』· 图归用户看"
+    check("🔴 safe-impact 只出标量（无图片产出路径）", _safe_impact_no_images)
+
+    def _safe_impact_refuses_synthetic():
+        """⛔ 缺数据时**必须报缺口**，绝不拿合成数据替代（否则结论是假的）。"""
+        import inspect
+        from kp.probe import safe_impact
+        src = inspect.getsource(safe_impact)
+        assert "不做任何替代" in src or "不造合成数据" in src, \
+            "缺数据时未声明「不替代」⇒ 可能在偷偷用合成数据"
+        return "✅ 缺数据时如实报缺口（不用合成数据顶替）"
+    check("⛔ 缺数据时报缺口（不拿合成数据替代）", _safe_impact_refuses_synthetic)
+
     # ---------------- 汇总 ----------------
     return _summary()
 
