@@ -2223,6 +2223,36 @@ def main() -> int:
     check("🔴 M3 归因（修正版）：训练做满冗余 → 结构路线", _m3_attribution_corrected)
 
 
+    # ---------------- 35. M3 的因果链（哪一环管哪一环）----------------
+    section("35. M3 因果链（⭐ 别把 VAE 的问题派给主干的修法）")
+
+    def _m3_fix_scope():
+        """🔴 **修法② 作用在【主干入口】，修不了【VAE latent 里的冗余】** —— 两者互补。
+
+        ⚠️ **这条极易搞混**（我自己也混过一轮）：
+        · `cross_r2 = 0.9997` 测的是 **VAE 产出的 40ch latent**（信息层面）
+        · `split_patch_embed` 改的是 **主干的 patch_embed**（`kp/models/dit.py`）
+        · ⛔ **`kp/models/vae.py` 里没有 `patch_embed`**（实测 0 处）
+          ⇒ 修法② **改不到** VAE 内部的冗余
+
+        ⇒ **因果链（三段，别再混）**：
+            ① VAE 训练把信息塞满两块  ⇒  latent **内部**冗余（信息层面，已实测 1.00）
+            ② 共享 patch_embed 会顺手抄另一块 ⇒ **污染路径**存在
+            ③ 修法② 切断 ②（结构保证）⇒ **管不了 ①**
+
+        ⇒ **正确组合**：VAE 侧要改（重建目标本身）+ 主干侧用修法②（防抄）。
+        ⛔ 只做 ② 不改 ① ⇒ latent 仍是冗余的（只是主干不容易抄）。
+        """
+        from pathlib import Path
+        vae_src = (Path(__file__).parent / "models" / "vae.py").read_text(encoding="utf-8")
+        assert "patch_embed" not in vae_src, \
+            "vae.py 里出现 patch_embed ⇒ 本条前提变了，**因果链需重写**（别沿用旧结论）"
+        from kp.config import DIT_S
+        assert hasattr(DIT_S, "split_patch_embed"), "config 缺 split_patch_embed"
+        return ("✅ 边界清晰：cross_r2 测【VAE latent】；修法② 改【主干 patch_embed】；"
+                "vae.py 无 patch_embed ⇒ 修法② 管不到 latent 内部 ⇒ **两者互补，不是替代**")
+    check("🔴 M3 因果链：修法② 管不到 VAE latent 的冗余", _m3_fix_scope)
+
     # ---------------- 汇总 ----------------
     return _summary()
 
