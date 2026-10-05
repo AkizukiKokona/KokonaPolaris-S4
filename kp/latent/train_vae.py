@@ -248,6 +248,7 @@ def train(args) -> int:
                            "elapsed": round(time.time() - t_start, 1),
                            "eval_history": hist[-50:],
                            "val_history": vst["val"][-20:],
+                           "val_indices": [int(i) for i in val_idx],
                            "val_best_psnr": round(vbest, 2) if vbest > 0 else None,
                            "⚠️_leak_fixed": "2026-10-05：验证集已与训练集**严格分离**"
                                           "（此前用训练图当验证 ⇒ 指标泄漏）",

@@ -30,12 +30,17 @@ SHARD_DIR = KP_ROOT / "out" / "data" / "curated_danbooru" / "_shards"
 OUT_DIR = KP_ROOT / "out" / "vae_recon"
 
 
-def load_images(limit: int, size: int) -> List[torch.Tensor]:
+def load_images(limit: int, size: int, *, val_only: bool = True,
+                 val_frac: float = 0.08, split_seed: int = 7,
+                 val_indices: Optional[list] = None,
+                 ) -> List[torch.Tensor]:
     import pyarrow.parquet as pq
     from PIL import Image
     import numpy as np
     pf = pq.ParquetFile(sorted(SHARD_DIR.glob("*.parquet"))[0])
     out: List[torch.Tensor] = []
+    # ⭐ 只需读到 max(val_indices)+1（训练那边按同一顺序取）⇒ 别读满整片
+    n_want = (max(val_indices) + 1) if val_indices else limit
     for b in pf.iter_batches(batch_size=64, columns=["image", "prompt"]):
         rows = b.to_pylist()
         for r in rows:
@@ -51,11 +56,28 @@ def load_images(limit: int, size: int) -> List[torch.Tensor]:
             a = np.asarray(im, dtype="uint8")
             t = torch.from_numpy(a.copy()).float().permute(2, 0, 1) / 127.5 - 1.0
             out.append(t)
-            if len(out) >= limit:
-                return out
-        if len(out) >= limit:
+        if len(out) >= n_want:
             break
-    return out
+    # ⭐⭐ **精确复现训练的划分**（train_vae.py 用 seed=7 的 randperm）
+    #   ⚠️ 验证集是**随机**挑的，不是"前 N 张" ⇒ 靠 skip 避开来会漏掉真正的训练图。
+    if val_only:
+        n_total = len(out)
+        if val_indices:
+            # ⭐⭐ 用**权重里存的**索引（2026-10-05 修：靠 seed 反推不可靠，
+            #    因为训练那边是先max_images 截断、再划分，n_total 对不上）
+            picked = [out[i] for i in val_indices[:limit] if i < n_total]
+            print(f"[*] val-only: {len(picked)} imgs "
+                  f"(indices from ckpt, n_total={n_total})", flush=True)
+            return picked
+        n_val = max(16, int(n_total * val_frac))
+        # ⚠️ 必须与 train_vae 的 n_total 一致（那边是先截断再划分）
+        perm = torch.randperm(n_total, generator=torch.Generator().manual_seed(split_seed))
+        val_idx = perm[:n_val].tolist()
+        picked = [out[i] for i in val_idx[:limit]]
+        print(f"[*] val-only: {len(picked)} imgs from {n_total} "
+              f"(split seed={split_seed}, frac={val_frac})", flush=True)
+        return picked
+    return out[:limit]
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -63,6 +85,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--ckpt", default="out/vae/d128_s3000_sh1.pt")
     ap.add_argument("--n", type=int, default=8)
     ap.add_argument("--size", type=int, default=128)
+    ap.add_argument("--val-only", action="store_true", default=True,
+                    help="⛔ 只用**验证集**的图（默认开，与训练严格隔离）")
+    ap.add_argument("--val-frac", type=float, default=0.08)
+    ap.add_argument("--split-seed", type=int, default=7)
     a = ap.parse_args(argv)
 
     from kp.models.vae import HybridVAE
@@ -72,15 +98,32 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"[X] no checkpoint: {ck}", file=sys.stderr)
         return 1
     blob = torch.load(ck, map_location="cpu", weights_only=False)
-    vae = HybridVAE()
-    vae.load_state_dict(blob["state_dict"])
+    # ⭐ base 必须从权重里读（2026-10-05 修：原来硬编码 base=16，
+    #    换容量后 load_state_dict 会全部 size mismatch ⇒ 静默用随机权重出图）
+    cfg = blob.get("config", {}) or {}
+    base = int(cfg.get("base") or (blob.get("report", {}) or {}).get("base") or 16)
+    vae = HybridVAE(base=base)
+    missing, unexpected = vae.load_state_dict(blob["state_dict"], strict=False)
+    # ⛔ 尺寸不匹配会走 unexpected/missing ⇒ **明确报错**，不静默出随机权重图
+    bad = [k for k in unexpected if k in blob["state_dict"]]
+    if bad:
+        print(f"[X] weight shape mismatch on {len(bad)} tensors "
+              f"(ckpt base={base}?) e.g. {bad[:3]}", file=sys.stderr)
+        return 1
+    if missing:
+        print(f"[!] {len(missing)} params missing (unexpected but ok): {missing[:3]}",
+              flush=True)
     vae.eval()
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     vae.to(dev)
-    print(f"[*] ckpt={ck.name}  report={blob.get('report', {}).get('best_l1')}",
-          flush=True)
+    print(f"[*] ckpt={ck.name}  base={base}  "
+          f"params={sum(q.numel() for q in vae.parameters()) / 1e6:.1f}M  "
+          f"val_best={blob.get('report', {}).get('val_best_psnr')}dB", flush=True)
 
-    imgs = load_images(a.n, a.size)
+    val_idx_from_ckpt = (blob.get("report", {}) or {}).get("val_indices")
+    imgs = load_images(a.n, a.size, val_only=a.val_only,
+                      val_frac=a.val_frac, split_seed=a.split_seed,
+                      val_indices=val_idx_from_ckpt)
     print(f"[*] {len(imgs)} real images @ {a.size}px", flush=True)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
