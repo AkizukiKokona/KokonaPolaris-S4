@@ -1,4 +1,4 @@
-<#
+﻿<#
 ================================================================================
   KP 本地出图器 · GUI 启动器
 ================================================================================
@@ -35,7 +35,20 @@ if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir -Forc
 # ---- 载入上次填的内容（纯本地，方便你改）----
 $promptPath = Join-Path $root "out\_local_prompt.txt"
 $negPath    = Join-Path $root "out\_local_negative.txt"
-$lastPrompt = if (Test-Path $promptPath) { Get-Content $promptPath -Raw -Encoding UTF8 } else { "" }
+# ⭐ 内置默认（用户指定）。**必须在读 $lastPrompt 之前定义**——
+#    之前它定义在后面 ⇒ 读文件时该变量还是空的（PowerShell 未定义变量= null）。
+$DEFAULT_PROMPT = "夕阳海滩上的少女"
+
+$lastPrompt = if (Test-Path $promptPath) { (Get-Content $promptPath -Raw -Encoding UTF8).Trim() } else { "" }
+# ⚠️ 2026-10-05 用户实际踩到的坑：旧文件里残留别的对话的测试内容
+#   ⇒ 无条件填进输入框 ⇒ 看起来"默认提示词和内置默认没关系"。
+# ✅ 修：加一行小字**说明来源**（不清空它 —— 用户上次填的词不该被丢掉）。
+if ([string]::IsNullOrWhiteSpace($lastPrompt)) {
+    $lastPrompt = $DEFAULT_PROMPT
+    $fromFile = $false
+} else {
+    $fromFile = $true
+}
 $lastNeg    = if (Test-Path $negPath)    { Get-Content $negPath    -Raw -Encoding UTF8 } else { "" }
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -64,7 +77,10 @@ $form.Controls.Add($lblTitle)
 
 # ---- 提示 ----
 $lblTip = New-Object System.Windows.Forms.Label
-$lblTip.Text = "想要什么就写什么（含任何内容）。留空则用「夕阳海滩上的少女」。"
+# ⭐ 明确标注**框里这个值从哪来**（2026-10-05 用户实际踩的坑：
+#    旧文件残留别的对话的测试内容 ⇒ 看起来"默认提示词和内置默认没关系"）。
+$tipSuffix = if ($fromFile) { "（当前显示的是你上次填的内容）" } else { "（内置默认）" }
+$lblTip.Text = "想要什么就写什么（含任何内容）。留空则用「夕阳海滩上的少女」。" + $tipSuffix
 $lblTip.Font = $fontSmall
 $lblTip.AutoSize = $true
 $lblTip.ForeColor = [System.Drawing.Color]::FromArgb(110, 110, 120)
@@ -172,8 +188,6 @@ $btnOpen.Text = "打开输出文件夹"
 $btnOpen.Location = New-Object System.Drawing.Point(238, 432)
 $btnOpen.Size = New-Object System.Drawing.Size(150, 34)
 $form.Controls.Add($btnOpen)
-
-$DEFAULT_PROMPT = "夕阳海滩上的少女"
 
 $btnOpen.Add_Click({
     Start-Process explorer.exe $outDir

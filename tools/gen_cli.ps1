@@ -50,16 +50,23 @@ function Die([string]$msg) {
 if (-not (Test-Path $py))     { Die "python not found: $py (create the venv first)" }
 if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir -Force | Out-Null }
 
-# reuse your last base description as the default, so nothing is ever lost
+# 读取「上次用的 base」（若存在）
+# ⚠️ 2026-10-05 用户实际踩到的坑：这里**无条件优先旧文件**⇒
+#    别的对话测试时留了英文在 out/_local_prompt.txt ⇒ 界面一直显示英文，
+#    且**看不出它来自旧文件还是内置默认**。
+#✅ 修法：① 明确标注来源② 让你能一键回落到内置默认。
 $last = ""
+$fromFile = $false
 if (Test-Path $posFile) {
-    try { $last = ([System.IO.File]::ReadAllText($posFile, [System.Text.Encoding]::UTF8)).Trim() } catch { }
+    try {
+        $last = ([System.IO.File]::ReadAllText($posFile, [System.Text.Encoding]::UTF8)).Trim()
+        $fromFile = -not [string]::IsNullOrWhiteSpace($last)
+    } catch { }
 }
-if ([string]::IsNullOrWhiteSpace($last)) { $last = $BUILTIN_DEFAULT }
 
 Clear-Host
 Write-Host "=============================================================" -ForegroundColor Cyan
-Write-Host "  KP image A/B test   Sana 1.6B  /  fully offline" -ForegroundColor Cyan
+Write-Host "  KP image A/B test   Sana 1.6B/ fully offline" -ForegroundColor Cyan
 Write-Host "=============================================================" -ForegroundColor Cyan
 Write-Host "  what you type below never leaves this PC." -ForegroundColor Gray
 Write-Host "  A = base only    B = base + extra    (same seed for both)" -ForegroundColor Gray
@@ -67,13 +74,17 @@ Write-Host ""
 
 # ------------------------------------------------------------- STEP 1: base
 Write-Host "  STEP 1 / 2   BASE DESCRIPTION" -ForegroundColor Yellow
-Write-Host "  this is what A will use:" -ForegroundColor Gray
+if ($fromFile) {
+    Write-Host "  (from your last run -- type 'd' to fall back to the built-in default)" -ForegroundColor DarkGray
+} else {
+    Write-Host "  (built-in default)" -ForegroundColor DarkGray
+}
 Write-Host ""
 Write-Host "      $last" -ForegroundColor White
 Write-Host ""
-$base = Read-Host "  edit it, or press Enter to keep it as-is"
+$base = Read-Host "  edit it, 'd' = use built-in default, or press Enter to keep as-is"
+if ($base -match '^[dD]$') { $base = $BUILTIN_DEFAULT }
 if ([string]::IsNullOrWhiteSpace($base)) { $base = $last }
-
 Write-Host ""
 # ⚠️ 2026-10-05 改：**不把内容回显到屏幕**。
 #    原版会把base/extra 原文打印在控制台（+ 留在终端 scrollback 里）——
