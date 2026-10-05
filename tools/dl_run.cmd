@@ -1,29 +1,26 @@
 @echo off
 chcp 65001 >nul
-title KP 数据下载（双击运行）
+title KP Download
 cd /d "%~dp0.."
 
 echo ============================================================
-echo   KP 数据下载器
+echo   KP Download
 echo ============================================================
 echo.
-echo   这个窗口会显示：速度 / 进度 / 剩余时间
+echo   Progress / speed / ETA show in this window.
+echo   Shards: out\data\curated_danbooru\_shards
+echo   Resumable - run this file again to continue.
 echo.
-echo   下载位置：out\data\curated_danbooru\_shards
-echo   支持断点续传 —— 中断后再双击本文件即可继续
-echo.
-echo   要下几个分片？（1 片约 1.1GB，建议先下 4 片）
-echo.
-set /p N=分片数量 [4]:
+set /p N=How many shards? [4]:
 
 if "%N%"=="" set N=4
 
 echo.
-echo 正在启动代理环境...
 set https_proxy=http://127.0.0.1:7897
 set http_proxy=http://127.0.0.1:7897
+set PYTHONIOENCODING=utf-8
 
-echo 开始下载 %N% 个分片...
+echo Downloading %N% shards...
 echo ============================================================
 echo.
 
@@ -31,7 +28,6 @@ echo.
 
 echo.
 echo ============================================================
-echo   下载结束。图片在：out\local_gen 之类的输出目录
-echo   分片在：out\data\curated_danbooru\_shards
+echo   Done. Shards in: out\data\curated_danbooru\_shards
 echo ============================================================
 pause

@@ -105,12 +105,12 @@ def serve(max_shards: int, out_dir: Path) -> int:
         names = [x["rfilename"] for x in r.json().get("siblings", [])
                  if x["rfilename"].endswith(".parquet")]
     except Exception as e:                                      # noqa: BLE001
-        print(f"⛔ 拿不到分片清单: {type(e).__name__}: {e}", file=sys.stderr)
+        print(f"[X] cannot list shards: {type(e).__name__}: {e}", file=sys.stderr)
         return 1
     total_files = len(names)
     todo = names[:max_shards]
     emit(type="start", total_shards=total_files, queued=len(todo))
-    print(f"📦 清单 {total_files} 片，本次下{len(todo)} 片", flush=True)
+    print(f"[*] {total_files} shards available, downloading {len(todo)}", flush=True)
 
     grand_bytes = 0
     grand_done = 0
@@ -121,7 +121,7 @@ def serve(max_shards: int, out_dir: Path) -> int:
         if target.exists() and target.stat().st_size > 0:
             grand_done += target.stat().st_size
             emit(type="skip", file=name, size=target.stat().st_size, index=idx)
-            print(f"⏭ [{idx}/{len(todo)}] {Path(name).name} 已有，跳过", flush=True)
+            print(f"[skip] [{idx}/{len(todo)}] {Path(name).name} exists", flush=True)
             continue
         url = f"{MIRROR}/datasets/{DATASET}/resolve/main/{name}"
         for attempt in range(1, 7):
@@ -164,16 +164,16 @@ def serve(max_shards: int, out_dir: Path) -> int:
                 back = min(2 ** attempt, 60)
                 emit(type="error", file=Path(name).name,
                      error=f"{type(e).__name__}: {str(e)[:120]}", retry=attempt)
-                print(f"⚠️ [{idx}/{len(todo)}] 第{attempt} 次失败："
-                      f"{type(e).__name__}，{back}s 后重试", flush=True)
+                print(f"[!] [{idx}/{len(todo)}] attempt {attempt} failed: "
+                      f"{type(e).__name__}, retry in {back}s", flush=True)
                 time.sleep(back)
         else:
             emit(type="failed", file=name)
-            print(f"⛔ [{idx}/{len(todo)}] {name} 最终失败", flush=True)
+            print(f"[X] [{idx}/{len(todo)}] {name} FAILED", flush=True)
 
     emit(type="all_done", seconds=round(time.time() - t_start, 1),
          grand_done=grand_done)
-    print(f"\n🎉 全部完成 · 本次共 {human_bytes(grand_done)}", flush=True)
+    print(f"\n[OK] all done, {human_bytes(grand_done)} this run", flush=True)
     return 0
 
 
@@ -192,47 +192,45 @@ def tui(interval: float = 0.4) -> int:
         while True:
             st = read_status()
             sys.stdout.write("\x1b[H\x1b[2J")                # 清屏 + 回家
-            title = "⬇KP 数据下载监视"
-            print(f"┌─ {title} " + "─" * max(0, 54 - len(title)))
+            title = "KP Download Monitor"
+            print("+- " + title + " " + "-" * max(0, 54 - len(title)))
             if not st:
-                print("│等待下载进程启动…")
-                print("│提示：另开一个窗口跑 "
-                      "`python -m kp.data.fetch_tui --serve --max-shards 4`")
+                print("| waiting for download process...")
+                print("| hint: run  python -m kp.data.fetch_tui --serve --max-shards 4"
+                      "  in another window")
             else:
                 t = st.get("type")
                 if t == "start":
-                    print(f"│ 队列：{st['queued']} / 总 {st['total_shards']} 片")
+                    print(f"| queued {st['queued']} / {st['total_shards']} shards")
                 elif t == "progress":
                     got, total = st["got"], st["total"]
                     frac = got / total if total else 0
                     spd = st.get("speed", 0)
                     eta = st.get("eta", -1)
-                    print(f"│ 文件：{st['file']}  [{st['index']}/{st['of']}]")
-                    print(f"│ {bar(frac)} {frac * 100:5.1f}%")
-                    print(f"│ 已下 {human_bytes(got)} / {human_bytes(total)}")
-                    print(f"│ 速度 {human_bytes(spd)}/s"
-                          f"   余 {_human(eta) if eta >= 0 else '--'}")
+                    print(f"| file: {st['file']}  [{st['index']}/{st['of']}]")
+                    print(f"| {bar(frac)} {frac * 100:5.1f}%")
+                    print(f"| got {human_bytes(got)} / {human_bytes(total)}")
+                    print(f"| speed {human_bytes(spd)}/s"
+                          f"   eta {_human(eta) if eta >= 0 else '--'}")
                 elif t == "done":
-                    print(f"│ ✅ {st['file']} 完成 "
+                    print(f"| [OK] {st['file']} "
                           f"{human_bytes(st['size'])} / {st['seconds']}s")
-                    print(f"│ 进度 {st['index']}/{st['of']}，准备下一片…")
+                    print(f"| progress {st['index']}/{st['of']}, next...")
                 elif t == "skip":
-                    print(f"│ ⏭ {st['file']} 已有，跳过"
-                          f"（{st['index']}/{st['of']}）")
+                    print(f"| [skip] {st['file']} exists ({st['index']}/{st['of']})")
                 elif t == "error":
-                    print(f"│ ⚠️ {st['file']} 第{st['retry']} 次失败")
-                    print(f"│   {st['error']}")
+                    print(f"| [!] {st['file']} attempt {st['retry']} failed")
+                    print(f"|{st['error']}")
                 elif t == "failed":
-                    print(f"│ ⛔ {st['file']} 最终失败")
+                    print(f"| [X] {st['file']} FAILED")
                 elif t == "all_done":
-                    print(f"│ 🎉 全部完成！共 "
-                          f"{human_bytes(st.get('grand_done', 0))}"
-                          f" / 用时 {human_time(st.get('seconds', 0))}")
+                    print(f"| [OK] all done! {human_bytes(st.get('grand_done', 0))}"
+                          f" / {human_time(st.get('seconds', 0))}")
             age = time.time() - st.get("ts", 0) if st else -1
             if st and age > 3 and t != "all_done":
-                print(f"│⚠️  上次更新已是 {age:.0f}s 前（下载进程可能停了）")
-            print("└" + "─" * 58)
-            print(" Ctrl-C 退出监视（不影响下载）")
+                print(f"| [!] last update {age:.0f}s ago (downloader may be stopped)")
+            print("|" + "-" * 58)
+            print(" Ctrl-C to exit monitor (download continues)")
             sys.stdout.flush()
             time.sleep(interval)
     except KeyboardInterrupt:
@@ -260,7 +258,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if a.serve:
         return serve(a.max_shards, KP_ROOT / a.out)
     ap.print_help()
-    print("\n用法：--serve（下载） 或 --tui（监视）")
+    print("\nusage: --serve (download)  or  --tui (monitor)")
     return 1
 
 
