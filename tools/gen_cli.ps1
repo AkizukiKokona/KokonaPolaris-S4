@@ -34,10 +34,16 @@ $posFile = Join-Path $root "out\_local_prompt.txt"
 $negFile = Join-Path $root "out\_local_negative.txt"
 $utf8   = New-Object System.Text.UTF8Encoding($false)
 
-# 内置默认（用户指定：「夕阳海滩上的少女」）
-#⚠️ Sana 的 text_encoder 是 Gemma2（多语言），中英都能用；
-#   若中文效果不佳，STEP 1 里直接改成英文即可（那里是可编辑的默认值）。
-$BUILTIN_DEFAULT = "夕阳海滩上的少女"
+# ─── 默认 prompt（用户指定：二次元 + 夕阳海滩）──────────────────────────
+# ⭐ 2026-10-05 用户要求：「框架默认就是二次元，不管是不是 nsfw」
+#   ⇒ 把风格词写进**默认**里，这样 A 图（基础）本身就是二次元，
+#     B 图（+增量词）是在二次元基础上加内容 ⇒ 差距才是"内容"的差距。
+#
+# ⚠️ 为什么风格词放 base 而不是让你每次自己加：
+#   A/B 是**同seed** 对照，唯一的变量应该是「你加的那些词」。
+#   若二次元词也算增量，A 就不是二次元 ⇒ 两张图的风格会一起变 ⇒ 看不清差异来源。
+$STYLE_SUFFIX = "，日式动漫风格，二次元插画，干净的线条，柔和的赛璐璐上色，高细节"
+$BUILTIN_DEFAULT = "夕阳海滩上的少女$STYLE_SUFFIX"
 
 function Die([string]$msg) {
     Write-Host ""

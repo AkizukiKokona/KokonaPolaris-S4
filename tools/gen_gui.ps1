@@ -37,7 +37,10 @@ $promptPath = Join-Path $root "out\_local_prompt.txt"
 $negPath    = Join-Path $root "out\_local_negative.txt"
 # ⭐ 内置默认（用户指定）。**必须在读 $lastPrompt 之前定义**——
 #    之前它定义在后面 ⇒ 读文件时该变量还是空的（PowerShell 未定义变量= null）。
-$DEFAULT_PROMPT = "夕阳海滩上的少女"
+# ⚠️ 2026-10-05 用户要求：「框架默认就是二次元，不管是不是 nsfw」
+#    ⇒ 风格词写进默认里，保证每次出图都是二次元底子。
+$ANIME_STYLE = "，日式动漫风格，二次元插画，干净的线条，柔和的赛璐璐上色，高细节"
+$DEFAULT_PROMPT = "夕阳海滩上的少女$ANIME_STYLE"
 
 $lastPrompt = if (Test-Path $promptPath) { (Get-Content $promptPath -Raw -Encoding UTF8).Trim() } else { "" }
 # ⚠️ 2026-10-05 用户实际踩到的坑：旧文件里残留别的对话的测试内容
@@ -80,7 +83,7 @@ $lblTip = New-Object System.Windows.Forms.Label
 # ⭐ 明确标注**框里这个值从哪来**（2026-10-05 用户实际踩的坑：
 #    旧文件残留别的对话的测试内容 ⇒ 看起来"默认提示词和内置默认没关系"）。
 $tipSuffix = if ($fromFile) { "（当前显示的是你上次填的内容）" } else { "（内置默认）" }
-$lblTip.Text = "想要什么就写什么（含任何内容）。留空则用「夕阳海滩上的少女」。" + $tipSuffix
+$lblTip.Text = "想要什么就写什么（含任何内容）。默认已含二次元风格词。" + $tipSuffix
 $lblTip.Font = $fontSmall
 $lblTip.AutoSize = $true
 $lblTip.ForeColor = [System.Drawing.Color]::FromArgb(110, 110, 120)
