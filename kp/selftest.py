@@ -63,6 +63,12 @@ from kp.paths import OUT
 RESULTS: List[Tuple[str, bool, str]] = []
 
 
+# ⭐ 2026-10-05：latent 通道数改为常量（原硬编码 40；
+#    用户拍板改用 DC-AE f32c32 的 32ch，见 kp/config.py LatentCfg）
+from kp.config import LATENT   # noqa: E402
+_LAT = LATENT.total_ch
+
+
 def _rm(path: str) -> None:
     """删临时产物。
 
@@ -248,11 +254,11 @@ def main() -> int:
 
     tiny = DiTCfg(dim=64, layers=4, heads=4, mlp_ratio=2.0,
                   double_stream_blocks=1, matryoshka_tokens=(16, 64))
-    model = SingleStreamDiT(tiny, latent_ch=40, identity_anchor_layers=[1])
+    model = SingleStreamDiT(tiny, latent_ch=_LAT, identity_anchor_layers=[1])
     model.eval()
 
     def _dit_forward():
-        x = torch.randn(1, 40, 8, 8)          # 8×8 = 64 token
+        x = torch.randn(1, _LAT, 8, 8)          # 8×8 = 64 token
         t = torch.full((1,), 500.0)
         ctx = torch.randn(1, 12, 64)
         ident = torch.randn(1, 16, 64)
@@ -265,7 +271,7 @@ def main() -> int:
     check("前向形状", _dit_forward)
 
     def _dit_bitexact():
-        x = torch.randn(1, 40, 8, 8)
+        x = torch.randn(1, _LAT, 8, 8)
         t = torch.full((1,), 300.0)
         with torch.no_grad():
             v0 = model(x, t)
@@ -300,7 +306,7 @@ def main() -> int:
         with torch.no_grad():
             z = vae.encode_latent(img)
             rec = vae.decode(z)
-        assert z.shape == (1, 40, 8, 8), z.shape        # 256/32 = 8
+        assert z.shape == (1, _LAT, 8, 8), z.shape        # 256/32 = 8
         assert rec.shape == img.shape, (rec.shape, img.shape)
         return f"256²→latent{tuple(z.shape)}→256²（32×）"
     check("HybridVAE 32× 编解码形状", _vae)
@@ -360,10 +366,10 @@ def main() -> int:
 
     def _sample():
         model.eval()
-        z = sample(model, (1, 40, 8, 8), steps=4, seed=0, matryoshka=(16, 64))
-        assert z.shape == (1, 40, 8, 8), z.shape
+        z = sample(model, (1, _LAT, 8, 8), steps=4, seed=0, matryoshka=(16, 64))
+        assert z.shape == (1, _LAT, 8, 8), z.shape
         # 同 seed 可复现（G1 永久规范：判据是轨迹复现，不是像素对齐）
-        z2 = sample(model, (1, 40, 8, 8), steps=4, seed=0, matryoshka=(16, 64))
+        z2 = sample(model, (1, _LAT, 8, 8), steps=4, seed=0, matryoshka=(16, 64))
         assert torch.equal(z, z2), "同 seed 采样不可复现"
         return f"4 步 Matryoshka 16→64 token，{tuple(z.shape)}，同 seed 可复现"
     check("采样可跑且可复现", _sample)
@@ -515,9 +521,9 @@ def main() -> int:
 
     def _adapter_dit():
         torch.manual_seed(7)
-        m1 = SingleStreamDiT(tiny, latent_ch=40, identity_anchor_layers=[1])
+        m1 = SingleStreamDiT(tiny, latent_ch=_LAT, identity_anchor_layers=[1])
         torch.manual_seed(7)
-        m2 = SingleStreamDiT(tiny, latent_ch=40, identity_anchor_layers=[1])
+        m2 = SingleStreamDiT(tiny, latent_ch=_LAT, identity_anchor_layers=[1])
         for i, (name, glmod) in enumerate(m1.gated_linears().items()):
             d = DeltaPack(f"d{i}", glmod.in_features, glmod.out_features, rank=2, seed=i)
             with torch.no_grad():
@@ -531,7 +537,7 @@ def main() -> int:
             mounted = load_adapter(m2, path)
         finally:
             _rm(path)
-        x = torch.randn(1, 40, 8, 8)
+        x = torch.randn(1, _LAT, 8, 8)
         t = torch.full((1,), 300.0)
         with torch.no_grad():
             assert torch.allclose(m1(x, t), m2(x, t), atol=1e-6), "整模型往返不一致"
@@ -544,9 +550,9 @@ def main() -> int:
 
     def _qad():
         torch.manual_seed(11)
-        mm = SingleStreamDiT(tiny, latent_ch=40, identity_anchor_layers=[1])
+        mm = SingleStreamDiT(tiny, latent_ch=_LAT, identity_anchor_layers=[1])
         nq = qad_set_quant(mm)
-        x = torch.randn(1, 40, 8, 8)
+        x = torch.randn(1, _LAT, 8, 8)
         t = torch.full((1,), 400.0)
         res = run_qad(mm, x, t, steps=20, seed=11)
         assert res.loss_drop > 0.5, (f"loss 未显著下降："
@@ -647,8 +653,8 @@ def main() -> int:
 
     def _cb_dit():
         torch.manual_seed(3)
-        m = SingleStreamDiT(tiny, latent_ch=40, identity_anchor_layers=[1])
-        x = torch.randn(1, 40, 8, 8)
+        m = SingleStreamDiT(tiny, latent_ch=_LAT, identity_anchor_layers=[1])
+        x = torch.randn(1, _LAT, 8, 8)
         t = torch.full((1,), 300.0)
         with torch.no_grad():
             v_off = m(x, t, identity_ctx=None)
@@ -1193,7 +1199,7 @@ def main() -> int:
         """
         m = _RPB.build_test_backbone(seed=0)
         g = torch.Generator().manual_seed(7)
-        x = torch.randn(3, 40, 6, 6, generator=g)
+        x = torch.randn(3, _LAT, 6, 6, generator=g)
         t = torch.full((3,), 500.0)
         with torch.no_grad():
             a = m(x, t, domain=torch.zeros(3, 16))
@@ -1823,6 +1829,7 @@ def main() -> int:
         """
         from kp.models.vae import HybridVAE
         from kp.train.vae_pretrain import list_images, load_batch, _edge
+        _lat = _LAT                       # 当前 latent 通道数（32）
         from kp.paths import DATA, OUT
         paths = list_images([DATA / "characters" / "kokona"])
         if not paths:
@@ -1834,14 +1841,38 @@ def main() -> int:
         v0.eval()
         with torch.no_grad():
             l1_0 = float((torch.tanh(v0.decode(v0.encode_latent(x))) - x).abs().mean())
-        # 已训练的 checkpoint（若不存在则只报随机基线，并明确说明没验成）
-        ck = OUT / "vae" / "final.pt"
-        if not ck.exists():
-            return (f"⚠️ 无训练后 ckpt（{ck.name}），只测了随机基线 L1={l1_0:.4f} "
-                    f"⇒ **前提未验证**，需先训 VAE")
-        d = torch.load(ck, weights_only=False)
-        v = HybridVAE(base=d["base"])
-        v.load_state_dict(d["state_dict"])
+        # ⭐ 已训练的 checkpoint（2026-10-05 改：**兼容 32ch**）
+        #   ⚠️ 原写死 final.pt（40ch），改用 32ch 后 size mismatch ⇒ 全断
+        #   ⇒ 现在**按当前通道数找匹配的 ckpt**：优先新的 db32_*/b32_*，
+        #     旧的 40ch（final.pt）自动跳过。
+        cands = sorted((OUT / "vae").glob("*.pt"),
+                       key=lambda q: q.stat().st_mtime, reverse=True) \
+            if (OUT / "vae").exists() else []
+        ck = None
+        d = None
+        for c in cands:
+            try:
+                _d = torch.load(c, map_location="cpu", weights_only=False)
+            except Exception:                                    # noqa: BLE001
+                continue
+            _cfg = _d.get("config", {}) or {}
+            _b = int(_cfg.get("base") or _d.get("base") or 16)
+            _r = int(_cfg.get("res_blocks") or 0)
+            if _b + 0 == _b and _b * (2 ** 5) > 0:
+                _v = HybridVAE(base=_b, res_blocks=_r)
+                _st = _d.get("state_dict") or _d
+                try:
+                    _v.load_state_dict(_st)
+                except Exception:                                # noqa: BLE001
+                    continue          # 通道数不符（40ch 旧权重）⇒ 跳过
+                if _v.latent_ch != _lat:
+                    continue
+                ck, d, v = c, _d, _v
+                break
+        if d is None:
+            return (f"⚠️ 无**匹配当前通道数（{_lat}）**的 VAE ckpt，"
+                    f"只测了随机基线 L1={l1_0:.4f} ⇒ **前提未验证**，需先训 VAE")
+        v.eval()
         v.eval()
         with torch.no_grad():
             z = v.encode_latent(x)

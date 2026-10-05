@@ -12,12 +12,36 @@ from dataclasses import dataclass, field
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class LatentCfg:
+    """⭐ 2026-10-05 用户拍板：**改用 DC-AE f32c32 的 32ch**（不再用 40ch）。
+
+    ═══ 为什么放弃 40ch（证据在库，非临时起意）═══
+    出处 `design/KokonaPolaris_架构设计方案.md` §⑤b。40ch 的本意是
+    「语义 8ch 管身份 / 细节 32ch 管纹理，两块各管各的」。实测 R²(细节→语义)：
+
+    | encoder | R² |
+    |---|---|
+    | 我们 · 随机初始化 | 0.2876 |
+    | 我们 · **训练后** | **0.9997** ⛔ |
+    | **DC-AE · 随便切 8|24** | **0.4375** ⭐ |
+
+    ⇒ 🔴 **训练把冗余做满了**（0.29→1.00）—— 重建目标**主动抹平通道分工**。
+    ⚠️ 而且我们**精心设计的 8|32** 反而比 DC-AE **随便切一刀**更冗余。
+    ⇒ 40ch 的「专属区」前提**从未成立**。
+
+    ⭐ 另一条决定性理由：**G1 靶子 Sana 用的正是 DC-AE f32c32**
+      ⇒ 用同一个 VAE ⇒ **G1 结论可直接迁移，不打折**（40ch 曾是外推打折项）。
+
+    ⚠️ 保留 `semantic_ch` / `detail_ch` 的**字段与 API**（`split_latent` 等仍在用），
+       但**声明这只是"名义切分"，不保证两块真的分工** —— 别再基于它做设计。
+    """
+
     spatial: int = 32          # 32× 空间压缩 → 1024² 图 → 32×32 格
-    semantic_ch: int = 8       # 语义通道（对齐 DINOv3）
-    detail_ch: int = 32        # 细节通道（DC-AE 式）
+    semantic_ch: int = 8       # 名义语义通道（⚠️ 不保证与细节分离，见 docstring）
+    detail_ch: int = 24        # 名义细节通道（8+24 = 32，对齐 DC-AE f32c32）
+
     @property
     def total_ch(self) -> int:
-        return self.semantic_ch + self.detail_ch          # = 40
+        return self.semantic_ch + self.detail_ch          # = 32 ✅ 与 DC-AE 一致
 
     def tokens(self, image_size: int) -> int:
         """图像边长 → token 数（patch_size=1，1 token = 1 latent 格）。"""
