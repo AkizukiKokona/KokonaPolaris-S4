@@ -106,3 +106,6 @@ desktop.ini
 # ---- 临时测试目录（本机排查用，勿入库）----
 /_vt*/
 /_venv*/
+
+# 借来的第三方零件（不入库，见 vendor/README_KP.md）
+vendor/
