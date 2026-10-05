@@ -102,7 +102,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     #    换容量后 load_state_dict 会全部 size mismatch ⇒ 静默用随机权重出图）
     cfg = blob.get("config", {}) or {}
     base = int(cfg.get("base") or (blob.get("report", {}) or {}).get("base") or 16)
-    vae = HybridVAE(base=base)
+    rb = int(cfg.get("res_blocks") or (blob.get("report", {}) or {}).get("res_blocks") or 0)
+    vae = HybridVAE(base=base, res_blocks=rb)
     missing, unexpected = vae.load_state_dict(blob["state_dict"], strict=False)
     # ⛔ 尺寸不匹配会走 unexpected/missing ⇒ **明确报错**，不静默出随机权重图
     bad = [k for k in unexpected if k in blob["state_dict"]]
@@ -116,7 +117,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     vae.eval()
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     vae.to(dev)
-    print(f"[*] ckpt={ck.name}  base={base}  "
+    print(f"[*] ckpt={ck.name}  base={base} res={rb}  "
           f"params={sum(q.numel() for q in vae.parameters()) / 1e6:.1f}M  "
           f"val_best={blob.get('report', {}).get('val_best_psnr')}dB", flush=True)
 

@@ -80,7 +80,8 @@ def channel_split(z: torch.Tensor):
 
 
 def train(args) -> int:
-    from kp.models.vae import HybridVAE
+    from kp.models.vae import (HybridVAE, PatchDiscriminator,
+                               hinge_d_loss, hinge_g_loss)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     shards = sorted(SHARD_DIR.glob("*.parquet"))[: args.shards]
@@ -127,7 +128,7 @@ def train(args) -> int:
 
     # ---- 模型
     # ⭐ base 可调（2026-10-05 容量测试：16=4.4M/ 32=17.6M / 64=70M）
-    vae = HybridVAE(base=args.base).to(device)
+    vae = HybridVAE(base=args.base, res_blocks=args.res_blocks).to(device)
     # ⭐ 续训：给定 --resume 就加载已有权重（否则每次从零，浪费算力）
     if args.resume and Path(args.resume).exists():
         _b = torch.load(args.resume, map_location="cpu", weights_only=False)
@@ -146,6 +147,14 @@ def train(args) -> int:
                   f"-> falling back to L1 only", flush=True)
             lpips_model = None
     opt = torch.optim.AdamW(vae.parameters(), lr=args.lr, weight_decay=0.0)
+    # ⭐ 判别器（对抗训练，治"糊"的根因）；w=0 时完全不建（省显存）
+    disc = None
+    opt_d = None
+    if args.adv_w > 0:
+        disc = PatchDiscriminator(base=args.disc_base).to(device)
+        opt_d = torch.optim.AdamW(disc.parameters(), lr=args.lr, betas=(0.5, 0.9))
+        print(f"[*] D params={sum(q.numel() for q in disc.parameters()) / 1e6:.2f}M "
+              f"adv_w={args.adv_w} (warmup {args.adv_warmup})", flush=True)
     scaler = torch.amp.GradScaler("cuda", enabled=device.type == "cuda")
     print(f"[*] params={sum(p.numel() for p in vae.parameters()) / 1e6:.1f}M", flush=True)
 
@@ -167,6 +176,7 @@ def train(args) -> int:
     hist: List[dict] = []
     vst: dict = {"val": []}
     vbest = -1.0
+    dl: List[tuple] = []
     best = float("inf")
     t_start = time.time()
     for step in range(1, args.steps + 1):
@@ -195,6 +205,20 @@ def train(args) -> int:
             var_d = zd.float().var()
             loss = (l1 + args.lpips_w * loss_lp
                     - 0.01 * torch.log1p(var_d.clamp_min(1e-6)))
+        # ---- ⭐ 判别器先更新（用 detach 的图，不影响生成器图）----
+        if disc is not None and step > args.adv_warmup:
+            opt_d.zero_grad(set_to_none=True)
+            # ⚠️ 只 detach **输入**（切断到生成器的图）；
+            #    判别器**自身**必须保留梯度，否则 d_loss 没有 grad_fn
+            d_loss = hinge_d_loss(disc(x.detach().float()),
+                                  disc(rec.detach().float()))
+            d_loss.backward()
+            opt_d.step()
+            # ⭐ 生成器侧对抗项**并入主损失** ⇒ 只 backward 一次（图不被释放）
+            adv_g = hinge_g_loss(disc(rec.float()))
+            loss = loss + args.adv_w * adv_g
+            dl.append((float(d_loss.detach()), float(adv_g.detach())))
+
         if device.type == "cuda":
             scaler.scale(loss).backward()
             scaler.unscale_(opt)
@@ -209,6 +233,12 @@ def train(args) -> int:
         hist.append({"step": step, "l1": lv})
         if lv < best:
             best = lv
+        # ⭐ 定期存盘（前台超时不再白跑）
+        if args.save_every and step % args.save_every == 0 and step < args.steps:
+            _ck = KP_ROOT / "out" / "vae" / f"_ckpt_{dargs_tag(args)}.pt"
+            torch.save({"state_dict": vae.state_dict(),
+                        "config": {"size": args.size, "base": args.base},
+                        "report": {"step": step, "partial": True}}, _ck)
         if args.eval_every and step % args.eval_every == 0:
             vae.eval()
             with torch.no_grad():
@@ -232,7 +262,8 @@ def train(args) -> int:
                    if device.type == "cuda" else 0)
             # ⭐ EMA 平滑，数字才看得懂
             sm = sum(h["l1"] for h in hist[-20:]) / len(hist[-20:])
-            print(f"[{step:5d}/{args.steps}] l1={sm:.4f} best={best:.4f} "
+            dg = f" D={dl[-1][0]:.3f} G={dl[-1][1]:.3f}" if dl else ""
+            print(f"[{step:5d}/{args.steps}] l1={sm:.4f} best={best:.4f}{dg} "
                   f"{el:.0f}s {mem:.2f}GB", flush=True)
 
     out = KP_ROOT / "out" / "vae" / f"d{dargs_tag(args)}.pt"
@@ -240,6 +271,7 @@ def train(args) -> int:
     torch.save({"state_dict": vae.state_dict(),
                 "config": {"size": args.size, "steps": args.steps,
                            "latent_ch": 40, "base": args.base,
+                           "res_blocks": args.res_blocks,
                            "shards": [p.name for p in shards]},
                 "report": {"final_l1": hist[-1]["l1"], "best_l1": best,
                            "base": args.base, "params_M": round(
@@ -249,6 +281,10 @@ def train(args) -> int:
                            "eval_history": hist[-50:],
                            "val_history": vst["val"][-20:],
                            "val_indices": [int(i) for i in val_idx],
+                           "adv_w": args.adv_w,
+                           "lpips_w": args.lpips_w,
+                           "d_loss_last": round(dl[-1][0], 4) if dl else None,
+                           "g_adv_last": round(dl[-1][1], 4) if dl else None,
                            "val_best_psnr": round(vbest, 2) if vbest > 0 else None,
                            "⚠️_leak_fixed": "2026-10-05：验证集已与训练集**严格分离**"
                                           "（此前用训练图当验证 ⇒ 指标泄漏）",
@@ -275,11 +311,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--log-every", type=int, default=20)
     ap.add_argument("--resume", default=None,
                     help="接着这个权重练（⛔ 不给就从零开始）")
+    ap.add_argument("--save-every", type=int, default=500,
+                    help="每 N 步存一次中间权重（防超时白跑）")
+    ap.add_argument("--res-blocks", type=int, default=0,
+                    help="每层残差块数（0=旧架构；⭐ 这是治糊的架构修复）")
     ap.add_argument("--base", type=int, default=16,
                     help="通道基数（16=4.4M / 32=17.6M / 64=70M）")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--val-frac", type=float, default=0.06,
                     help="验证集占比（⛔ 不参与训练，防指标泄漏）")
+    ap.add_argument("--adv-w", type=float, default=0.0,
+                    help="对抗损失权重（0=关；治糊的根因）")
+    ap.add_argument("--adv-warmup", type=int, default=300,
+                    help="前 N 步只做重建，不开对抗（防 D 过早碾压 G）")
+    ap.add_argument("--disc-base", type=int, default=64)
     ap.add_argument("--lpips-w", type=float, default=0.25,
                     help="LPIPS 权重（0 = 纯 L1）")
     ap.add_argument("--eval-every", type=int, default=200)
