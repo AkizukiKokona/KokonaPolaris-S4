@@ -106,25 +106,37 @@ def train(args) -> int:
     budget = args.mem_budget_gb * 1024 ** 3
     max_by_mem = int(budget // max(1, per_img))
     n_target = args.max_images or len(raw)
-    n_use = min(n_target, max_by_mem)
+    # ⭐ 流式：RAW 字节常驻（4片≈4GB）⇒ **不受张量预算限制**（那才是真瓶颈）
+    n_use = n_target if args.stream else min(n_target, max_by_mem)
     if n_use < n_target:
         print(f"[*] mem budget {args.mem_budget_gb}GB -> cap {n_use} imgs "
               f"(@{args.size}px each {per_img / 2**20:.0f}MB)", flush=True)
-    data: List[torch.Tensor] = []
-    for i, r in enumerate(raw):
-        if len(data) >= n_use:
-            break
-        t = to_tensor(r, args.size)
-        if t is not None:
-            data.append(t)
-        if (i + 1) % 2000 == 0:
-            print(f"    decoded {i + 1}/{len(raw)}", flush=True)
-    print(f"[*] {len(data)} tensors @ {args.size}px "
-          f"({len(data) * per_img / 2**30:.2f}GB)", flush=True)
-    if not data:
+    raw_bytes: Optional[List[bytes]] = None
+    if args.stream:
+        # ⭐⭐ 流式：**RAW 字节常驻，每步才解码**
+        #   ⚠️ 256px 全解码 4 万张 = 31GB，机器只 ~14GB ⇒ 装不下
+        #   ⇒ 这就是我们只能跑 4 epoch、而 DC-AE 跑数百 epoch 的直接原因
+        raw_bytes = raw[:n_use] if n_use < len(raw) else raw
+        data = []
+        print(f"[*] STREAM: {len(raw_bytes)} raw imgs in RAM "
+              f"({sum(len(x) for x in raw_bytes) / 2**30:.2f}GB), "
+              f"decode {args.batch}/step", flush=True)
+    else:
+        data = []
+        for i, r in enumerate(raw):
+            if len(data) >= n_use:
+                break
+            t = to_tensor(r, args.size)
+            if t is not None:
+                data.append(t)
+            if (i + 1) % 2000 == 0:
+                print(f"    decoded {i + 1}/{len(raw)}", flush=True)
+        print(f"[*] {len(data)} tensors @ {args.size}px "
+              f"({len(data) * per_img / 2**30:.2f}GB)", flush=True)
+        del raw
+    if not (data or raw_bytes):
         print("[X] no image decoded", file=sys.stderr)
         return 1
-    del raw
 
     # ---- 模型
     # ⭐ base 可调（2026-10-05 容量测试：16=4.4M/ 32=17.6M / 64=70M）
@@ -161,15 +173,25 @@ def train(args) -> int:
     # ⭐⭐ 训练/验证**严格分离**（2026-10-05 实测发现的问题）
     #   原先 vae_recon 用的是**训练集里那批图** ⇒ PSNR 是泄漏的，
     #   于是出现「train loss 降一半、PSNR 不动」的自相矛盾。
-    n_total = len(data)
+    src = raw_bytes if raw_bytes is not None else data
+    n_total = len(src)
     n_val = max(16, int(n_total * args.val_frac))
     idx_all = torch.randperm(n_total, generator=torch.Generator().manual_seed(7))
     val_idx, tr_idx = idx_all[:n_val], idx_all[n_val:]
-    val_set = [data[int(i)] for i in val_idx]
-    train_set = [data[int(i)] for i in tr_idx]
+    if raw_bytes is not None:
+        val_set = []                       # 稍后用 raw 解码
+        train_set = [int(i) for i in tr_idx]
+    else:
+        val_set = [data[int(i)] for i in val_idx]
+        train_set = [data[int(i)] for i in tr_idx]
+    val_idx_raw = [int(i) for i in val_idx] if raw_bytes is not None else []
+    if raw_bytes is not None:
+        _ok = [to_tensor(raw_bytes[i], args.size) for i in val_idx_raw[:64]]
+        val_set = [t for t in _ok if t is not None]
     print(f"[*] split: train {len(train_set)} / val {len(val_set)} "
           f"(⛔ 验证集**不参与训练**，之前的指标是泄漏的)", flush=True)
-    del data
+    if raw_bytes is None:
+        del data
 
     g = torch.Generator().manual_seed(args.seed)
     n = len(train_set)
@@ -181,7 +203,15 @@ def train(args) -> int:
     t_start = time.time()
     for step in range(1, args.steps + 1):
         idx = torch.randint(0, n, (args.batch,), generator=g)
-        x = torch.stack([train_set[int(i)] for i in idx]).to(device)
+        # ⭐ 流式：按需解码（每步只用 batch 张，不常驻）
+        if raw_bytes is not None:
+            _ts = [to_tensor(raw_bytes[int(i)], args.size) for i in idx]
+            _ts = [t for t in _ts if t is not None]
+            x = torch.stack(_ts).to(device)
+        else:
+            x = torch.stack([train_set[int(i)] for i in idx]).to(device)
+        if x.shape[0] == 0:
+            continue
 
         opt.zero_grad(set_to_none=True)
         with torch.autocast("cuda", enabled=device.type == "cuda",
@@ -206,7 +236,13 @@ def train(args) -> int:
             loss = (l1 + args.lpips_w * loss_lp
                     - 0.01 * torch.log1p(var_d.clamp_min(1e-6)))
         # ---- ⭐ 判别器先更新（用 detach 的图，不影响生成器图）----
-        if disc is not None and step > args.adv_warmup:
+        # ⭐⭐ 2026-10-05 关键修正：**判别器不能每步都更新**
+        #   DC-AE 官方配方原话：「GAN training ratio **300:1**」
+        #     Loss = 100*L1_Dis + 1*L1 + 0.1*LPIPS + 0.05*PatchGAN
+        #   ⚠️ 我之前每步都更新 D ⇒ D 被喂太饱（D=0.03 几乎完美）
+        #      ⇒ G 追不上 ⇒ 训练发散（val 14.6 掉到 12.9）
+        #   ⇒ 现在用 --d-every 控制频率（默认就取 1/300 的比例，见下注释）
+        if disc is not None and step > args.adv_warmup and (step % args.d_every == 0):
             opt_d.zero_grad(set_to_none=True)
             # ⚠️ 只 detach **输入**（切断到生成器的图）；
             #    判别器**自身**必须保留梯度，否则 d_loss 没有 grad_fn
@@ -238,11 +274,18 @@ def train(args) -> int:
             _ck = KP_ROOT / "out" / "vae" / f"_ckpt_{dargs_tag(args)}.pt"
             torch.save({"state_dict": vae.state_dict(),
                         "config": {"size": args.size, "base": args.base},
-                        "report": {"step": step, "partial": True}}, _ck)
+                        "report": {"step": step, "partial": True,
+                                   "val_indices": [int(i) for i in val_idx]}}, _ck)
         if args.eval_every and step % args.eval_every == 0:
             vae.eval()
             with torch.no_grad():
-                vs = torch.stack(val_set[:args.n_val_batch]).to(device)
+                _vs = ([to_tensor(raw_bytes[i], args.size)
+                        for i in val_idx_raw[:args.n_val_batch]]
+                       if raw_bytes is not None else val_set[:args.n_val_batch])
+                _vs = [t for t in _vs if t is not None]
+                if not _vs:
+                    continue
+                vs = torch.stack(_vs).to(device)
                 vz = vae.encode(vs)
                 if not torch.is_tensor(vz):
                     vz = vz["latent"] if isinstance(vz, dict) else vz[0]
@@ -313,6 +356,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="接着这个权重练（⛔ 不给就从零开始）")
     ap.add_argument("--save-every", type=int, default=500,
                     help="每 N 步存一次中间权重（防超时白跑）")
+    ap.add_argument("--stream", action="store_true",
+                    help="⭐ 流式解码（RAW 常驻，每步解码）⇒ 能用全部数据")
     ap.add_argument("--res-blocks", type=int, default=0,
                     help="每层残差块数（0=旧架构；⭐ 这是治糊的架构修复）")
     ap.add_argument("--base", type=int, default=16,
@@ -322,6 +367,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="验证集占比（⛔ 不参与训练，防指标泄漏）")
     ap.add_argument("--adv-w", type=float, default=0.0,
                     help="对抗损失权重（0=关；治糊的根因）")
+    ap.add_argument("--d-every", type=int, default=8,
+                    help="判别器每 N 步更新一次。⭐ DC-AE 官方是 300:1"
+                         "（我们步数少，默认 8 兼顾速度）")
     ap.add_argument("--adv-warmup", type=int, default=300,
                     help="前 N 步只做重建，不开对抗（防 D 过早碾压 G）")
     ap.add_argument("--disc-base", type=int, default=64)

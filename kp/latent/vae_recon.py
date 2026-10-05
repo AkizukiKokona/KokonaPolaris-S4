@@ -37,25 +37,33 @@ def load_images(limit: int, size: int, *, val_only: bool = True,
     import pyarrow.parquet as pq
     from PIL import Image
     import numpy as np
-    pf = pq.ParquetFile(sorted(SHARD_DIR.glob("*.parquet"))[0])
+    # ⚠️ 必须读**全部**分片：val_indices 是在全量上算的（stream 模式跨 4 片）
+    shards = sorted(SHARD_DIR.glob("*.parquet"))
+    pf_files = [pq.ParquetFile(p) for p in shards]
     out: List[torch.Tensor] = []
-    # ⭐ 只需读到 max(val_indices)+1（训练那边按同一顺序取）⇒ 别读满整片
-    n_want = (max(val_indices) + 1) if val_indices else limit
-    for b in pf.iter_batches(batch_size=64, columns=["image", "prompt"]):
-        rows = b.to_pylist()
-        for r in rows:
-            try:
-                im = Image.open(io.BytesIO(r["image"])).convert("RGB")
-            except Exception:                                      # noqa: BLE001
-                continue
-            w, h = im.size
-            s = min(w, h)
-            im = im.crop(((w - s) // 2, (h - s) // 2,
-                          (w - s) // 2 + s, (h - s) // 2 + s))
-            im = im.resize((size, size), Image.LANCZOS)
-            a = np.asarray(im, dtype="uint8")
-            t = torch.from_numpy(a.copy()).float().permute(2, 0, 1) / 127.5 - 1.0
-            out.append(t)
+    # ⭐ 只需读到 max(val_indices)+1 ⇒ 别读满（否则慢到像卡死）
+    n_want = 6000 if val_indices else limit
+    for pf in pf_files:
+        for b in pf.iter_batches(batch_size=64, columns=["image", "prompt"]):
+            rows = b.to_pylist()
+            for r in rows:
+                if len(out) >= n_want:
+                    break
+                try:
+                    im = Image.open(io.BytesIO(r["image"])).convert("RGB")
+                except Exception:                                  # noqa: BLE001
+                    out.append(torch.zeros(3, 8, 8))               # 占位，保序
+                    continue
+                w, h = im.size
+                s = min(w, h)
+                im = im.crop(((w - s) // 2, (h - s) // 2,
+                              (w - s) // 2 + s, (h - s) // 2 + s))
+                im = im.resize((size, size), Image.LANCZOS)
+                a = np.asarray(im, dtype="uint8")
+                t = torch.from_numpy(a.copy()).float().permute(2, 0, 1) / 127.5 - 1.0
+                out.append(t)
+            if len(out) >= n_want:
+                break
         if len(out) >= n_want:
             break
     # ⭐⭐ **精确复现训练的划分**（train_vae.py 用 seed=7 的 randperm）
@@ -63,9 +71,11 @@ def load_images(limit: int, size: int, *, val_only: bool = True,
     if val_only:
         n_total = len(out)
         if val_indices:
-            # ⭐⭐ 用**权重里存的**索引（2026-10-05 修：靠 seed 反推不可靠，
-            #    因为训练那边是先max_images 截断、再划分，n_total 对不上）
-            picked = [out[i] for i in val_indices[:limit] if i < n_total]
+            # ⭐ 只取**索引较小**的验证图（读 4 万张要几分钟 ⇒ 没必要）
+            sel = [i for i in val_indices[:limit * 4] if i < 2000][:limit]
+            if len(sel) < limit:                                   # 不够就放宽
+                sel = [i for i in val_indices[:limit * 8] if i < 6000][:limit]
+            picked = [out[i] for i in sel if i < len(out)]
             print(f"[*] val-only: {len(picked)} imgs "
                   f"(indices from ckpt, n_total={n_total})", flush=True)
             return picked
