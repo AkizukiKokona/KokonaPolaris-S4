@@ -74,12 +74,18 @@ def build_attn_plan(layers: int, n_linear: int = 3, n_sigmoid: int = 1,
     return plan[:layers]
 
 
-def _gl(in_f: int, out_f: int, std: float = 0.02, bias: bool = False) -> GatedLinear:
-    """建一个 GatedLinear（权重是 buffer ⇒ 冻结主干，可挂能力包）。"""
+def _gl(in_f: int, out_f: int, std: float = 0.02, bias: bool = False,
+        trainable: bool = False) -> GatedLinear:
+    """建一个 GatedLinear。
+
+    ⚠️ 默认 `trainable=False` ⇒ 权重是 **buffer**（冻结主干，可挂能力包）。
+    ⭐ 预训练时必须传 `trainable=True` ⇒ 权重变 **nn.Parameter**，
+       否则 `parameters()` 拿不到 ⇒ **梯度一个都进不去**（实测踩过）。
+    """
     w = torch.empty(out_f, in_f)
     nn.init.normal_(w, std=std / math.sqrt(max(1, in_f) / 64.0))
     b = torch.zeros(out_f) if bias else None
-    return GatedLinear(w, b)
+    return GatedLinear(w, b, trainable=trainable)
 
 
 def _attn_core(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
@@ -401,7 +407,10 @@ class SingleStreamDiT(nn.Module):
                  + self._patch_embed_split["det"](x[:, sc:].flatten(2).transpose(1, 2)))
         else:
             h = self.patch_embed(x.flatten(2).transpose(1, 2))          # [B, N, d]
-        h = h + sincos_2d(H, W, d).to(h.dtype)
+        # ⚠️ 2026-10-05 修：`sincos_2d` 在 CPU 上新建张量，
+        #    原写法只 `.to(h.dtype)` ⇒ **设备不一致**（cuda:0 vs cpu）
+        #    ⇒ 必须同时对齐 device（GPU 训练一跑就炸）
+        h = h + sincos_2d(H, W, d).to(device=h.device, dtype=h.dtype)
 
         c = self.t_embed(t)
         if domain is not None:

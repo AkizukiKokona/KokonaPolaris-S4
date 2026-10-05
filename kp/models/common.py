@@ -36,7 +36,11 @@ def sincos_1d(pos: torch.Tensor, dim: int, base: float = 10000.0) -> torch.Tenso
         dim -= 1
     pos = pos.reshape(-1, 1).float()
     half = dim // 2
-    freqs = torch.exp(-math.log(base) * torch.arange(half, dtype=torch.float32) / half)
+    # ⚠️ 2026-10-05 修：`freqs` 默认建在 CPU ⇒ 与 GPU 上的 pos 设备不一致
+    #    （原写法只 .float()，没跟设备）⇒ GPU 训练一跑就炸
+    freqs = torch.exp(-math.log(base)
+                      * torch.arange(half, dtype=torch.float32,
+                                     device=pos.device) / half)
     ang = pos * freqs.reshape(1, -1)
     return torch.cat([ang.sin(), ang.cos()], dim=-1)
 

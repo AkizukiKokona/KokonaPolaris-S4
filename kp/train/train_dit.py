@@ -1,0 +1,236 @@
+"""P2 · 训练 KP 自己的单流 DiT 主干 —— ⭐ 用 DC-AE 的 latent（32ch, 32×）
+
+═══ 为什么现在能做了 ═══
+2026-10-05：VAE 改用 **DC-AE f32c32**（已训好，20.33dB，零成本）
+⇒ **VAE 不再是卡点** ⇒ 可以开始训主干了。
+
+═══ 这一步的目标（用户判据）═══
+① **不 OOM**（8GB 铁律）  ② **图不崩**（用户看图）
+⛔ 不用 rFID 门（那个参照系已被判定不成立）
+
+═══ Rectified Flow（设计稿的配方）═══
+    x_t = (1-t)·x0 + t·ε          （线性插值）
+    v*  = ε - x0                  （目标速度）
+    loss = ‖v_θ(x_t, t) - v*‖²
+    t ~ logit-normal（设计稿 §4.1 指定，不是 uniform）
+
+═══ ⚠️ 第一版先做「无条件」═══
+文本塔还没训 ⇒ 先用**零条件**跑通**无条件生成**。
+⭐ 这是最快到"第一张 KP 自己的图"的路径；有图之后再挂文本。
+"""
+from __future__ import annotations
+
+import argparse
+import io
+import math
+import os
+import sys
+import time
+from pathlib import Path
+from typing import List, Optional
+
+import torch
+import torch.nn.functional as F
+
+KP_ROOT = Path(os.environ.get("KP_ROOT") or Path(__file__).resolve().parents[2])
+SHARD_DIR = KP_ROOT / "out" / "data" / "curated_danbooru" / "_shards"
+sys.path.insert(0, str(KP_ROOT / "vendor" / "efficientvit"))
+
+
+# ---------------------------------------------------------------------------
+def load_dcae(dev: torch.device):
+    """⭐ 用 MIT 原版 efficientvit 加载（⛔ diffusers 命名不兼容 ⇒ 会静默随机权重）。"""
+    from efficientvit.models.efficientvit.dc_ae import dc_ae_f32c32, DCAE
+    from safetensors.torch import load_file
+    cfg = dc_ae_f32c32("dc-ae-f32c32-sana-1.0", None)
+    m = DCAE(cfg)
+    sd = load_file(str(KP_ROOT / "models" / "dc_ae_f32c32_sana_1.0.safetensors"))
+    miss, unexp = m.load_state_dict(sd, strict=False)
+    # ⛔ 必须检查！今天踩过"没报错但全是随机权重"
+    if len(miss) > 10 or len(unexp) > 10:
+        raise RuntimeError(f"DC-AE 权重没加载好: missing={len(miss)} unexp={len(unexp)}")
+    return m.eval().to(dev).float(), float(cfg.scaling_factor)
+
+
+def read_raw(shards: int, limit: int) -> List[bytes]:
+    import pyarrow.parquet as pq
+    out: List[bytes] = []
+    for p in sorted(SHARD_DIR.glob("*.parquet"))[:shards]:
+        pf = pq.ParquetFile(p)
+        for b in pf.iter_batches(batch_size=128, columns=["image"]):
+            for r in b.to_pylist():
+                out.append(r["image"])
+                if len(out) >= limit:
+                    return out
+    return out
+
+
+def prep(b: bytes, size: int):
+    import numpy as np
+    from PIL import Image
+    try:
+        im = Image.open(io.BytesIO(b)).convert("RGB")
+    except Exception:                                              # noqa: BLE001
+        return None
+    w, h = im.size
+    s = min(w, h)
+    im = im.crop(((w - s) // 2, (h - s) // 2, (w - s) // 2 + s, (h - s) // 2 + s))
+    im = im.resize((size, size), Image.LANCZOS)
+    a = np.asarray(im, dtype="uint8")
+    return torch.from_numpy(a.copy()).float().permute(2, 0, 1) / 127.5 - 1.0
+
+
+def make_backbone_trainable(model) -> int:
+    """⭐ 把主干的 `weight`/`bias` 从 **buffer 提升为 Parameter**。
+
+    ═══ 为什么必须做（2026-10-05 实测踩到）═══
+    KP 的 `GatedLinear` 把权重注册成 **buffer** —— 那是为
+    「**冻结主干** + 挂能力包」设计的。后果：
+        `model.parameters()` **拿不到主干权重**
+        ⇒ 实测 `可训参数量 = 0.00M`，backward 直接报
+          `RuntimeError: element 0 of tensors does not require grad`
+    ⭐ 预训练阶段必须先把它们提升为 Parameter。
+
+    ⛔ 只动名字是 `weight`/`bias` 的 buffer（真权重）；
+       `layout_pos` / RoPE 表这类**按名字注册的**不受影响。
+    """
+    import torch.nn as nn
+    n = 0
+    for mod in model.modules():
+        for attr in ("weight", "bias"):
+            if attr in mod._buffers and mod._buffers[attr] is not None:
+                buf = mod._buffers.pop(attr)
+                mod.register_parameter(attr, nn.Parameter(buf.detach().clone()))
+                n += 1
+    return n
+
+
+def logit_normal_t(n: int, dev, m: float = 0.0, s: float = 1.0):
+    """⭐ 设计稿指定：t ~ logit-normal（不是 uniform）。"""
+    z = torch.randn(n, device=dev) * s + m
+    return torch.sigmoid(z)
+
+
+# ---------------------------------------------------------------------------
+def train(a) -> int:
+    from kp.models.dit import SingleStreamDiT, DiTCfg
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    vae, scale = load_dcae(dev)
+    print(f"[*] DC-AE ok  scaling_factor={scale}", flush=True)
+
+    raw = read_raw(a.shards, a.max_images)
+    print(f"[*] {len(raw)} raw imgs", flush=True)
+
+    cfg = DiTCfg(dim=a.dim, layers=a.layers, heads=a.heads)
+    model = SingleStreamDiT(cfg, latent_ch=32).to(dev)
+    # ⭐ 关键：把 buffer 权重提升为 Parameter，否则**梯度进不去**（实测踩过）
+    _promoted = make_backbone_trainable(model)
+    n_par = sum(q.numel() for q in model.parameters())
+    print(f"[*] promoted {_promoted} buffers -> Parameters", flush=True)
+    assert n_par > 1e5, f"可训参数只有 {n_par} ⇒ 权重没被提升，训不了"
+    print(f"[*] DiT params = {n_par/1e6:.1f}M  dim={a.dim} layers={a.layers}",
+          flush=True)
+
+    opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=0.0)
+    use_amp = dev.type == "cuda"
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+
+    lat_hw = a.size // 32
+    print(f"[*] latent = 32ch × {lat_hw}×{lat_hw} = {lat_hw*lat_hw} tokens",
+          flush=True)
+
+    torch.manual_seed(a.seed)
+    g = torch.Generator().manual_seed(a.seed)
+    hist: List[float] = []
+    t0 = time.time()
+    step = 0
+    while step < a.steps:
+        idx = torch.randint(0, len(raw), (a.batch,), generator=g)
+        xs = [prep(raw[int(i)], a.size) for i in idx]
+        xs = [x for x in xs if x is not None]
+        if not xs:
+            continue
+        x = torch.stack(xs).to(dev)                      # [B,3,H,W] ∈ [-1,1]
+
+        with torch.no_grad():
+            z0 = vae.encode(x)
+            if not torch.is_tensor(z0):
+                z0 = z0[0]
+            z0 = (z0 * scale).float()                    # 缩放（DC-AE 要求）
+            z0 = z0.to(torch.float32)
+
+        b = z0.shape[0]
+        noise = torch.randn_like(z0)
+        t = logit_normal_t(b, dev)
+        t_ = t.view(b, 1, 1, 1)
+        xt = (1 - t_) * z0 + t_ * noise
+        v_target = noise - z0
+
+        opt.zero_grad(set_to_none=True)
+        with torch.autocast("cuda", enabled=use_amp, dtype=torch.bfloat16):
+            v_pred = model(xt, t)                    # ⚠️ 先无条件（关键字参数都有默认 None）
+            if not torch.is_tensor(v_pred):
+                v_pred = v_pred[0]
+            loss = F.mse_loss(v_pred.float(), v_target.float())
+        if use_amp:
+            scaler.scale(loss).backward()
+            scaler.unscale_(opt)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            scaler.step(opt)
+            scaler.update()
+        else:
+            loss.backward()
+            opt.step()
+
+        hist.append(float(loss.detach()))
+        step += 1
+        if step % a.log_every == 0 or step == 1:
+            el = time.time() - t0
+            sm = sum(hist[-50:]) / len(hist[-50:])
+            mem = torch.cuda.max_memory_allocated() / 2**30 if use_amp else 0
+            print(f"[{step:5d}/{a.steps}] loss={sm:.4f} {el:.0f}s "
+                  f"{mem:.2f}GB", flush=True)
+        if a.save_every and step % a.save_every == 0 and step < a.steps:
+            _out = KP_ROOT / "out" / "dit" / "_ckpt.pt"
+            _out.parent.mkdir(parents=True, exist_ok=True)
+            torch.save({"state_dict": model.state_dict(),
+                        "config": {"dim": a.dim, "layers": a.layers,
+                                   "heads": a.heads, "latent_ch": 32,
+                                   "size": a.size},
+                        "step": step}, _out)
+
+    out = KP_ROOT / "out" / "dit" / f"d{a.dim}L{a.layers}_s{a.steps}.pt"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    torch.save({"state_dict": model.state_dict(),
+                "config": {"dim": a.dim, "layers": a.layers, "heads": a.heads,
+                           "latent_ch": 32, "size": a.size, "scale": scale},
+                "report": {"steps": a.steps, "final_loss": hist[-1],
+                           "best_loss": min(hist), "n_images": len(raw),
+                           "elapsed": round(time.time() - t0, 1),
+                           "params_M": round(n_par / 1e6, 1),
+                           "⚠️": "第一版=无条件；文本塔未训"}}, out)
+    print(f"[OK] saved {out}  final={hist[-1]:.4f}  "
+          f"{time.time()-t0:.0f}s", flush=True)
+    return 0
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    ap = argparse.ArgumentParser(description="P2 · 训 KP 单流 DiT（无条件第一版）")
+    ap.add_argument("--shards", type=int, default=4)
+    ap.add_argument("--max-images", type=int, default=40000)
+    ap.add_argument("--size", type=int, default=256)
+    ap.add_argument("--dim", type=int, default=384)
+    ap.add_argument("--layers", type=int, default=12)
+    ap.add_argument("--heads", type=int, default=6)
+    ap.add_argument("--batch", type=int, default=8)
+    ap.add_argument("--steps", type=int, default=2000)
+    ap.add_argument("--lr", type=float, default=1e-4)
+    ap.add_argument("--log-every", type=int, default=100)
+    ap.add_argument("--save-every", type=int, default=500)
+    ap.add_argument("--seed", type=int, default=1)
+    return train(ap.parse_args(argv))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

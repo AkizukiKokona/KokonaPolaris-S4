@@ -97,13 +97,27 @@ class GatedLinear(nn.Module):
     """
 
     def __init__(self, weight: torch.Tensor, bias: torch.Tensor = None,
-                 quantized: bool = False):
+                 quantized: bool = False, trainable: bool = False):
+        """`trainable=True` ⇒ 本体权重注册为 **nn.Parameter**（可训）。
+
+        ⭐ 为什么需要这个开关（2026-10-05 实测踩到）：
+            默认权重是 **buffer**（为"冻结主干 + 挂能力包"设计）⇒
+            `model.parameters()` **拿不到主干权重** ⇒ **预训练一个梯度都进不去**
+            （实测 `可训参数量 = 0.00M`，backward 直接报 "does not require grad"）。
+        ✅ 预训练阶段用 `trainable=True`；冻结/能力包阶段保持默认 False。
+            ⛔ 默认 False ⇒ **原有 bit-exact 行为逐位不变**。
+        """
         super().__init__()
         self.in_features = weight.shape[1]
         self.out_features = weight.shape[0]
-        self.register_buffer("weight", weight.detach().clone())
-        self.register_buffer("bias",
-                             None if bias is None else bias.detach().clone())
+        if trainable:
+            self.weight = nn.Parameter(weight.detach().clone())
+            self.bias = (None if bias is None
+                         else nn.Parameter(bias.detach().clone()))
+        else:
+            self.register_buffer("weight", weight.detach().clone())
+            self.register_buffer("bias",
+                                 None if bias is None else bias.detach().clone())
         # 标志：本体是否被 NVFP4 量化（仅作档案，注入点永远在量化器之外）
         self.base_quantized = quantized
         self.quant = None            # QuantSpec | None（None = 不量化）
