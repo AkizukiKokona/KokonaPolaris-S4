@@ -79,7 +79,30 @@ def human_time(sec: float) -> str:
 def bar(frac: float, width: int = 28) -> str:
     frac = min(1.0, max(0.0, frac))
     n = int(frac * width)
-    return "█" * n + "░" * (width - n)
+    # ⚠️ 用 ASCII 块：GBK 终端下星星星额/盖星可能乱码
+    return "#" * n + "-" * (width - n)
+
+
+def draw_progress(name: str, got: int, total: int, speed: float,
+                  eta: float, idx: int, of: int) -> None:
+    """⭐ 下载窗口里的**单行进度条**（原地刷新，不用滚屏）。
+
+    ⚠️ 2026-10-05 用户实跑反馈：JSON 刷屏看不懂
+    （「不是一个进度条，以及简洁的显示速度，还有单位也要写出来呀」）
+    ⇒ 这里只给：进度条 / 百分比 / 已下载 / 速度(MB/s) / 剩余时间
+    """
+    frac = got / total if total else 0.0
+    line = (f"[{idx}/{of}] {bar(frac)} {frac * 100:5.1f}%  "
+            f"{human_bytes(got)} / {human_bytes(total)}  "
+            f"{human_bytes(speed)}/s  ETA {human_time(eta) if eta >= 0 else '--'}")
+    # \r 回到行首 + 清除到行尾⇒ 原地刷新，不刷屏
+    sys.stdout.write("\r" + line[:150].ljust(120))
+    sys.stdout.flush()
+
+
+def clear_line() -> None:
+    sys.stdout.write("\r" + " " * 130 + "\r")
+    sys.stdout.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +118,12 @@ def serve(max_shards: int, out_dir: Path) -> int:
     (out_dir / "_shards").mkdir(parents=True, exist_ok=True)
 
     def emit(**kw) -> None:
-        print(json.dumps(kw, ensure_ascii=False), flush=True)
+        """⭐ 只写状态文件，**不往 stdout 打JSON**。
+
+        ⚠️ 2026-10-05 用户实跑反馈：JSON 日志刷屏且看不懂
+        （用户原话：「你这种纯日志表示方式，我根本看不懂啊」）
+        ⇒ 屏幕只给**进度条 + 速度 + ETA**；JSON 是给 --tui 监视进程用的内部协议。
+        """
         write_status(**kw)
 
     # 清单
@@ -120,6 +148,7 @@ def serve(max_shards: int, out_dir: Path) -> int:
         target = out_dir / "_shards" / Path(name).name
         if target.exists() and target.stat().st_size > 0:
             grand_done += target.stat().st_size
+            clear_line()
             emit(type="skip", file=name, size=target.stat().st_size, index=idx)
             print(f"[skip] [{idx}/{len(todo)}] {Path(name).name} exists", flush=True)
             continue
@@ -148,9 +177,12 @@ def serve(max_shards: int, out_dir: Path) -> int:
                             emit(type="progress", file=Path(name).name,
                                  got=got, total=total, speed=spd, eta=eta,
                                  index=idx, of=len(todo))
+                            draw_progress(Path(name).name, got, total, spd, eta,
+                                          idx, len(todo))
                         if total and got >= total:
                             break
-                os.replace(tmp, target)# ⭐ 原子替换
+                os.replace(tmp, target)          # ⭐ 原子替换
+                clear_line()                      # 擦掉进度条
                 sz = target.stat().st_size
                 grand_bytes += sz
                 grand_done += sz
@@ -162,6 +194,7 @@ def serve(max_shards: int, out_dir: Path) -> int:
                 break
             except Exception as e:                              # noqa: BLE001
                 back = min(2 ** attempt, 60)
+                clear_line()
                 emit(type="error", file=Path(name).name,
                      error=f"{type(e).__name__}: {str(e)[:120]}", retry=attempt)
                 print(f"[!] [{idx}/{len(todo)}] attempt {attempt} failed: "
