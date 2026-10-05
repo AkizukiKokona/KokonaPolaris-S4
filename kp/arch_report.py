@@ -73,7 +73,7 @@ def main() -> int:
     print(f"  KP-M 实测 {_fmt(m)} vs 1.5B  → {flag_m}"
           f"（{(m/1.5e9-1)*100:+.1f}%）")
 
-    print("\n【文本塔（自 Qwen3-4B 蒸馏）】")
+    print("\n【文本塔（自 Qwen3.5-4B-Base 蒸馏）】")
     tcfg = TextTowerCfg()
     tt = TextTower(tcfg) if False else None  # 不实建，避免占内存
     est = tcfg.param_count()

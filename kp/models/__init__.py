@@ -15,7 +15,7 @@
 分层：
     kp.models.dit         单流 DiT 主干（3:1 混合注意力 / QK-Norm / Matryoshka）
     kp.models.vae         HybridVAE（32× 空间压缩，40ch = 8 语义 + 32 细节）
-    kp.models.text_tower  ~220M 多语言文本塔（自 Qwen3-4B 蒸馏）
+    kp.models.text_tower  ~220M 多语言文本塔（自 Qwen3.5-4B-Base 蒸馏）
     kp.models.charabridge 多视角身份 + 几何双分支（可关断返回 None）
     kp.models.common      RMSNorm / 正弦位置编码 / 时间步嵌入
 """

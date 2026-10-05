@@ -1,10 +1,42 @@
-"""TextTower —— ~220M 多语言文本塔（自 Qwen3-4B 蒸馏）。
+"""TextTower —— ~220M 多语言文本塔（自 **Qwen3.5-4B-Base** 蒸馏）。
 
 ⚠️ 本文件属于 2026-10-03 **重写版**（原包因 `.gitignore` 未锚定被连带忽略而丢失）。
 
+## 🔴 教师换版（2026-10-05 用户决策）
+原设计写 `Qwen3.5-4B-Base`（27 处引用）⇒ **已过时**。改为 **`Qwen/Qwen3.5-4B-Base`**：
+
+| |旧 Qwen3.5-4B-Base | **新 Qwen3.5-4B-Base** |
+|---|---|---|
+| 发布 | 2025 | **2026-02-27** |
+| 许可 | — | **Apache-2.0**（可商用）|
+| 词表 | 151,669（实测）| **248,320**（卡片值，⛔ 未实测）|
+| 语言覆盖 | — | **201 种** |
+| 架构 | 纯文本 Transformer | ⚠️ **多模态早融合**（`Qwen3_5ForConditionalGeneration`）|
+
+⭐ **换教师不增加蒸馏工作量**（蒸馏是训练过程，不是抄参数）⇒ 零成本升级。
+⚠️ **但有两处真实成本，见下文「换教师的连带改动」**。
+
+## ⭐「剥离视觉」的正确理解（2026-10-05 用户提问）
+用户问「我们要剥离视觉」。**准确说法是「不取」，不是「剥离」**：
+- 3.5 是多模态模型（含视觉塔 + 早融合）
+- 蒸馏时只取**语言侧的 hidden states** ⇒ 视觉塔**根本不进计算图**
+- ⇒ 不需要任何"剥离"操作，**也不该为此写代码**
+
+⚠️ **真实成本在这里**：3.5 的层结构是 **Gated DeltaNet + Gated Attention 混合**
+（`8 × (3 × (DeltaNet→FFN) + 1 × (Attention→FFN))`），**不是**标准 Transformer
+⇒ `kp/text/distill.py` 的逐层 hook **必须适配**，否则取不到 hidden states。
+
+## 换教师的连带改动（⛔ 三处，缺一即静默出错）
+1. **词表**：`TextTowerCfg.vocab_size` 默认 151936 是 Qwen3.5-4B-Base 的口径
+   ⇒ 换 3.5 后**必须重跑 `kp.text.tokenizer.probe()` 量出真实上界**
+   （⛔ 不要照抄 248,320 —— 本项目已在 Qwen3.5-4B-Base 上实测过「卡片值 ≠ 真实索引上界」）
+2. **层数/隐藏维**：3.5 是 32 层 × 2560（≠旧配置 14 层 × 768）
+   ⇒ `layers/dim/heads` 是**学生**规模，可不动；但**教师侧**的层数要按 3.5 配
+3. **蒸馏脚本**：见上文「真实成本」—— DeltaNet 层不能当普通 attention 层处理
+
 ## ⭐ 为什么这一层是「设计变量」而不是普通编码器
 SDXL 的文本塔是 **CLIP** —— 中文 token 从未训过 ⇒ **必须全英文**。
-KP 的文本塔是 **LLM**（自 Qwen3-4B 蒸馏）⇒ **中文是原生能力**，
+KP 的文本塔是 **LLM**（自 Qwen3.5-4B-Base 蒸馏）⇒ **中文是原生能力**，
 于是输入形态从「逗号标签串」变成「**自然语言句子**」（设计稿补充11 §4.8）。
 
 ⚠️ **但中文能力不是白送的**：它取决于训练数据里中文 caption 的占比与形态，
@@ -32,7 +64,7 @@ __all__ = ["TextTower", "TextTowerCfg"]
 
 @dataclass(frozen=True)
 class TextTowerCfg:
-    vocab_size: int = 151936        # Qwen3 系词表量级
+    vocab_size: int = 151936        # ⚠️ 见下方「词表口径」—— 换 3.5 后**这个数会变**
     dim: int = 768
     layers: int = 14
     heads: int = 12
@@ -52,6 +84,23 @@ class TextTowerCfg:
         emb = self.vocab_size * d
         per_layer = 4 * d * d + 2 * d * int(d * self.mlp_ratio) + 4 * d
         return emb + self.layers * per_layer + d * self.out_dim + 2 * d
+
+    # ════════════════════════════════════════════════════════════════════
+    # 词表口径（⭐ 换教师时**必读**）
+    # ════════════════════════════════════════════════════════════════════
+    # ⚠️ **三种数不一样，别照抄模型卡**（2026-10-05 实测 Qwen3.5-4B-Base tokenizer）：
+    #   ① tok.vocab_size      = 151643  ← **不含** added_tokens
+    #   ② len(tok)             = 151669  ← 含 added_tokens（26 个）
+    #   ③ max(token id) + 1= 151669  ← ⭐ **真正能安全索引的上界**
+    #   卡片/config 写的 151936比 ③ 还大 267 ⇒ 按它建表**不会越界**，
+    #   但**白占 267×768 = 0.2M 参数**。
+    #
+    # 🔴 **换 Qwen3.5-4B-Base 后这三个数都会变**（卡片称词表 248,320，
+    #    但**同样不能照抄** —— 3.5 是 `Qwen3_5ForConditionalGeneration` 多模态架构，
+    #    tokenizer 可能带更多 control token / added_tokens）。
+    #⇒ **正确做法**：`kp.text.tokenizer.probe()` 量出 ③，再回来改这个默认值。
+    #   在此之前**保持 151936**（宁可大、不越界），并让蒸馏脚本报差异而非静默采用。
+    VOCAB_SOURCE = "Qwen3.5-4B-Base（默认）｜换 3.5 后必须重跑 kp.text.tokenizer.probe()"
 
 
 def _gl(in_f: int, out_f: int, std: float = 0.02, bias: bool = False) -> GatedLinear:

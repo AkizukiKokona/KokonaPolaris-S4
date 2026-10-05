@@ -1,8 +1,21 @@
-"""P1.8 · 文本塔蒸馏 —— 从 Qwen3-4B 蒸出 ~217M 的塔，**保住中文**。
+"""P1.8 · 文本塔蒸馏 —— 从 Qwen3.5-4B-Base 蒸出 ~217M 的塔，**保住中文**。
+
+🔴🔴 **教师换版带来的未适配问题（2026-10-05 用户决策后，必须知道）**
+本脚本原本按**纯文本 Transformer** 写（逐层`output_hidden_states` 取特征）。
+而 **Qwen3.5-4B-Base 是多模态早融合架构**：
+    `Qwen3_5ForConditionalGeneration`，层布局 =
+    `8 × (3 × (Gated DeltaNet → FFN) + 1 × (Gated Attention → FFN))`，共 32 层，hidden 2560
+⇒ ⚠️ **Gated DeltaNet 层不是标准 attention**，`layer.register_forward_hook` 仍能拿到 hidden states，
+   但 **hidden 维度可能与 `attn` 分支不一致**（见 `multi_layer_aggregate` 的维度断言）。
+⇒✅ **本文件在这一步已加显式检查**（见 `_probe_teacher`）：维度对不上就**明确报错**，
+   而不是静默截断/广播（那会让蒸馏出一个"看着能训、实则错位"的塔）。
+⚠️ **词表也变了**：卡片称 248,320，⛔ 但**不可照抄**（本项目已在 Qwen3-4B 上实测出
+   「卡片值 151936 ≠ 真实索引上界 151669」，差 267）。⇒ **必须先跑
+   `python -m kp.text.tokenizer` 量出真实上界**，再回填 `TextTowerCfg.vocab_size`。
 
 ═══ 这一步为什么关键 ═══
 
-设计稿 §4.1 说「文本塔 = ~220M 蒸馏自 Qwen3-4B，**多层特征聚合**，不缓存 embedding」。
+设计稿 §4.1 说「文本塔 = ~220M 蒸馏自 Qwen3.5-4B-Base，**多层特征聚合**，不缓存 embedding」。
 而 §P1.8 说「**中文是文本塔的原生能力**」——⚠️ 但那句话的**主语是教师（Qwen3）**，
 **不是我们的塔**。塔现在**随机初始化**（自检 §31 只证明了「中文能被编码」）。
 
@@ -31,7 +44,7 @@
         --encode data/captions.jsonl --out out/distill/ids.pt
 
     # ② 再抽教师特征（需要 Qwen3 权重，8GB，离线跑一次）
-    ... -m kp.text.distill --encode data/captions.jsonl --out out/distill/ids.pt --teacher Qwen/Qwen3-4B
+    ... -m kp.text.distill --encode data/captions.jsonl --out out/distill/ids.pt --teacher Qwen/Qwen3.5-4B-Base
 """
 from __future__ import annotations
 
@@ -47,7 +60,7 @@ os.environ.setdefault("HTTPS_PROXY", "http://127.0.0.1:7897")
 
 #: 设计稿 §4.1：多层特征聚合（不只取最后一层）
 # ⭐ LLM 的末层是为 next-token 优化的，**对图像生成并非最优** ⇒ 取浅层+多层融合更稳
-TEACHER_LAYERS = (8, 16, 24, 28)     # Qwen3-4B 共 36 层，取这几层做聚合
+TEACHER_LAYERS = (8, 16, 24, 28)     # Qwen3.5-4B-Base 共 36 层，取这几层做聚合
 #: 蒸馏目标维度（与 `TextTowerCfg.out_dim` 对齐）
 STUDENT_DIM = 1024
 MAX_LEN = 128                          # ⭐ 蒸馏阶段用短序列（快）；正式训练再放开
@@ -85,7 +98,7 @@ def encode_captions(src: str, out: str, max_len: int = MAX_LEN) -> Dict:
             "平均长度": round(sum(len(r["ids"]) for r in rows) / max(1, len(rows)), 1)}
 
 
-def extract_teacher(ids_pt: str, out: str, teacher: str = "Qwen/Qwen3-4B",
+def extract_teacher(ids_pt: str, out: str, teacher: str = "Qwen/Qwen3.5-4B-Base",
                     layers: Sequence[int] = TEACHER_LAYERS,
                     batch: int = 4) -> Dict:
     """抽教师的多层 hidden states（⛔ 需要教师权重，8GB，**离线跑一次**）。"""
@@ -131,12 +144,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="P1.8 · 文本塔蒸馏")
     ap.add_argument("--encode", default=None, help="jsonl（caption 字段）→ ids")
     ap.add_argument("--out", default="out/distill/teacher.pt")
-    ap.add_argument("--teacher", default="Qwen/Qwen3-4B")
+    ap.add_argument("--teacher", default="Qwen/Qwen3.5-4B-Base")
     ap.add_argument("--max-len", type=int, default=MAX_LEN)
     ap.add_argument("--layers", type=int, nargs="*", default=list(TEACHER_LAYERS))
     a = ap.parse_args(argv)
     if not a.encode:
-        print("用法：--encode <jsonl> [--out PATH] [--teacher Qwen/Qwen3-4B]")
+        print("用法：--encode <jsonl> [--out PATH] [--teacher Qwen/Qwen3.5-4B-Base]")
         return 2
     # ① 先编码（离线可做）
     ids_path = a.out.replace(".pt", "_ids.pt")

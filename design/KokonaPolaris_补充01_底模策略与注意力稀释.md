@@ -114,7 +114,7 @@ DINOv3 是所有教师共享的「公共语言」：
 | **主教师**（视觉质量） | **Z-Image-Turbo**（6B，Apache 2.0） | 开源最强质量/速度比；Artificial Analysis ELO 1152，超过 32B 的 FLUX.2；许可证干净；6B 规模蒸馏成本可控 |
 | 质量上限参照（仅离线对照，不参与分发） | FLUX.1 [dev]（12B，Non-Commercial） | 它是目前最好的视觉教师之一，只用来做离线对照和"最后一档"蒸馏；不碰许可证红线 |
 | **语义锚定** | **DINOv3**（冻结，不训练） | 混合 Latent 的公共语言 + REPA 目标，跨教师通用 |
-| **文本教师** | **Qwen3-4B** → 蒸馏到 ~220M | Z-Image 已经验证它对中英文字形与指令遵循有效 |
+| **文本教师** | **Qwen3.5-4B-Base** → 蒸馏到 ~220M | Z-Image 已经验证它对中英文字形与指令遵循有效 |
 | **少步教师** | ⚠️ **不要直接抄 Z-Image-Turbo 的 8 步** | 它自己就是蒸馏产物。链式蒸馏会累积失真。应该从**我们自己的 BF16 teacher** 重新做 Decoupled-DMD → rCM |
 
 ## 1.7 「flux 代表未来，结合一点」—— 借什么、不借什么
@@ -329,7 +329,7 @@ T2I-CompBench 的原始论文就提出了 **GORS**（Generative model finetuning
 
 | 项 | v1.0 | **v1.1** |
 |---|---|---|
-| 底模 | 未定 | **不选底模，选教师**：主教师 Z-Image-Turbo（Apache 2.0）+ DINOv3 语义锚定 + Qwen3-4B 文本教师 |
+| 底模 | 未定 | **不选底模，选教师**：主教师 Z-Image-Turbo（Apache 2.0）+ DINOv3 语义锚定 + Qwen3.5-4B-Base 文本教师 |
 | 权重来源 | — | 从零初始化，教师只提供**蒸馏数据**（离线生成一次） |
 | 架构自由度 | — | **完全自由**（因为不继承任何权重） |
 | 从 Flux 借 | rectified flow | + **浅层 double-stream**（前 4–6 block） |
