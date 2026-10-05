@@ -119,8 +119,44 @@ def train(a) -> int:
     vae, scale = load_dcae(dev)
     print(f"[*] DC-AE ok  scaling_factor={scale}", flush=True)
 
-    raw = read_raw(a.shards, a.max_images)
-    print(f"[*] {len(raw)} raw imgs", flush=True)
+    # ⭐⭐ latent 缓存（关键提速）
+    #   实测：解 JPEG 占了 1.35s/步 的绝大部分（GPU 在等 CPU）
+    #   而 latent 只有 32×8×8×4B = 8KB/张 ⇒ 40000 张仅 328MB，RAM 装得下
+    cache_path = KP_ROOT / "out" / "dit" / f"_latents_{a.size}_n{a.max_images}.pt"
+    latents = None
+    if a.latents and Path(a.latents).exists():
+        latents = torch.load(a.latents, map_location="cpu", weights_only=False)["z"]
+        print(f"[*] loaded cached latents {tuple(latents.shape)}", flush=True)
+    elif cache_path.exists():
+        latents = torch.load(cache_path, map_location="cpu",
+                             weights_only=False)["z"]
+        print(f"[*] loaded cached latents {tuple(latents.shape)}", flush=True)
+
+    if latents is None:
+        raw = read_raw(a.shards, a.max_images)
+        print(f"[*] {len(raw)} raw imgs -> encoding latents...", flush=True)
+        zs: List[torch.Tensor] = []
+        t_enc = time.time()
+        for i in range(0, len(raw), 16):
+            chunk = [prep(b, a.size) for b in raw[i:i + 16]]
+            chunk = [c for c in chunk if c is not None]
+            if not chunk:
+                continue
+            xb = torch.stack(chunk).to(dev)
+            with torch.no_grad():
+                zz = vae.encode(xb)
+                if not torch.is_tensor(zz):
+                    zz = zz[0]
+            zs.append((zz.float() * scale).cpu())
+            if (i // 16) % 50 == 0:
+                print(f"    {i}/{len(raw)}  {time.time()-t_enc:.0f}s", flush=True)
+        latents = torch.cat(zs, dim=0)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save({"z": latents, "scale": scale, "size": a.size}, cache_path)
+        print(f"[*] latents cached: {tuple(latents.shape)} "
+              f"-> {cache_path.name} ({time.time()-t_enc:.0f}s)", flush=True)
+        del raw, zs
+        raw = None
 
     cfg = DiTCfg(dim=a.dim, layers=a.layers, heads=a.heads)
     model = SingleStreamDiT(cfg, latent_ch=32).to(dev)
@@ -145,21 +181,10 @@ def train(a) -> int:
     hist: List[float] = []
     t0 = time.time()
     step = 0
+    N = latents.shape[0]
     while step < a.steps:
-        idx = torch.randint(0, len(raw), (a.batch,), generator=g)
-        xs = [prep(raw[int(i)], a.size) for i in idx]
-        xs = [x for x in xs if x is not None]
-        if not xs:
-            continue
-        x = torch.stack(xs).to(dev)                      # [B,3,H,W] ∈ [-1,1]
-
-        with torch.no_grad():
-            z0 = vae.encode(x)
-            if not torch.is_tensor(z0):
-                z0 = z0[0]
-            z0 = (z0 * scale).float()                    # 缩放（DC-AE 要求）
-            z0 = z0.to(torch.float32)
-
+        idx = torch.randint(0, N, (a.batch,), generator=g)
+        z0 = latents[idx.long()].to(dev).float()          # ⭐ 直接取 latent
         b = z0.shape[0]
         noise = torch.randn_like(z0)
         t = logit_normal_t(b, dev)
@@ -206,7 +231,7 @@ def train(a) -> int:
                 "config": {"dim": a.dim, "layers": a.layers, "heads": a.heads,
                            "latent_ch": 32, "size": a.size, "scale": scale},
                 "report": {"steps": a.steps, "final_loss": hist[-1],
-                           "best_loss": min(hist), "n_images": len(raw),
+                           "best_loss": min(hist), "n_images": int(N),
                            "elapsed": round(time.time() - t0, 1),
                            "params_M": round(n_par / 1e6, 1),
                            "⚠️": "第一版=无条件；文本塔未训"}}, out)
@@ -228,6 +253,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--log-every", type=int, default=100)
     ap.add_argument("--save-every", type=int, default=500)
+    ap.add_argument("--latents", default=None,
+                    help="已缓存的 latent 文件（省掉每次解 JPEG）")
     ap.add_argument("--seed", type=int, default=1)
     return train(ap.parse_args(argv))
 
