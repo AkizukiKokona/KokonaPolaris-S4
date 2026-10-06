@@ -188,7 +188,27 @@ def train(a) -> int:
     print(f"[*] DiT params = {n_par/1e6:.1f}M  dim={a.dim} layers={a.layers}",
           flush=True)
 
-    opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=0.0)
+    # ⭐⭐ **分组学习率**（2026-10-06 实测必需）
+    # 【实测到的病理】训练后TextRouter 的 out/kv 权重 std 只有 **0.0095**
+    #   —— 几乎等于它的**初始化值** `0.02/sqrt(dim/64)` ≈ 0.009
+    #   ⛔ 也就是说「文本→输出」这条通路的权重**根本没长起来**。
+    # 【根因】AdamW 是按参数的**相对幅度**更新，而 TextRouter 从零学，
+    #   主干此时已收敛到loss 平台 ⇒ 用同一个 lr + 训6000 步仍没动。
+    # 【业界标准做法】新模块（text_router / adaLN）用**更大的 lr**，
+    #   预训练主干用较小的 lr 微调。
+    _router, _backbone = [], []
+    for _n, _q in model.named_parameters():
+        (_router if ('text_router' in _n or 'domain_embed' in _n)
+         else _backbone).append(_q)
+    opt = torch.optim.AdamW(
+        [{"params": _backbone, "lr": a.lr, "weight_decay": 0.0},
+         {"params": _router, "lr": a.lr * a.router_lr_mult,
+          "weight_decay": a.router_wd}],
+    )
+    print(f"[*] opt groups: backbone {len(_backbone)} tensors @lr={a.lr} "
+          f"| router/adaLN {len(_router)} tensors @lr={a.lr * a.router_lr_mult:g} "
+          f"(×{a.router_lr_mult})", flush=True)
+    assert _router, "没找到 text_router 参数⇒ 分组没生效"
     use_amp = dev.type == "cuda"
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
@@ -338,6 +358,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="条件对比损失权重（⭐ 0=关；实测没它学不会文本）")
     ap.add_argument("--cls-margin", type=float, default=0.05,
                     help="hinge margin（正配对比错配至少要近这么多）")
+    ap.add_argument("--router-lr-mult", type=float, default=1.0,
+                    help="⭐ text_router/adaLN 的 lr 倍数（实测需要 >1，"
+                         "因为它们的权重从 0.0095 几乎没长）")
+    ap.add_argument("--router-wd", type=float, default=0.0,
+                    help="text_router 的 weight decay（>0 抑制过拟合）")
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--log-every", type=int, default=100)
     ap.add_argument("--save-every", type=int, default=500)
