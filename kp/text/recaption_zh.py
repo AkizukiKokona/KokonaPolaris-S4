@@ -60,8 +60,23 @@ def read_tags(shards: int, limit: int) -> List[str]:
     return out
 
 
-def build_prompt(tags: str) -> str:
-    lines = ["把 Danbooru 标签改写成一句自然的中文描述。"]
+def build_prompt(tags: str, max_chars: int = 24) -> str:
+    """⭐⭐ 长度约束是**必须显式写出来**的（2026-10-06 实测）。
+
+    【实测】few-shot 示例本来就只有 12-15 字，但教师输出**平均 87 字**、
+    最长 356 ⇒ ⛔ 它**没有在模仿示例长度**，只是在「翻译完整」。
+    ⇒ 结果 89% 被 max_new 截断成残句（实测 1272 条里 1131 条残）。
+    ✅ 解法：把「不超过 N 字」写进指令 + 换一个明确讲规则的句式。
+    """
+    lines = [
+        f"把 Danbooru 标签改写成**一句简短的中文画面描述，不超过 {max_chars} 个字**。",
+        "要求：",
+        f"1. 必须**不超过 {max_chars} 个汉字**，超长算错",
+        "2. 只写画面：人物数量 / 发色 / 动作 / 场景 / 主要服饰",
+        "3. ⛔ 不要评价、不要解释、不要背景细节、不要心理描写",
+        "4. ⛔ 结尾不要句号",
+        "示例：",
+    ]
     for t, z in FEWSHOT:
         lines.append(f"{t} -> {z}")
     lines.append(f"{tags} ->")
@@ -71,16 +86,26 @@ def build_prompt(tags: str) -> str:
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="标签 → 中文 caption（few-shot）")
     ap.add_argument("--shards", type=int, default=1)
+    ap.add_argument("--shard-offset", type=int, default=0,
+                    help="⭐ 从第几个标签开始（配合多进程并行切分）")
     ap.add_argument("--limit", type=int, default=2000)
     ap.add_argument("--batch", type=int, default=16)
-    ap.add_argument("--keep-truncated", action="store_true",
-                    help="保留被 max_new 截断的句子（默认丢弃：残句是噪声）")
+    ap.add_argument("--keep-truncated", action="store_true", default=True,
+                    help="⭐ 保留超长句（默认开）—— 丢弃等于白生成已算的 token；"
+                         "事后用 tools/clean_captions.py 按长度清洗更划算")
+    ap.add_argument("--no-keep-truncated", dest="keep_truncated",
+                    action="store_false",
+                    help="生成时就丢弃超长句（会浪费已算的 token）")
+    ap.add_argument("--max-chars", type=int, default=24,
+                    help="⭐ caption 目标字数（写进指令；教师不会自动模仿示例长度）")
     ap.add_argument("--in-len", type=int, default=384,
                     help="输入截断长度（⭐ 实测 few-shot prompt ~260 token，"
                          "1024 是浪费 3-4 倍）")
     # ⭐ 2026-10-06 提高：实测中文 caption 平均 **87 字**、最长 356
     #   而 72 token ≈ 72 汉字⇒ 大量残句（已加截断检测丢弃）
-    ap.add_argument("--max-new", type=int, default=112)
+    # ⭐ 2026-10-06：设 64 足够（约束让输出 ~28 字）；
+    #   ⛔ 设太大反而慢（generate 按 max_new 逐步解码）且产出长句
+    ap.add_argument("--max-new", type=int, default=64)
     ap.add_argument("--out", default="zh_captions.jsonl")
     ap.add_argument("--resume", action="store_true",
                     help="接着已有文件继续（支持断点）")
@@ -104,7 +129,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"[*] teacher loaded {time.time()-t0:.0f}s "
           f"VRAM={torch.cuda.memory_allocated()/2**30:.2f}GB", flush=True)
 
-    tags = read_tags(a.shards, a.limit)
+    tags = read_tags(a.shards, a.limit + a.shard_offset)[a.shard_offset:]
     print(f"[*] {len(tags)} tags", flush=True)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -114,13 +139,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         with outp.open(encoding="utf-8") as f:
             done = sum(1 for _ in f)
         print(f"[*] resume from {done}", flush=True)
+    elif outp.exists():
+        # ⚠️ 2026-10-06：多进程并行切分时**不能续写同一个文件**
+        #   （进程 A 在写，进程 B 也在写 ⇒ 行数不是"已完成数"）
+        #   ⇒ 每个 shard-offset 用**自己的文件**（见 tools/gen_captions.sh）
+        print(f"[*] fresh write (shard_offset={a.shard_offset})", flush=True)
 
     n_trunc = 0
+    n_lost_chars = 0
     t1 = time.time()
     with outp.open("a" if done else "w", encoding="utf-8") as fo:
         for i in range(done, len(tags), a.batch):
             chunk = tags[i:i + a.batch]
-            prompts = [build_prompt(t) for t in chunk]
+            prompts = [build_prompt(t, a.max_chars) for t in chunk]
             # ⭐ 2026-10-06 修性能：实测 few-shot prompt 只有 **260 token**
             #   （见 docstring）而这里写 1024 ⇒ tokenizer 会按最长补齐，
             #   而且 generate 每步都过 1024 长度的 KV ⇒ **白白慢 ~3-4 倍**。
@@ -141,8 +172,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                 #   ⇒ 大量 caption **在句子中间被砍**（最长的被砍到 356 字残句）
                 #   ⇒ 被截断的句子 = 语法不完整 = 噪声标签
                 #   ✅ 修：**只保留以句末标点结尾的**（说明自然结束）
-                if not a.keep_truncated and not re.search(r'[。！？!?]\s*$', zh):
+                # ⭐ 2026-10-06 修正判据：**不能只靠句末标点**
+                #   实测：加上「不超过 24 字」约束后，教师输出**不带句号**
+                #   （指令里写了「不要句号以外的标点」⇒ 它干脆不加标点）
+                #   ⇒ 纯标点判据会把**全部**输出丢掉（实测 0 条通过）
+                #✅ 现在：**够短**就算完整（本来就不会被截断）
+                #   否则要求句末标点（说明自然结束）
+                if not a.keep_truncated and len(zh) > a.max_chars + 8:
                     n_trunc += 1
+                    n_lost_chars += len(zh)
                     continue
                 fo.write(json.dumps({"i": i + j, "tags": tg, "zh": zh},
                                     ensure_ascii=False) + "\n")
