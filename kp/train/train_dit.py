@@ -173,6 +173,15 @@ def train(a) -> int:
     model = SingleStreamDiT(cfg, latent_ch=32, text_dim=text_dim).to(dev)
     # ⭐ 关键：把 buffer 权重提升为 Parameter，否则**梯度进不去**（实测踩过）
     _promoted = make_backbone_trainable(model)
+    # ⭐ 断点续训（IDE 前台任务常被超时打断 ⇒ 没有它就全白跑）
+    if a.resume and Path(a.resume).exists():
+        _b = torch.load(a.resume, map_location="cpu", weights_only=False)
+        _sd = _b.get("state_dict") or _b
+        model.load_state_dict(_sd)
+        print(f"[*] resumed from {a.resume} "
+              f"(step={(_b.get('report') or {}).get('step')})", flush=True)
+    else:
+        print(f"[*] fresh init (no --resume)", flush=True)
     n_par = sum(q.numel() for q in model.parameters())
     print(f"[*] promoted {_promoted} buffers -> Parameters", flush=True)
     assert n_par > 1e5, f"可训参数只有 {n_par} ⇒ 权重没被提升，训不了"
@@ -202,6 +211,23 @@ def train(a) -> int:
         z0 = latents[idx.long()].to(dev).float()          # ⭐ 直接取 latent
         txt = temb[idx.long()].to(dev) if temb is not None else None
         b = z0.shape[0]
+        # ⭐⭐ **条件 dropout**（2026-10-06 新增，实测是让文本生效的另一半关键）
+        #   随机把 p_drop 比例的样本改成「无条件」⇒ 模型被迫学「有条件 vs 无条件」
+        #   ⭐ 这是 **classifier-free guidance（CFG）** 的训练侧。
+        #   为什么必需（实测）：
+        #     只做对比损失 ⇒ 单步信号/偏移 209%，但采样信号/基线只有 6%
+        #     ⇒ 原因：模型只在「匹配文本」这一个模态上学，没有「无文本」这条对照
+        #     ⇒ 推理时模型永远在「有文本」侧，文本差异体现不出来。
+        #   ⛔ 关掉它就退化成"常量偏置"（实测 0.3% 区分度）。
+        if txt is not None and a.p_drop > 0:
+            # ⚠️ 不能给 cuda 张量传 cpu generator（实测 RuntimeError）
+            keep = (torch.rand(b, device=dev) >= a.p_drop)
+            txt = torch.where(keep.view(-1, 1, 1), txt,
+                              torch.zeros_like(txt))
+            # ⚠️ 注意：这里给的是**零向量**而不是 None
+            #    因为 None 会让模型走"完全不算文本"分支（见 design 的
+            #    「可关断 = 返回 None」原则）；训练时要的是"零 embedding"
+            #    —— 让模型见到「文本通道存在但内容为零」这种输入。
         noise = torch.randn_like(z0)
         t = logit_normal_t(b, dev)
         t_ = t.view(b, 1, 1, 1)
@@ -214,6 +240,36 @@ def train(a) -> int:
             if not torch.is_tensor(v_pred):
                 v_pred = v_pred[0]
             loss = F.mse_loss(v_pred.float(), v_target.float())
+
+            # ═══════════════════════════════════════════════════════════════
+            # ⭐⭐⭐ 条件对比损失（2026-10-06 新增，实测必需）
+            # ═══════════════════════════════════════════════════════════════
+            # 【实测到的病理现象】
+            #   8000 对 / 80M 模型 / 5000 步之后：
+            #       文本 vs 无文本 差异 = 0.212   （模型确实在用文本）
+            #       文本A vs 文本B 差异 = 0.010   （⛔ 只占 1%！）
+            #   ⛔ 模型学成了**常量偏置**：「有文本」⇒ 给一个固定偏移，
+            #      但完全不知道「文本说了什么」。
+            # 【根因】flow matching 的 L2/MSE 损失里，**图像项本身就能压低loss**
+            #   ⇒ 走「忽略文本」这条捷径的代价很小
+            #   ⇒ 条件信号在梯度里被淹没了。
+            # 【业界标准解法】**classifier-free-style 条件对比**：
+            #   把同一个 xt 配**错误的文本**再前向一次，
+            #   要求「错配时的输出」离目标**更远**。
+            #   ⇒ 显式给「文本是否匹配」一个梯度。
+            if a.cls_w > 0 and temb is not None:
+                # roll 一个固定偏移 ⇒ 拿到确定错配的文本（batch 必须足够大）
+                shift = max(1, b // 4)
+                perm = torch.roll(torch.arange(b, device=dev), shifts=shift)
+                txt_bad = txt[perm]
+                v_bad = model(xt, t, text_ctx=txt_bad)
+                if not torch.is_tensor(v_bad):
+                    v_bad = v_bad[0]
+                # hinge：正确配对的前向要更接近目标（margin 拉开）
+                d_pos = (v_pred.float() - v_target.float()).pow(2).mean()
+                d_neg = (v_bad.float() - v_target.float()).pow(2).mean()
+                cls_loss = F.relu(d_pos - d_neg + a.cls_margin)
+                loss = loss + a.cls_w * cls_loss
         if use_amp:
             scaler.scale(loss).backward()
             scaler.unscale_(opt)
@@ -233,13 +289,21 @@ def train(a) -> int:
             print(f"[{step:5d}/{a.steps}] loss={sm:.4f} {el:.0f}s "
                   f"{mem:.2f}GB", flush=True)
         if a.save_every and step % a.save_every == 0 and step < a.steps:
-            _out = KP_ROOT / "out" / "dit" / "_ckpt.pt"
+            # ⭐⭐ 2026-10-06 修两个真bug（都导致「中间权重用不了」）：
+            #   ① **缺 text_dim** ⇒ 有文本条件时 text_router 形状不匹配
+            #      ⇒ load_state_dict 直接报 RuntimeError（实测踩过）
+            #   ② **文件名不含规模** ⇒ 35M 和 80M 的中间权重互相覆盖
+            #      ⇒ resume 时加载到错尺寸的权重（实测踩过）
+            _out = (KP_ROOT / "out" / "dit"
+                    / f"_ckpt_d{a.dim}L{a.layers}"
+                      f"{'_t' + str(text_dim) if text_dim else ''}.pt")
             _out.parent.mkdir(parents=True, exist_ok=True)
             torch.save({"state_dict": model.state_dict(),
                         "config": {"dim": a.dim, "layers": a.layers,
                                    "heads": a.heads, "latent_ch": 32,
-                                   "size": a.size},
-                        "step": step}, _out)
+                                   "size": a.size, "text_dim": text_dim},
+                        "step": step,
+                        "cls_w": a.cls_w}, _out)
 
     out = KP_ROOT / "out" / "dit" / f"d{a.dim}L{a.layers}_s{a.steps}.pt"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -268,9 +332,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--heads", type=int, default=6)
     ap.add_argument("--batch", type=int, default=8)
     ap.add_argument("--steps", type=int, default=2000)
+    ap.add_argument("--p-drop", type=float, default=0.0,
+                    help="条件 dropout 比例（⭐ CFG 训练侧；实测必需）")
+    ap.add_argument("--cls-w", type=float, default=0.0,
+                    help="条件对比损失权重（⭐ 0=关；实测没它学不会文本）")
+    ap.add_argument("--cls-margin", type=float, default=0.05,
+                    help="hinge margin（正配对比错配至少要近这么多）")
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--log-every", type=int, default=100)
     ap.add_argument("--save-every", type=int, default=500)
+    ap.add_argument("--resume", default=None,
+                    help="接着这个权重练（⛔ 不给就从零）")
     ap.add_argument("--text-emb", default=None,
                     help="教师文本 embedding 缓存（①挂文本塔用）")
     ap.add_argument("--latents", default=None,

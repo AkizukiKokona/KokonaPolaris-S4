@@ -72,6 +72,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--shards", type=int, default=1)
     ap.add_argument("--limit", type=int, default=2000)
     ap.add_argument("--batch", type=int, default=16)
+    ap.add_argument("--in-len", type=int, default=384,
+                    help="输入截断长度（⭐ 实测 few-shot prompt ~260 token，"
+                         "1024 是浪费 3-4 倍）")
     ap.add_argument("--max-new", type=int, default=64)
     ap.add_argument("--out", default="zh_captions.jsonl")
     ap.add_argument("--resume", action="store_true",
@@ -112,8 +115,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         for i in range(done, len(tags), a.batch):
             chunk = tags[i:i + a.batch]
             prompts = [build_prompt(t) for t in chunk]
+            # ⭐ 2026-10-06 修性能：实测 few-shot prompt 只有 **260 token**
+            #   （见 docstring）而这里写 1024 ⇒ tokenizer 会按最长补齐，
+            #   而且 generate 每步都过 1024 长度的 KV ⇒ **白白慢 ~3-4 倍**。
+            #   ⇒ 按真实长度 + 输出余量设上限。
             enc = tok(prompts, return_tensors="pt", padding=True,
-                      truncation=True, max_length=1024).to(dev)
+                      truncation=True, max_length=a.in_len).to(dev)
             with torch.no_grad():
                 out = model.generate(**enc, max_new_tokens=a.max_new,
                                      do_sample=False,

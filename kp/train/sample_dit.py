@@ -42,19 +42,36 @@ def load_dcae(dev):
     return m.eval().to(dev).float(), float(cfg.scaling_factor)
 
 
-def sample(model, shape, steps: int, dev, seed: int = 0, txt=None):
-    """Rectified Flow + Euler。t: 1 → 0。"""
+def sample(model, shape, steps: int, dev, seed: int = 0, txt=None,
+           cfg: float = 0.0):
+    """Rectified Flow + Euler。t: 1 → 0。
+
+    ⭐⭐ `cfg`（classifier-free guidance，2026-10-06 新增）：
+        v = v_uncond + cfg·(v_cond − v_uncond)
+      **训练侧必须用条件 dropout**（train_dit 的 `--p-drop`），
+      否则「v_cond − v_uncond」没有意义（模型没见过无文本输入）。
+      ⭐ 这是让文本条件在采样时真正可见的**放大器**：
+         实测 cfg=1 时文本信号只占 6% ⇒ 放大后能到可用水平。
+    """
     g = torch.Generator(device=dev).manual_seed(seed)
     x = torch.randn(shape, generator=g, device=dev)
     ts = torch.linspace(1.0, 0.0, steps + 1, device=dev)
+    do_cfg = cfg > 0 and txt is not None
+    if do_cfg:
+        txt0 = torch.zeros_like(txt)     # ⚠️ 训练时用零向量当「无条件」
     for i in range(steps):
         t = ts[i]
         tb = t.expand(shape[0])
+        dt = ts[i + 1] - ts[i]
         with torch.no_grad():
             v = model(x, tb, text_ctx=txt)
             if not torch.is_tensor(v):
                 v = v[0]
-        dt = ts[i + 1] - ts[i]
+            if do_cfg:
+                v0 = model(x, tb, text_ctx=txt0)
+                if not torch.is_tensor(v0):
+                    v0 = v0[0]
+                v = v0.float() + cfg * (v.float() - v0.float())
         x = x + v.float() * dt          # 负速度方向 ⇒ x 从噪声走向数据
     return x
 
@@ -96,6 +113,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--n", type=int, default=4)
     ap.add_argument("--steps", type=int, default=32)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--cfg", type=float, default=0.0,
+                    help="⭐ classifier-free guidance 强度（1~8；训练需 --p-drop）")
     ap.add_argument("--prompt", default=None,
                     help="文本提示（中文或英文）；不给=无条件")
     a = ap.parse_args(argv)
@@ -132,7 +151,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         txt = encode_text(prompts, dev)
         print(f"[*] text cond {tuple(txt.shape)}", flush=True)
     t0 = time.time()
-    z = sample(model, (a.n, 32, lat, lat), a.steps, dev, a.seed, txt)
+    z = sample(model, (a.n, 32, lat, lat), a.steps, dev, a.seed, txt,
+               cfg=a.cfg)
     print(f"[*] sampled in {time.time()-t0:.1f}s", flush=True)
 
     with torch.no_grad():
