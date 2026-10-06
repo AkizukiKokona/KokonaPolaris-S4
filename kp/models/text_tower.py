@@ -64,7 +64,10 @@ __all__ = ["TextTower", "TextTowerCfg"]
 
 @dataclass(frozen=True)
 class TextTowerCfg:
-    vocab_size: int = 151936        # ⚠️ 见下方「词表口径」—— 换 3.5 后**这个数会变**
+    # ⭐ 2026-10-06 实测（tools/probe_teacher.py）Qwen3.5-4B-Base tokenizer：
+    #   vocab_size=248044 / len=248077 / **max_id+1=248077** / added=33
+    #   ⚠️ 卡片写 248320 —— **比真实上界还大 243** ⇒ 照抄会白占 243×768=0.19M
+    vocab_size: int = 248077
     dim: int = 768
     layers: int = 14
     heads: int = 12
@@ -100,7 +103,7 @@ class TextTowerCfg:
     #    tokenizer 可能带更多 control token / added_tokens）。
     #⇒ **正确做法**：`kp.text.tokenizer.probe()` 量出 ③，再回来改这个默认值。
     #   在此之前**保持 151936**（宁可大、不越界），并让蒸馏脚本报差异而非静默采用。
-    VOCAB_SOURCE = "Qwen3.5-4B-Base（默认）｜换 3.5 后必须重跑 kp.text.tokenizer.probe()"
+    VOCAB_SOURCE = "Qwen3.5-4B-Base 实测 max_id+1=248077（2026-10-06，⛔ 不是卡片的 248320）"
 
 
 def _gl(in_f: int, out_f: int, std: float = 0.02, bias: bool = False) -> GatedLinear:

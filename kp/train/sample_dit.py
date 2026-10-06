@@ -42,7 +42,7 @@ def load_dcae(dev):
     return m.eval().to(dev).float(), float(cfg.scaling_factor)
 
 
-def sample(model, shape, steps: int, dev, seed: int = 0):
+def sample(model, shape, steps: int, dev, seed: int = 0, txt=None):
     """Rectified Flow + Euler。t: 1 → 0。"""
     g = torch.Generator(device=dev).manual_seed(seed)
     x = torch.randn(shape, generator=g, device=dev)
@@ -51,12 +51,43 @@ def sample(model, shape, steps: int, dev, seed: int = 0):
         t = ts[i]
         tb = t.expand(shape[0])
         with torch.no_grad():
-            v = model(x, tb)
+            v = model(x, tb, text_ctx=txt)
             if not torch.is_tensor(v):
                 v = v[0]
         dt = ts[i + 1] - ts[i]
         x = x + v.float() * dt          # 负速度方向 ⇒ x 从噪声走向数据
     return x
+
+
+def encode_text(prompts, dev, max_len=48):
+    """⭐ 用**教师**把提示编码成条件（带多层聚合，与训练时口径一致）。
+
+    ⚠️ 这意味着采样时**教师必须在线**（4bit 2.9GB）。
+       正式版应是我们的 220M 文本塔（蒸馏后替换，接口相同）。
+    """
+    import torch
+    from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+    P = KP_ROOT / "models" / "Qwen3.5-4B-Base"
+    tok = AutoTokenizer.from_pretrained(str(P))
+    tok.padding_side = "right"
+    if tok.pad_token is None:
+        tok.pad_token = tok.eos_token
+    bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                             bnb_4bit_compute_dtype=torch.bfloat16,
+                             bnb_4bit_use_double_quant=True)
+    m = AutoModelForCausalLM.from_pretrained(str(P), quantization_config=bnb,
+                                             device_map="cuda",
+                                             trust_remote_code=True).eval()
+    enc = tok(prompts, return_tensors="pt", padding=True, truncation=True,
+              max_length=max_len).to("cuda")
+    with torch.no_grad():
+        o = m(enc["input_ids"], attention_mask=enc["attention_mask"],
+              output_hidden_states=True, use_cache=False)
+    hs = torch.stack([o.hidden_states[j + 1] for j in (8, 16, 24, 28)],
+                     dim=0).mean(0)
+    del m
+    torch.cuda.empty_cache()
+    return hs.float()
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -65,6 +96,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--n", type=int, default=4)
     ap.add_argument("--steps", type=int, default=32)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--prompt", default=None,
+                    help="文本提示（中文或英文）；不给=无条件")
     a = ap.parse_args(argv)
 
     from kp.models.dit import SingleStreamDiT, DiTCfg
@@ -79,7 +112,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     cfgd = blob.get("config", {}) or {}
     cfg = DiTCfg(dim=int(cfgd["dim"]), layers=int(cfgd["layers"]),
                  heads=int(cfgd["heads"]))
-    model = SingleStreamDiT(cfg, latent_ch=32)
+    # ⚠️ 必须带 text_dim（否则 text_router 形状不匹配 ⇒ load 直接报错）
+    _td = cfgd.get("text_dim") or (blob.get("report", {}) or {}).get("text_dim")
+    model = SingleStreamDiT(cfg, latent_ch=32, text_dim=_td)
     make_backbone_trainable(model)          # ⚠️ 权重是 buffer ⇒ 得先提升
     miss, unexp = model.load_state_dict(blob["state_dict"], strict=False)
     if len(miss) > 5:
@@ -90,8 +125,14 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     vae, scale = load_dcae(dev)
     lat = 256 // 32
+    txt = None
+    if a.prompt:
+        prompts = [a.prompt] * a.n
+        print(f"[*] encoding prompt: {a.prompt!r}", flush=True)
+        txt = encode_text(prompts, dev)
+        print(f"[*] text cond {tuple(txt.shape)}", flush=True)
     t0 = time.time()
-    z = sample(model, (a.n, 32, lat, lat), a.steps, dev, a.seed)
+    z = sample(model, (a.n, 32, lat, lat), a.steps, dev, a.seed, txt)
     print(f"[*] sampled in {time.time()-t0:.1f}s", flush=True)
 
     with torch.no_grad():

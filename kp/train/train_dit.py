@@ -158,8 +158,19 @@ def train(a) -> int:
         del raw, zs
         raw = None
 
+    # ⭐ 文本条件（用户 2026-10-06 拍板：先挂文本塔）
+    temb = tmask = None
+    if a.text_emb and Path(a.text_emb).exists():
+        _t = torch.load(a.text_emb, map_location="cpu", weights_only=False)
+        temb = _t["emb"].to(torch.float32)              # [N, L, 2560]
+        tmask = _t["mask"]
+        print(f"[*] text emb {tuple(temb.shape)}  "
+              f"(teacher={_t.get(chr(116)+'eacher')}, layers={_t.get('layers')})",
+              flush=True)
+    text_dim = int(temb.shape[-1]) if temb is not None else None
+
     cfg = DiTCfg(dim=a.dim, layers=a.layers, heads=a.heads)
-    model = SingleStreamDiT(cfg, latent_ch=32).to(dev)
+    model = SingleStreamDiT(cfg, latent_ch=32, text_dim=text_dim).to(dev)
     # ⭐ 关键：把 buffer 权重提升为 Parameter，否则**梯度进不去**（实测踩过）
     _promoted = make_backbone_trainable(model)
     n_par = sum(q.numel() for q in model.parameters())
@@ -181,10 +192,15 @@ def train(a) -> int:
     hist: List[float] = []
     t0 = time.time()
     step = 0
+    # ⚠️ 两个缓存的索引必须**同一套顺序**（都取自 shard0 的前缀）⇒ 天然对齐
     N = latents.shape[0]
+    if temb is not None:
+        N = min(N, temb.shape[0])
+        print(f"[*] usable pairs = {N} (latent ∩ text)", flush=True)
     while step < a.steps:
         idx = torch.randint(0, N, (a.batch,), generator=g)
         z0 = latents[idx.long()].to(dev).float()          # ⭐ 直接取 latent
+        txt = temb[idx.long()].to(dev) if temb is not None else None
         b = z0.shape[0]
         noise = torch.randn_like(z0)
         t = logit_normal_t(b, dev)
@@ -194,7 +210,7 @@ def train(a) -> int:
 
         opt.zero_grad(set_to_none=True)
         with torch.autocast("cuda", enabled=use_amp, dtype=torch.bfloat16):
-            v_pred = model(xt, t)                    # ⚠️ 先无条件（关键字参数都有默认 None）
+            v_pred = model(xt, t, text_ctx=txt)      # ⭐ 带文本条件
             if not torch.is_tensor(v_pred):
                 v_pred = v_pred[0]
             loss = F.mse_loss(v_pred.float(), v_target.float())
@@ -229,12 +245,14 @@ def train(a) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     torch.save({"state_dict": model.state_dict(),
                 "config": {"dim": a.dim, "layers": a.layers, "heads": a.heads,
-                           "latent_ch": 32, "size": a.size, "scale": scale},
+                           "latent_ch": 32, "size": a.size, "scale": scale,
+                           "text_dim": text_dim},
                 "report": {"steps": a.steps, "final_loss": hist[-1],
                            "best_loss": min(hist), "n_images": int(N),
                            "elapsed": round(time.time() - t0, 1),
                            "params_M": round(n_par / 1e6, 1),
-                           "⚠️": "第一版=无条件；文本塔未训"}}, out)
+                           "text_emb": a.text_emb, "text_dim": text_dim,
+                           "⚠️": "已挂教师文本条件（文本塔本身待蒸馏）"}}, out)
     print(f"[OK] saved {out}  final={hist[-1]:.4f}  "
           f"{time.time()-t0:.0f}s", flush=True)
     return 0
@@ -253,6 +271,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--log-every", type=int, default=100)
     ap.add_argument("--save-every", type=int, default=500)
+    ap.add_argument("--text-emb", default=None,
+                    help="教师文本 embedding 缓存（①挂文本塔用）")
     ap.add_argument("--latents", default=None,
                     help="已缓存的 latent 文件（省掉每次解 JPEG）")
     ap.add_argument("--seed", type=int, default=1)
