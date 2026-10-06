@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import re
 import os
 import sys
 import time
@@ -72,10 +73,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--shards", type=int, default=1)
     ap.add_argument("--limit", type=int, default=2000)
     ap.add_argument("--batch", type=int, default=16)
+    ap.add_argument("--keep-truncated", action="store_true",
+                    help="保留被 max_new 截断的句子（默认丢弃：残句是噪声）")
     ap.add_argument("--in-len", type=int, default=384,
                     help="输入截断长度（⭐ 实测 few-shot prompt ~260 token，"
                          "1024 是浪费 3-4 倍）")
-    ap.add_argument("--max-new", type=int, default=64)
+    # ⭐ 2026-10-06 提高：实测中文 caption 平均 **87 字**、最长 356
+    #   而 72 token ≈ 72 汉字⇒ 大量残句（已加截断检测丢弃）
+    ap.add_argument("--max-new", type=int, default=112)
     ap.add_argument("--out", default="zh_captions.jsonl")
     ap.add_argument("--resume", action="store_true",
                     help="接着已有文件继续（支持断点）")
@@ -110,6 +115,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             done = sum(1 for _ in f)
         print(f"[*] resume from {done}", flush=True)
 
+    n_trunc = 0
     t1 = time.time()
     with outp.open("a" if done else "w", encoding="utf-8") as fo:
         for i in range(done, len(tags), a.batch):
@@ -130,6 +136,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             for j, (tg, tx) in enumerate(zip(chunk, texts)):
                 # ⭐ 只取第一行（few-shot 续写可能带出下一例）
                 zh = tx.strip().split("\n")[0].strip()
+                # ⭐⭐ **截断检测**（2026-10-06 修）
+                #   实测：max_new=72 token ≈ 72 汉字，而实际 caption 平均 **87 字**
+                #   ⇒ 大量 caption **在句子中间被砍**（最长的被砍到 356 字残句）
+                #   ⇒ 被截断的句子 = 语法不完整 = 噪声标签
+                #   ✅ 修：**只保留以句末标点结尾的**（说明自然结束）
+                if not a.keep_truncated and not re.search(r'[。！？!?]\s*$', zh):
+                    n_trunc += 1
+                    continue
                 fo.write(json.dumps({"i": i + j, "tags": tg, "zh": zh},
                                     ensure_ascii=False) + "\n")
             fo.flush()
@@ -141,7 +155,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                       f"eta {eta/60:.0f}min", flush=True)
                 print(f"     样例: {chunk[0][:50]} -> {texts[0].strip()[:60]}",
                       flush=True)
-    print(f"[OK] {outp}  用时 {time.time()-t1:.0f}s", flush=True)
+    print(f"[OK] {outp}  用时 {time.time()-t1:.0f}s"
+          + (f"  skipped-truncated={n_trunc}" if n_trunc else ""), flush=True)
     return 0
 
 
