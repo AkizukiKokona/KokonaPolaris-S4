@@ -352,10 +352,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--heads", type=int, default=6)
     ap.add_argument("--batch", type=int, default=8)
     ap.add_argument("--steps", type=int, default=2000)
-    ap.add_argument("--p-drop", type=float, default=0.0,
-                    help="条件 dropout 比例（⭐ CFG 训练侧；实测必需）")
+    # ⭐ 2026-10-08：默认改 **0.1**（业界标准：SD 默认 0.1，区间 0.1-0.2；
+    #   4 个独立来源一致 + 我们实测 0.15 可用）。设为 0 会让 CFG 采样形同虚设。
+    ap.add_argument("--p-drop", type=float, default=0.1,
+                    help="条件 dropout 比例（⭐ CFG 训练侧，业界标准 0.1）")
+    #⭐⭐ 2026-10-08 审查：默认关（原默认也是 0，这里写清原因）
+    #   「条件对比损失」在本次联网检索的所有业界来源中**均无对应做法**；
+    #   它确实有效（信号/基线 1%→6%）但会让 loss 从 1.37涨到 1.9。
+    #   ⭐ 业界的标准解法是 **CFG dropout（--p-drop 0.1）**，见设计稿附录 N。
+    #   ⇒ 留作实验开关，不当默认配方。
     ap.add_argument("--cls-w", type=float, default=0.0,
-                    help="条件对比损失权重（⭐ 0=关；实测没它学不会文本）")
+                    help="条件对比损失（非标准配方，实测有正向作用但会让 loss 变差；"
+                         "默认关。标准解法是 --p-drop")
     ap.add_argument("--cls-margin", type=float, default=0.05,
                     help="hinge margin（正配对比错配至少要近这么多）")
     ap.add_argument("--router-lr-mult", type=float, default=1.0,
